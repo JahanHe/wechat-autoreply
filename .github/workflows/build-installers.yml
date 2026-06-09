@@ -28,7 +28,7 @@ jobs:
         run: npm run build-extension
 
       - name: Build macOS DMG
-        run: npm run dist:mac
+        run: npm run dist:mac -- --publish never
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -59,7 +59,7 @@ jobs:
         run: npm run build-extension
 
       - name: Build Windows installer
-        run: npm run dist:win
+        run: npm run dist:win -- --publish never
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
