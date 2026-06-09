@@ -34,8 +34,6 @@
   "build": {
     "appId": "com.wechat-kf-bot.desktop",
     "productName": "微信小店客服自动回复",
-    "electronDist": "node_modules/electron/dist",
-    "electronVersion": "42.3.3",
     "files": [
       "desktop/**/*",
       "extension/**/*",
