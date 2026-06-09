@@ -14,6 +14,7 @@ const FLOATING_HTML_PATH = resolve(__dirname, "floating.html");
 const BUNDLED_ASSISTANT_PROFILE_PATH = resolve(APP_ROOT, "config/assistant-profile.json");
 const BUNDLED_REPLIES_PATH = resolve(APP_ROOT, "config/replies.json");
 const BUNDLED_REPLY_IMAGES_DIR = resolve(APP_ROOT, "config/reply-images");
+const BOT_CONFIG_VERSION = "desktop-0.2.0";
 
 process.env.WECHAT_KF_ROOT = APP_ROOT;
 process.env.WECHAT_KF_CONFIG_ROOT = APP_ROOT;
@@ -81,6 +82,7 @@ async function startDesktopApp() {
   process.env.WECHAT_KF_CONFIG_ROOT = runtimeConfigRoot();
   loadDotEnv(runtimeConfigRoot(), { override: true });
   config = await loadConfig();
+  await saveConfig();
   await loadNotifyOutbox();
   await loadReplyRecords();
   await loadReplySummaryState();
@@ -112,7 +114,7 @@ function defaultConfig() {
     kfUrl: "https://store.weixin.qq.com/shop/kf",
     autoStart: true,
     bot: {
-      configVersion: "desktop-0.1.0",
+      configVersion: BOT_CONFIG_VERSION,
       enabled: true,
       aiFallback: true,
       aiEndpoint: `http://127.0.0.1:${PORT}/reply`,
@@ -232,11 +234,72 @@ function mergeConfig(base, saved) {
   return {
     ...base,
     ...saved,
-    bot: { ...base.bot, ...(saved?.bot || {}) },
+    bot: mergeBotConfig(base.bot, saved?.bot || {}),
     floatWindow: { ...base.floatWindow, ...(saved?.floatWindow || {}) },
     notify: { ...base.notify, ...(saved?.notify || {}) },
     watchdog: { ...base.watchdog, ...(saved?.watchdog || {}) }
   };
+}
+
+function mergeBotConfig(baseBot, savedBot) {
+  const bot = { ...baseBot, ...savedBot };
+  bot.configVersion = BOT_CONFIG_VERSION;
+  bot.rules = mergeRuleList(baseBot.rules, savedBot.rules);
+  bot.actionRules = mergeRuleList(baseBot.actionRules, savedBot.actionRules);
+  bot.imageReplies = mergeRuleList(baseBot.imageReplies, savedBot.imageReplies);
+  return bot;
+}
+
+function mergeRuleList(defaultRules, savedRules) {
+  const defaults = cloneJson(Array.isArray(defaultRules) ? defaultRules : []);
+  const saved = cloneJson(Array.isArray(savedRules) ? savedRules : []);
+  if (!saved.length) return defaults;
+  if (!defaults.length) return saved;
+
+  const defaultsByKey = new Map(defaults.map((rule) => [ruleKey(rule), rule]).filter(([key]) => key));
+  const usedDefaultKeys = new Set();
+  const merged = saved.map((rule) => {
+    const key = ruleKey(rule);
+    const defaultRule = key ? defaultsByKey.get(key) : null;
+    if (!defaultRule) return rule;
+    usedDefaultKeys.add(key);
+    return mergeRule(defaultRule, rule);
+  });
+
+  for (const rule of defaults) {
+    const key = ruleKey(rule);
+    if (!key || !usedDefaultKeys.has(key)) merged.push(rule);
+  }
+
+  return merged;
+}
+
+function mergeRule(defaultRule, savedRule) {
+  const rule = { ...defaultRule, ...savedRule };
+  if (Array.isArray(defaultRule.keywords) && (!Array.isArray(savedRule.keywords) || savedRule.keywords.length === 0)) {
+    rule.keywords = defaultRule.keywords;
+  }
+  if (Array.isArray(defaultRule.actions) && (!Array.isArray(savedRule.actions) || savedRule.actions.length === 0)) {
+    rule.actions = defaultRule.actions;
+  }
+  if (typeof defaultRule.reply === "string" && !String(savedRule.reply || "").trim()) {
+    rule.reply = defaultRule.reply;
+  }
+  if (defaultRule.path && !savedRule.path) rule.path = defaultRule.path;
+  return cloneJson(rule);
+}
+
+function ruleKey(rule) {
+  const name = String(rule?.name || "").trim();
+  if (name) return `name:${name}`;
+  const pathKey = String(rule?.path || rule?.imagePath || "").trim();
+  if (pathKey) return `path:${pathKey}`;
+  const keywords = Array.isArray(rule?.keywords) ? rule.keywords.join("|") : String(rule?.keywords || "");
+  return keywords.trim() ? `keywords:${keywords.trim()}` : "";
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value ?? null));
 }
 
 async function startAiServerWithNotify() {
@@ -1304,7 +1367,7 @@ function pageActionScript(action) {
     const tab = findRightPanelLabel(action.tab || tabLabel);
     if (!tab) return { ok: false, message: "panel tab not found" };
     tab.click();
-    await sleep(Number(action.waitMs || 300));
+    await sleep(Number(action.waitMs || defaultPanelWaitMs(tabLabel)));
 
     const subtab = String(action.subtab || action.category || action.mediaTab || "").trim();
     if (subtab) {
@@ -1337,7 +1400,7 @@ function pageActionScript(action) {
 
     const defaultConfirmButton = buttonLabel === "邀请下单" ? "邀请下单" : "发送";
     const confirmed = action.confirm === false ? false : await confirmSendDialog(action.confirmButton || defaultConfirmButton);
-    await sleep(Number(action.afterConfirmMs || 600));
+    await sleep(Number(action.afterConfirmMs || defaultAfterConfirmMs(tabLabel)));
     const pendingButton = action.confirm === false ? null : findDialogButton(action.confirmButton || defaultConfirmButton);
     const pendingDialog = Boolean(pendingButton);
     const sent = action.confirm === false || !pendingDialog;
@@ -1350,6 +1413,14 @@ function pageActionScript(action) {
       pendingSelector: pendingButton ? buildSelector(pendingButton) : "",
       message: sent ? "panel action sent" : "panel action needs confirmation"
     };
+  }
+
+  function defaultPanelWaitMs(tabLabel) {
+    return tabLabel === "商品" ? 1200 : 500;
+  }
+
+  function defaultAfterConfirmMs(tabLabel) {
+    return tabLabel === "商品" ? 1200 : 600;
   }
 
   function findTarget(item) {

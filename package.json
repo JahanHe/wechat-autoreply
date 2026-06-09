@@ -9,6 +9,7 @@
   "scripts": {
     "ai-server": "node server.js",
     "build-extension": "node scripts/build-extension.js",
+    "check:secrets": "node scripts/check-secrets.js",
     "configure:webhook": "node scripts/configure-wecom-webhook.js",
     "desktop": "electron .",
     "dist": "electron-builder",

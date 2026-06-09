@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.3.2";
+  const VERSION = "0.3.3";
 
   const CONFIG = {
     enabled: true,
@@ -855,7 +855,7 @@
     if (!tab) return false;
 
     tab.click();
-    await sleep(Number(action.waitMs || 300));
+    await sleep(Number(action.waitMs || defaultPanelWaitMs(action.tab)));
 
     const subtab = String(action.subtab || action.category || action.mediaTab || "").trim();
     if (subtab) {
@@ -886,6 +886,10 @@
     }
     const pendingDialog = action.confirm === false ? false : hasActionDialog();
     return action.confirm === false || !pendingDialog;
+  }
+
+  function defaultPanelWaitMs(tabLabel) {
+    return tabLabel === "商品" ? 1200 : 500;
   }
 
   function findPanelScopedButton(action) {
