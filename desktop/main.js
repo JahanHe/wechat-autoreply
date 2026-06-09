@@ -202,8 +202,9 @@ async function ensureRuntimeConfigFiles() {
   if (!existsSync(assistantProfilePath()) && existsSync(BUNDLED_ASSISTANT_PROFILE_PATH)) {
     await writeFile(assistantProfilePath(), readFileSync(BUNDLED_ASSISTANT_PROFILE_PATH, "utf8"), "utf8");
   }
-  if (existsSync(BUNDLED_REPLY_IMAGES_DIR)) {
-    await cp(BUNDLED_REPLY_IMAGES_DIR, resolve(runtimeConfigRoot(), "config/reply-images"), {
+  const bundledReplyImagesDir = preferUnpackedPath(BUNDLED_REPLY_IMAGES_DIR);
+  if (existsSync(bundledReplyImagesDir)) {
+    await cp(bundledReplyImagesDir, resolve(runtimeConfigRoot(), "config/reply-images"), {
       recursive: true,
       force: false,
       errorOnExist: false
