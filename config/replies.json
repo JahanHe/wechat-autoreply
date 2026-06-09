@@ -1,0 +1,297 @@
+{
+  "url": "https://store.weixin.qq.com/shop/kf",
+  "pollMs": 5000,
+  "dryRun": false,
+  "sendMode": "enter",
+  "processAllVisible": false,
+  "quickAck": "在",
+  "fallbackReply": "在\n您说",
+  "maxTextParts": 2,
+  "maxReplyPartLength": 500,
+  "imageRepliesEnabled": true,
+  "autoPasteImages": true,
+  "panelAutoActionsEnabled": false,
+  "rules": [
+    {
+      "enabled": true,
+      "name": "会员专区：老师回复",
+      "keywords": ["润宇老师本人", "老师本人", "本人回答", "本人回复", "谁回答", "谁回复", "问答谁回复", "答疑谁回复"],
+      "reply": "大部分时候是润宇老师回复\n也会有团队伙伴回复"
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：手机号填错",
+      "keywords": ["手机号填错", "手机填错", "号码填错", "手机号错", "登录手机号错", "修改手机号"],
+      "reply": "可以申请退款\n然后重新购买填写正确手机号"
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：月度年度区别",
+      "keywords": ["月度会员和年度会员", "月度年度区别", "年度会员区别", "月度会员区别", "买了年度取消月度"],
+      "reply": "年度有社群解答和专属直播\n买年度后记得取消月度会员"
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：退款",
+      "keywords": ["买完可以退款吗", "买完退款", "7天无理由", "会员退款", "年度会员退款", "退款"],
+      "reply": "7天内支持无理由退款\n订单里选不想要了即可"
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：手机号登录不了",
+      "keywords": ["手机号登录不了", "登录不了", "小鹅通登录", "手机号登录", "课程进不去", "会员进不去"],
+      "reply": "先确认下单手机号和当前微信一致\n也可以用小鹅通 App 手机号登录"
+    },
+    {
+      "enabled": true,
+      "name": "线下课：时间地点",
+      "keywords": ["线下课什么时候", "线下课时间", "线下课在哪", "7月线下课", "杭州线下课"],
+      "reply": "这次线下课是7月3号到5号\n地点在杭州"
+    },
+    {
+      "enabled": true,
+      "name": "线下课：课表内容",
+      "keywords": ["线下课课表", "线下课内容", "线下课包含", "有课表吗"],
+      "reply": "课表在商品详情页里\n您点进商品详情看介绍"
+    },
+    {
+      "enabled": true,
+      "name": "线下课：收费优惠",
+      "keywords": ["线下课收费", "线下课多少钱", "线下课价格", "线下课优惠"],
+      "reply": "价格和优惠还在待定\n以页面后续显示为准"
+    },
+    {
+      "enabled": true,
+      "name": "线下课：已拍上课",
+      "keywords": ["线下课已经拍了", "已经拍了怎么上课", "拍了怎么上课", "买了线下课"],
+      "reply": "已拍下的线下课\n后续班主任会联系您"
+    },
+    {
+      "enabled": true,
+      "name": "线下课：下一次",
+      "keywords": ["下一次线下课", "下次线下课", "以后线下课", "下一期线下课"],
+      "reply": "下一次时间还待定"
+    },
+    {
+      "enabled": true,
+      "name": "线下课：本人授课",
+      "keywords": ["线下课是润宇老师本人吗", "线下课本人上课", "润宇老师本人授课", "本人授课"],
+      "reply": "线下课是润宇老师本人授课"
+    },
+    {
+      "enabled": true,
+      "name": "联系方式",
+      "keywords": ["联系方式", "加微信", "微信号", "电话", "手机号", "联系润宇", "联系润玉", "添加润宇", "添加润玉"],
+      "reply": "平台不支持发送联系方式\n直接在店铺里沟通"
+    },
+    {
+      "enabled": true,
+      "name": "企业微信：获客助手入口",
+      "keywords": ["获客助手没有入口", "获客助手入口", "没有获客助手", "视频号内测资格"],
+      "reply": "这个功能只对部分行业开放\n企业微信里找【我的客服】转人工"
+    },
+    {
+      "enabled": true,
+      "name": "企业微信：获客助手其它问题",
+      "keywords": ["获客助手", "企业微信问题", "企微问题", "企业微信"],
+      "reply": "这是企业微信功能\n企业微信里找【我的客服】转人工"
+    },
+    {
+      "enabled": true,
+      "name": "推客加入",
+      "keywords": ["推客怎么加入", "加入推客", "针宇星火计划", "推客"],
+      "reply": "搜索小程序【针宇星火计划】\n登录后就注册成功"
+    },
+    {
+      "enabled": true,
+      "name": "手册购买",
+      "keywords": ["手册怎么买", "买手册", "手册单独卖吗", "手册"],
+      "reply": "手册暂时不单独出售\n直播间福袋有机会抽中"
+    },
+    {
+      "enabled": true,
+      "name": "福袋地址",
+      "keywords": ["中奖了没有地址", "中奖没地址", "福袋地址", "无法填写地址", "没有地址"],
+      "reply": "福袋中奖后24小时内可填地址\n超时无法再填写"
+    },
+    {
+      "enabled": true,
+      "name": "代运营合作",
+      "keywords": ["接代运营吗", "代运营合作", "做代运营吗", "代运营"],
+      "reply": "暂时没有代运营服务"
+    },
+    {
+      "enabled": true,
+      "name": "导私域",
+      "keywords": ["怎么导私域", "导私域", "私域怎么做", "视频号导私域"],
+      "reply": "可以看【润宇新流量】视频号\n置顶视频有相关方法"
+    }
+  ],
+  "actionRules": [
+    {
+      "enabled": true,
+      "name": "会员专区：使用和进群图文",
+      "keywords": ["会员专区怎么使用", "怎么使用会员专区", "怎么进群", "进社群", "会员进群", "年度会员进群", "前往小程序上课", "上课入口"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "上课在订单详情页点【前往小程序上课】\n进社群看小程序里的【会员专区使用攻略】"
+        },
+        {
+          "type": "image",
+          "path": "config/reply-images/image1.png"
+        },
+        {
+          "type": "image",
+          "path": "config/reply-images/image2.png"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：权益目录图文",
+      "keywords": ["包含什么权益", "有什么权益", "会员权益", "包含什么内容", "课程目录", "大致目录", "专属视频", "直播回放", "专区问答"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "目前有专属视频、直播回放、社群和专区问答\n您可以先看课程目录"
+        },
+        {
+          "type": "image",
+          "path": "config/reply-images/image3.jpg"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：发年度会员商品",
+      "keywords": ["我想买会员专区", "想买会员", "买会员", "会员链接", "年度会员链接", "会员商品", "年度会员商品", "售价365", "会员入口"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "年度会员是365元的商品\n我把商品入口发您"
+        },
+        {
+          "type": "product",
+          "productId": "10000275472384",
+          "productName": "润宇年度会员商业社群",
+          "button": "发商品"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：邀请下单",
+      "keywords": ["怎么付款", "怎么买", "怎么购买", "怎么下单", "我要下单", "我要付款", "邀请下单", "买这个", "付款入口"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "我给您选好年度会员\n您点进去就可以下单"
+        },
+        {
+          "type": "product",
+          "productId": "10000275472384",
+          "productName": "润宇年度会员商业社群",
+          "button": "邀请下单"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：月度会员取消图文",
+      "keywords": ["月度会员怎么取消", "取消月度会员", "取消自动续费", "关闭自动续费", "App Store 订阅"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "按图示路径取消自动续费\niOS 可以在 App Store 订阅里关"
+        },
+        {
+          "type": "image",
+          "path": "config/reply-images/image4.png"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "咨询俱乐部：详情图",
+      "keywords": ["咨询俱乐部", "俱乐部产品", "俱乐部详情", "咨询产品"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "这里有详情介绍\n您可以先看一下"
+        },
+        {
+          "type": "image",
+          "path": "config/reply-images/image5.png"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "会员专区：介绍加商品组合",
+      "keywords": ["介绍会员", "会员详情", "年度会员详情", "适合新手", "会员适合我吗"],
+      "actions": [
+        {
+          "type": "text",
+          "text": "年度会员主要是视频、回放、社群和专区问答\n我把目录和商品入口发您"
+        },
+        {
+          "type": "image",
+          "path": "config/reply-images/image3.jpg"
+        },
+        {
+          "type": "product",
+          "productId": "10000275472384",
+          "productName": "润宇年度会员商业社群",
+          "button": "发商品"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "name": "感谢结束：不再补话",
+      "keywords": ["谢谢", "感谢", "好的谢谢", "明白了", "知道了", "ok", "OK"],
+      "actions": [
+        {
+          "type": "ignore"
+        }
+      ]
+    }
+  ],
+  "imageReplies": [],
+  "selectors": {
+    "conversationItems": [
+      ".session-item-container",
+      "#session-list-container > .session-item-container"
+    ],
+    "unreadConversationItems": [
+      ".session-item-container:has([class*='unread'])",
+      ".session-item-container:has([class*='badge'])",
+      ".session-item-container:has([class*='dot'])",
+      ".session-item-container:has([class*='num'])",
+      "[class*='unread']",
+      "[class*='Unread']",
+      "[class*='session']:has-text('未读')"
+    ],
+    "messageContainer": [
+      ".chat-content",
+      ".chat-wrap.chat",
+      ".chat-page"
+    ],
+    "incomingMessages": [
+      ".text-msg.bg-user",
+      ".message-item:not(.justify-end) .text-msg"
+    ],
+    "composer": [
+      "#input-textarea",
+      "textarea.text-area",
+      "textarea",
+      "[contenteditable='true']"
+    ],
+    "sendButton": [
+      ".kf-btn button:has-text('发送')",
+      "button:has-text('发送')",
+      "[class*='send']:has-text('发送')"
+    ]
+  }
+}

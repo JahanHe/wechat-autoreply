@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>客服控制台</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --text: #111827;
+        --muted: #6b7280;
+        --line: #d1d5db;
+        --soft: #f3f4f6;
+        --ok: #059669;
+        --warn: #d97706;
+        --bad: #dc2626;
+        --brand: #111827;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+        color: var(--text);
+        font: 12px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        user-select: none;
+      }
+
+      .shell {
+        width: 100vw;
+        height: 100vh;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .97);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, .22);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .top {
+        min-height: 38px;
+        display: grid;
+        grid-template-columns: 12px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+        -webkit-app-region: drag;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #22c55e;
+      }
+
+      .dot.warn {
+        background: #f59e0b;
+      }
+
+      .dot.bad {
+        background: #ef4444;
+      }
+
+      .title {
+        min-width: 0;
+        font-weight: 650;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .top-actions,
+      .actions,
+      .row-actions,
+      .tabs,
+      .preset-grid {
+        -webkit-app-region: no-drag;
+      }
+
+      .top-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .pill {
+        height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        border: 1px solid #bbf7d0;
+        background: #ecfdf5;
+        color: #047857;
+        font-size: 11px;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .pill.off {
+        border-color: #e5e7eb;
+        background: var(--soft);
+        color: #4b5563;
+      }
+
+      .pill.busy {
+        border-color: #fde68a;
+        background: #fffbeb;
+        color: #92400e;
+      }
+
+      .compact {
+        padding: 10px;
+        display: block;
+      }
+
+      .status {
+        min-height: 36px;
+        color: #374151;
+        overflow: hidden;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      button {
+        min-height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      button.primary {
+        border-color: var(--brand);
+        background: var(--brand);
+        color: #fff;
+      }
+
+      button.danger {
+        border-color: #fecaca;
+        color: #b91c1c;
+      }
+
+      button:disabled {
+        opacity: .55;
+        cursor: default;
+      }
+
+      .settings {
+        display: none;
+        min-height: 0;
+        flex: 1;
+        grid-template-columns: 116px minmax(0, 1fr);
+      }
+
+      body.settings-open .compact {
+        display: none;
+      }
+
+      body.settings-open .settings {
+        display: grid;
+      }
+
+      .tabs {
+        border-right: 1px solid var(--line);
+        background: #f9fafb;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .tabs button {
+        text-align: left;
+        padding: 0 9px;
+        background: transparent;
+      }
+
+      .tabs button.active {
+        background: var(--brand);
+        color: #fff;
+        border-color: var(--brand);
+      }
+
+      .content {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 10px;
+      }
+
+      .pane {
+        display: none;
+      }
+
+      .pane.active {
+        display: block;
+      }
+
+      .section {
+        padding: 10px 0;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .section:first-child {
+        padding-top: 0;
+      }
+
+      .section h2 {
+        margin: 0 0 8px;
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      label {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        color: #374151;
+      }
+
+      .check {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        min-height: 28px;
+      }
+
+      .check input {
+        width: 14px;
+        height: 14px;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        padding: 7px 8px;
+      }
+
+      textarea {
+        min-height: 88px;
+        resize: vertical;
+        user-select: text;
+      }
+
+      .large {
+        min-height: 150px;
+      }
+
+      .hint {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .schema {
+        margin: 8px 0;
+        padding: 8px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: #f9fafb;
+        color: #374151;
+      }
+
+      .schema code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: #111827;
+      }
+
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .preset-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .flash {
+        min-height: 28px;
+        margin-top: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: var(--soft);
+        color: #374151;
+      }
+
+      .flash.ok {
+        background: #ecfdf5;
+        color: var(--ok);
+      }
+
+      .flash.error {
+        background: #fef2f2;
+        color: var(--bad);
+      }
+
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="top">
+        <div id="dot" class="dot"></div>
+        <div class="title">微信小店客服控制台</div>
+        <div class="top-actions">
+          <div id="enabled" class="pill">监听中</div>
+          <div id="takeover" class="pill busy" hidden>接管中</div>
+          <button id="settingsToggle" type="button">设置</button>
+          <button id="hideFloat" type="button">关闭</button>
+        </div>
+      </div>
+
+      <div class="compact">
+        <div id="status" class="status">正在启动桌面程序</div>
+        <div class="meta">
+          <div id="ai">AI：检查中</div>
+          <div id="notify">通知：检查中</div>
+        </div>
+        <div class="actions">
+          <button id="open" class="primary" type="button">打开</button>
+          <button id="toggle" type="button">暂停</button>
+          <button id="reload" type="button">重载</button>
+          <button id="openSettings" type="button">设置</button>
+        </div>
+      </div>
+
+      <div class="settings">
+        <div class="tabs">
+          <button class="active" data-tab="run" type="button">运行</button>
+          <button data-tab="notify" type="button">通知</button>
+          <button data-tab="api" type="button">API</button>
+          <button data-tab="profile" type="button">资料</button>
+          <button data-tab="reply" type="button">回复</button>
+          <button data-tab="float" type="button">悬浮窗</button>
+        </div>
+
+        <div class="content">
+          <div id="pane-run" class="pane active">
+            <div class="section">
+              <h2>运行状态</h2>
+              <div class="grid">
+                <label class="check"><input id="botEnabled" type="checkbox">Bot 自动接管开启</label>
+                <label class="check"><input id="aiFallback" type="checkbox">AI 回复开启</label>
+                <label class="check"><input id="autoStart" type="checkbox">开机自动运行</label>
+                <label>AI 接口<input id="aiEndpoint" class="mono" type="text"></label>
+              </div>
+              <div class="row-actions">
+                <button id="checkAi" type="button">检查 AI</button>
+                <button id="captureStructure" type="button">捕捉页面结构</button>
+                <button id="saveSettings" class="primary" type="button">保存全部设置</button>
+              </div>
+              <div id="flash" class="flash">设置只保存在本机</div>
+            </div>
+          </div>
+
+          <div id="pane-notify" class="pane">
+            <div class="section">
+              <h2>Webhook 通知</h2>
+              <div class="grid">
+                <label class="check"><input id="notifyEnabled" type="checkbox">企业微信通知开启</label>
+                <label>冷却时间毫秒<input id="notifyCooldown" type="number" min="0" step="1000"></label>
+                <label class="check"><input id="hourlySummaryEnabled" type="checkbox">每小时回复总结</label>
+                <label class="check"><input id="dailySummaryEnabled" type="checkbox">每日昨日总览</label>
+                <label>每日总览小时<input id="dailySummaryHour" type="number" min="0" max="23" step="1"></label>
+              </div>
+              <label>企业微信机器人 Webhook<input id="webhookUrl" class="mono" type="text"></label>
+              <div class="row-actions">
+                <button id="testWebhook" type="button">测试 Webhook</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="pane-api" class="pane">
+            <div class="section">
+              <h2>DeepSeek API</h2>
+              <label>API Key<input id="deepseekApiKey" class="mono" type="password"></label>
+              <div class="row-actions">
+                <button id="toggleApiKey" type="button">显示 API Key</button>
+              </div>
+              <div class="grid">
+                <label>模型<input id="deepseekModel" class="mono" type="text"></label>
+                <label>Base URL<input id="deepseekBaseUrl" class="mono" type="text"></label>
+                <label>Thinking<input id="deepseekThinking" class="mono" type="text"></label>
+                <label>Reasoning Effort<input id="deepseekReasoningEffort" class="mono" type="text"></label>
+                <label>Review<input id="deepseekReview" class="mono" type="text"></label>
+              </div>
+              <div class="hint">API 保存后会写入 .env，并立即更新当前桌面进程里的 AI 服务配置</div>
+            </div>
+          </div>
+
+          <div id="pane-profile" class="pane">
+            <div class="section">
+              <h2>知识库和人格</h2>
+              <div class="grid">
+                <label class="check"><input id="knowledgeFilesEnabled" type="checkbox">启用 knowledge-base 文件</label>
+                <label class="check"><input id="sidebarContextEnabled" type="checkbox">启用客服页右侧信息</label>
+                <label class="check"><input id="reviewEnabled" type="checkbox">启用回复审核</label>
+              </div>
+              <label>风格<textarea id="stylePrompt"></textarea></label>
+              <label>灵魂/人设<textarea id="soulPrompt"></textarea></label>
+              <label>边界<textarea id="guardrailsPrompt"></textarea></label>
+              <label>手动知识库<textarea id="knowledgeText" class="large"></textarea></label>
+              <label>参考库<textarea id="referenceText" class="large"></textarea></label>
+              <label>审核提示词<textarea id="reviewPrompt"></textarea></label>
+            </div>
+          </div>
+
+          <div id="pane-reply" class="pane">
+            <div class="section">
+              <h2>文字和图片回复</h2>
+              <div class="grid">
+                <label>快速承接语<input id="quickAck" type="text"></label>
+                <label>兜底回复<input id="fallbackReply" type="text"></label>
+                <label>AI 慢回复等待毫秒<input id="aiSlowMs" type="number" min="0" step="1000"></label>
+                <label>超时未回复提醒毫秒<input id="noResponseAlertMs" type="number" min="10000" step="1000"></label>
+                <label>最多文字条数<input id="maxTextParts" type="number" min="1" max="2"></label>
+                <label>单条最大字数<input id="maxReplyPartLength" type="number" min="20" max="1000"></label>
+                <label class="check"><input id="imageRepliesEnabled" type="checkbox">启用图片规则</label>
+                <label class="check"><input id="autoPasteImages" type="checkbox">匹配后自动粘贴并发送图片</label>
+              </div>
+              <div class="schema">
+                规则顺序从上到下匹配。商品动作必须写 <code>productId</code>，推荐用商品码精确匹配；可组合 <code>text</code>、<code>image</code>、<code>file</code>、<code>product</code>、<code>material</code>、<code>quick_reply</code>。
+              </div>
+              <label>关键词文字规则 JSON<textarea id="rulesJson" class="large mono"></textarea></label>
+              <label>动作规则 JSON<textarea id="actionRulesJson" class="large mono"></textarea></label>
+              <label>独立图片规则 JSON<textarea id="imagesJson" class="large mono"></textarea></label>
+              <div class="row-actions">
+                <button id="validateRules" type="button">校验规则库</button>
+                <button id="chooseImage" type="button">选择图片并追加规则</button>
+                <button id="insertImageTemplate" type="button">插入图片模板</button>
+                <button id="insertActionRuleTemplate" type="button">插入动作模板</button>
+                <button id="insertDealRuleTemplate" type="button">插入成交规则</button>
+                <button id="insertComboRuleTemplate" type="button">插入组合规则</button>
+                <button id="insertFileRuleTemplate" type="button">插入文件规则</button>
+                <button id="insertRuleTemplate" type="button">插入文字模板</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="pane-float" class="pane">
+            <div class="section">
+              <h2>悬浮窗</h2>
+              <div class="grid">
+                <label class="check"><input id="alwaysOnTop" type="checkbox">始终置顶</label>
+                <label>紧凑宽度<input id="compactWidth" type="number" min="280" max="700"></label>
+                <label>紧凑高度<input id="compactHeight" type="number" min="160" max="500"></label>
+                <label>设置宽度<input id="settingsWidth" type="number" min="520" max="1200"></label>
+                <label>设置高度<input id="settingsHeight" type="number" min="420" max="1000"></label>
+              </div>
+              <div class="preset-grid">
+                <button data-preset="top-left" type="button">左上</button>
+                <button data-preset="top-right" type="button">右上</button>
+                <button data-preset="bottom-left" type="button">左下</button>
+                <button data-preset="bottom-right" type="button">右下</button>
+              </div>
+              <div class="row-actions">
+                <button id="compactMode" type="button">收起</button>
+                <button id="hideFloat2" type="button">关闭程序</button>
+                <button id="quitApp" class="danger" type="button">彻底关闭</button>
+              </div>
+              <div id="quitExplain" class="hint">彻底关闭会停止自动回复、悬浮窗、Webhook 通知和本地 AI 守护；需要重新启动程序才会恢复。</div>
+              <div class="hint">拖动标题栏可移动，拖拽边缘可改变大小，位置会自动保存</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="floating.js"></script>
+  </body>
+</html>

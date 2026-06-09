@@ -1,0 +1,73 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-mac:
+    name: Build macOS installer
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension bundle
+        run: npm run build-extension
+
+      - name: Build macOS DMG
+        run: npm run dist:mac
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-autoreply-macos
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.blockmap
+
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension bundle
+        run: npm run build-extension
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-autoreply-windows
+          if-no-files-found: error
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest*.yml

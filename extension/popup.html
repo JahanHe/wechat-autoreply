@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>微信小店客服自动回复</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      body {
+        width: 360px;
+        margin: 0;
+        padding: 0;
+        background: #f8fafc;
+        color: #111827;
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .wrap {
+        padding: 14px;
+      }
+
+      .hero {
+        padding: 14px;
+        color: #fff;
+        background: #111827;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .sub {
+        margin-top: 4px;
+        color: #cbd5e1;
+        font-size: 12px;
+      }
+
+      .card {
+        margin-top: 10px;
+        padding: 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .step-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-weight: 650;
+      }
+
+      .num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: #111827;
+        color: #fff;
+        font-size: 12px;
+      }
+
+      label.toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 8px 0;
+      }
+
+      input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+      }
+
+      input[type="text"] {
+        box-sizing: border-box;
+        width: 100%;
+        margin-top: 6px;
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font: inherit;
+      }
+
+      input[type="password"] {
+        box-sizing: border-box;
+        width: 100%;
+        margin-top: 6px;
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font: inherit;
+      }
+
+      code, pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      pre {
+        margin: 8px 0;
+        padding: 9px;
+        overflow: auto;
+        border-radius: 6px;
+        background: #0f172a;
+        color: #e5e7eb;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+
+      .hint {
+        margin-top: 8px;
+        color: #6b7280;
+        font-size: 12px;
+      }
+
+      .status {
+        margin-top: 12px;
+        padding: 8px;
+        border-radius: 6px;
+        background: #f3f4f6;
+      }
+
+      .status.error {
+        background: #fef2f2;
+        color: #991b1b;
+      }
+
+      .status.ok {
+        background: #ecfdf5;
+        color: #065f46;
+      }
+
+      button {
+        width: 100%;
+        margin-top: 10px;
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background: #fff;
+        color: #111827;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .secondary {
+        margin-top: 6px;
+        background: #f9fafb;
+      }
+
+      .strong {
+        border-color: #111827;
+        background: #111827;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hero">
+      <h1>微信小店客服自动回复</h1>
+      <div class="sub">v0.2.5 · Windows/Mac 安装版</div>
+    </div>
+
+    <div class="wrap">
+      <div class="card">
+        <div class="step-title"><span class="num">1</span><span>填写 DeepSeek API Key</span></div>
+        <div>API Key</div>
+        <input id="apiKey" type="password" placeholder="sk-..." spellcheck="false">
+        <div class="hint">只用于生成终端命令，不会保存在插件里。</div>
+      </div>
+
+      <div class="card">
+        <div class="step-title"><span class="num">2</span><span>复制命令到终端执行</span></div>
+        <pre id="setupCommand">请先填写 API Key</pre>
+        <button id="copySetup" class="secondary" type="button">复制命令</button>
+      </div>
+
+      <div class="card">
+        <div class="step-title"><span class="num">3</span><span>检查 API 配置</span></div>
+        <div>本地 AI 服务地址</div>
+        <input id="aiEndpoint" type="text" spellcheck="false">
+        <button id="checkServer" class="strong" type="button">检查 API 配置</button>
+        <button id="testQuickReply" class="secondary" type="button">测试随机快速回复</button>
+        <div id="status" class="status">正在读取状态...</div>
+      </div>
+
+      <div class="card">
+        <div class="step-title"><span class="num">4</span><span>启用客服插件</span></div>
+        <label class="toggle">
+          <span>自动监听并回复</span>
+          <input id="enabled" type="checkbox">
+        </label>
+
+        <label class="toggle">
+          <span>规则未命中时调用 AI</span>
+          <input id="aiFallback" type="checkbox">
+        </label>
+        <div class="hint">状态条会显示：快速回复请求中、快速回复编号、AI 请求中、AI 已补充或失败原因。</div>
+      </div>
+
+      <div class="card">
+        <div class="step-title"><span class="num">?</span><span>没有状态条？</span></div>
+        <div class="hint">
+          请确认是在 Chrome 里打开客服页，不是 Codex 内置浏览器。刷新扩展后，还需要刷新客服页面。
+        </div>
+        <button id="copyKfUrl" class="secondary" type="button">复制客服页地址</button>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

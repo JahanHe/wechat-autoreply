@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "微信小店客服自动回复",
+  "version": "0.2.5",
+  "description": "在微信小店客服页本地监听新会话，并按规则自动回复。",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*",
+    "https://store.weixin.qq.com/*"
+  ],
+  "action": {
+    "default_title": "微信小店客服自动回复",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://store.weixin.qq.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
