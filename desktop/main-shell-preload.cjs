@@ -60,6 +60,17 @@ contextBridge.exposeInMainWorld("mainShell", {
   getJudgmentsStatus() {
     return ipcRenderer.invoke("main-get-judgments-status");
   },
+  openRunyuLogin(options) {
+    return ipcRenderer.invoke("main-open-runyu-login", options || {});
+  },
+  clearRunyuLogin() {
+    return ipcRenderer.invoke("main-clear-runyu-login");
+  },
+  onRunyuAuth(callback) {
+    ipcRenderer.on("main-runyu-auth", (_event, payload) => {
+      if (typeof callback === "function") callback(payload || {});
+    });
+  },
   testJudgments(payload) {
     return ipcRenderer.invoke("main-test-judgments", payload || {});
   },

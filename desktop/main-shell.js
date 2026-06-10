@@ -36,6 +36,7 @@ const state = {
   settings: null,
   records: null,
   judgments: null,
+  runyuAuth: null,
   judgmentDownload: null,
   judgmentPollTimer: null,
   setupChecks: [],
@@ -58,8 +59,20 @@ async function init() {
   bindGlobalActions();
   window.mainShell.onStatus((payload) => {
     state.status = payload || {};
+    if (payload?.runyuAuth) state.runyuAuth = payload.runyuAuth;
     renderChrome();
-    if (["dashboard", "logs"].includes(state.view)) renderView();
+    if (["dashboard", "logs", "judgments"].includes(state.view)) renderView();
+  });
+  window.mainShell.onRunyuAuth(async (payload) => {
+    state.runyuAuth = payload || {};
+    const [settings, judgments] = await Promise.all([
+      window.mainShell.getSettings(),
+      window.mainShell.getJudgmentsStatus()
+    ]);
+    state.settings = settings;
+    state.judgments = judgments;
+    if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
+    renderChrome();
   });
   const [settings, status, records, judgments, judgmentDownload] = await Promise.all([
     window.mainShell.getSettings(),
@@ -72,6 +85,7 @@ async function init() {
   state.status = status;
   state.records = records;
   state.judgments = judgments;
+  state.runyuAuth = judgments?.auth || status?.runyuAuth || null;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
   await switchView(needsInitialSetup() ? "setup" : "page");
@@ -178,24 +192,27 @@ function renderPageView() {
 function needsInitialSetup() {
   const env = state.settings?.env || {};
   const notify = state.settings?.config?.notify || {};
+  const authStatus = currentRunyuAuth().status;
   return !String(env.deepseekApiKey || "").trim()
     || !String(env.wecomWebhookUrl || notify.wecomWebhookUrl || "").trim()
-    || !String(env.runyuWebCookie || "").trim();
+    || !String(env.runyuWebCookie || "").trim()
+    || ["unconfigured", "expired"].includes(authStatus);
 }
 
 function renderSetup() {
   const env = state.settings.env || {};
   const notify = state.settings.config?.notify || {};
   const missing = setupMissingItems();
+  const runyuAuth = currentRunyuAuth();
   content.innerHTML = `
-    ${pageHead("初始化配置", "首次运行先配置 DeepSeek Key、企业微信 Webhook 和外部判断库 Session Cookie；保存后会自动做功能安全自检。", `
+    ${pageHead("初始化配置", "首次运行配置 DeepSeek Key、企业微信 Webhook，并在这台电脑登录润宇判断库；保存后会自动做功能安全自检。", `
       <button id="runSetupSelfCheck" class="primary">${state.setupRunning ? "自检中..." : "保存并自检"}</button>
       <button id="skipToKfPage" class="dark">去扫码登录</button>
     `)}
     <div class="grid cols-3">
       ${metricCard("DeepSeek Key", missing.apiKey ? "待配置" : "已填写", "用于 AI 精准回复和审核。", missing.apiKey ? "warn" : "ok")}
       ${metricCard("Webhook", missing.webhook ? "待配置" : "已填写", "用于扫码、异常、总结通知。", missing.webhook ? "warn" : "ok")}
-      ${metricCard("判断库 Cookie", missing.cookie ? "待配置" : "已填写", "用于复杂问题先查外部判断库。", missing.cookie ? "warn" : "ok")}
+      ${metricCard("判断库连接", runyuAuthLabel(runyuAuth), runyuAuth.message || "用于复杂问题先查外部判断库。", runyuAuthTone(runyuAuth))}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
@@ -203,7 +220,15 @@ function renderSetup() {
         <div class="form-grid">
           ${passwordField("setupDeepseekApiKey", "DeepSeek API Key", env.deepseekApiKey || "", "只保存到本机 .env，不会提交到 GitHub。", "span-2")}
           ${field("setupWebhookUrl", "企业微信 Webhook", env.wecomWebhookUrl || notify.wecomWebhookUrl || "", "用于发送扫码截图、异常告警、小时总结和每日总览。", "span-2")}
-          ${passwordField("setupRunyuWebCookie", "外部判断库 Session Cookie", env.runyuWebCookie || "", "从 Chrome > Application > Cookies 复制 session_token，不要用 Session Storage；也可以粘完整 Cookie。", "span-2")}
+          <div class="field span-2">
+            <label>润宇判断库登录</label>
+            <div class="toolbar" style="justify-content:flex-start">
+              <button id="setupRunyuLogin" type="button" class="primary">登录并自动接入</button>
+              <button id="setupRunyuRelogin" type="button">重新登录</button>
+            </div>
+            <div class="hint">应用会为这台电脑单独保存网页登录状态，自动读取 session_token 并执行真实查询验证。</div>
+          </div>
+          ${passwordField("setupRunyuWebCookie", "Session Cookie（手工备用）", env.runyuWebCookie || "", "只有自动登录不可用时才需要手工粘贴。必须来自 Cookies 中的 session_token。", "span-2")}
           ${field("setupDeepseekModel", "模型", env.deepseekModel || "deepseek-v4-flash", "默认不用改。")}
           ${field("setupRunyuBaseUrl", "判断库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填域名，不要带 /api/sync/judgments/query。")}
         </div>
@@ -211,7 +236,7 @@ function renderSetup() {
       <div class="card">
         <h3>初始化流程</h3>
         <div class="grid">
-          ${setupStep("1", "保存本机配置", "写入 .env，并开启 Bot、Webhook、判断库、守护检查。", !missing.apiKey && !missing.webhook && !missing.cookie)}
+          ${setupStep("1", "完成本机配置", "写入 Key 和 Webhook，并通过网页登录取得本机判断库凭证。", !missing.apiKey && !missing.webhook && !missing.cookie)}
           ${setupStep("2", "功能安全自检", "检查 AI Key、Webhook、判断库测试查询、规则库和守护状态。", state.setupChecks.length > 0 && state.setupChecks.every((item) => item.ok))}
           ${setupStep("3", "扫码小店客服", "自检完成后进入客服页映射，扫码登录并选择会话。", Boolean(state.status?.page?.ready))}
         </div>
@@ -224,7 +249,33 @@ function renderSetup() {
   `;
   $("#runSetupSelfCheck").disabled = state.setupRunning;
   $("#runSetupSelfCheck").addEventListener("click", runSetupSelfCheck);
+  $("#setupRunyuLogin").addEventListener("click", () => openRunyuLogin(false));
+  $("#setupRunyuRelogin").addEventListener("click", () => openRunyuLogin(true));
   $("#skipToKfPage").addEventListener("click", () => switchView("page"));
+}
+
+function currentRunyuAuth() {
+  return state.runyuAuth || state.judgments?.auth || state.status?.runyuAuth || {
+    status: "unconfigured",
+    message: "尚未登录润宇判断库"
+  };
+}
+
+function runyuAuthLabel(auth = {}) {
+  return ({
+    unconfigured: "待登录",
+    configured: "待验证",
+    login_required: "等待登录",
+    checking: "验证中",
+    connected: "已连接",
+    expired: "登录已过期",
+    forbidden: "账号无权限",
+    error: "连接异常"
+  })[auth.status] || "未确认";
+}
+
+function runyuAuthTone(auth = {}) {
+  return auth.status === "connected" ? "ok" : auth.status === "checking" || auth.status === "configured" || auth.status === "login_required" ? "warn" : "warn";
 }
 
 function setupMissingItems() {
@@ -467,6 +518,7 @@ function renderJudgments() {
   const library = cfg.judgmentLibrary || {};
   const env = state.settings.env || {};
   const status = state.judgments || {};
+  const runyuAuth = currentRunyuAuth();
   const cookieType = state.runyuCookieShown ? "text" : "password";
   const sources = splitKeywords(env.runyuJudgmentsSources || library.sources || "runyu");
   const searchTypes = splitKeywords(env.runyuJudgmentsSearchTypes || library.searchTypes || "judgments");
@@ -478,7 +530,7 @@ function renderJudgments() {
       <button id="saveJudgments" class="primary">保存判断库设置</button>
     `)}
     <div class="grid cols-4">
-      ${metricCard("接入状态", library.enabled ? (status.hasCookie ? "已启用" : "缺 Cookie") : "未启用", status.message || (status.hasCookie ? "Cookie 已配置" : "等待配置"), library.enabled && status.hasCookie ? "ok" : library.enabled ? "warn" : "warn")}
+      ${metricCard("接入状态", library.enabled ? runyuAuthLabel(runyuAuth) : "未启用", runyuAuth.message || status.message || "等待登录", library.enabled ? runyuAuthTone(runyuAuth) : "warn")}
       ${metricCard("本地缓存", String(status.records || 0), status.cachePath || "未生成缓存", status.records ? "ok" : "warn")}
       ${metricCard("最近刷新", status.updatedAt ? formatFullTime(status.updatedAt) : "未刷新", lastRefreshSummary(status.lastRefresh), status.updatedAt ? "ok" : "warn")}
       ${metricCard("刷新周期", library.autoRefreshEnabled !== false ? `${library.refreshIntervalHours || 168} 小时` : "手动", "可改为 24 小时、3 天或 7 天", library.autoRefreshEnabled !== false ? "ok" : "warn")}
@@ -487,17 +539,26 @@ function renderJudgments() {
       <div class="card">
         <h3>连接与鉴权</h3>
         <div class="form-grid">
+          <div class="field span-2">
+            <label>本机网页登录</label>
+            <div class="toolbar" style="justify-content:flex-start">
+              <button id="openRunyuLogin" type="button" class="primary">登录并自动接入</button>
+              <button id="reopenRunyuLogin" type="button">重新登录</button>
+              <button id="clearRunyuLogin" type="button" class="danger">清除本机登录</button>
+            </div>
+            <div class="hint">状态：${escapeHtml(runyuAuthLabel(runyuAuth))}。${escapeHtml(runyuAuth.message || "应用会自动读取并验证这台电脑的登录状态。")}</div>
+          </div>
           ${toggleRow("judgmentEnabled", "启用外部判断库", "开启后 AI 补充回复会先检索判断库。", Boolean(library.enabled))}
           ${toggleRow("judgmentUseRemote", "允许实时查询远端", "本地缓存不足时，直接调用 Runyu API 查询。", library.useRemote !== false)}
           ${toggleRow("judgmentUseCache", "优先读取本地缓存", "缓存命中会更快，远端结果会自动合并回本地。", library.useCache !== false)}
           ${toggleRow("judgmentAutoRefresh", "自动刷新本地缓存", "按周期重新拉取关键词结果，只合并变化部分。", library.autoRefreshEnabled !== false)}
           <div class="field span-2">
-            <label for="runyuWebCookie">Session Cookie</label>
+            <label for="runyuWebCookie">Session Cookie（手工备用）</label>
             <div style="display:grid;grid-template-columns:minmax(0,1fr)86px;gap:8px">
               <input id="runyuWebCookie" type="${cookieType}" value="${attr(env.runyuWebCookie || "")}" placeholder="session_token=...">
               <button id="toggleRunyuCookie" type="button">${state.runyuCookieShown ? "隐藏" : "显示"}</button>
             </div>
-            <div class="hint">只保存到本机 .env。从 Chrome > Application > Cookies 复制 session_token，不要用 Session Storage；也可以粘完整 Cookie，程序会自动抽取。</div>
+            <div class="hint">正常情况使用上面的网页登录。只有自动获取失败时，才从 Chrome Application > Cookies 手工复制 session_token。</div>
           </div>
           ${field("runyuWebBaseUrl", "Runyu Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填域名，不要带 /api/sync/judgments/query。")}
           ${selectField("judgmentRefreshInterval", "自动刷新周期", String(library.refreshIntervalHours || 168), [["24", "每 24 小时"], ["72", "每 3 天"], ["168", "每 7 天"], ["336", "每 14 天"], ["720", "每 30 天"]], "到期后自动刷新缓存。")}
@@ -555,6 +616,9 @@ function renderJudgments() {
     </div>
   `;
   bindToggleButtons();
+  $("#openRunyuLogin").addEventListener("click", () => openRunyuLogin(false));
+  $("#reopenRunyuLogin").addEventListener("click", () => openRunyuLogin(true));
+  $("#clearRunyuLogin").addEventListener("click", clearRunyuLogin);
   $("#toggleRunyuCookie").addEventListener("click", () => {
     state.runyuCookieShown = !state.runyuCookieShown;
     renderJudgments();
@@ -1162,6 +1226,37 @@ async function testJudgments() {
     showFlash(result.ok ? `判断库测试完成：${result.results?.length || 0} 条` : result.message, result.ok ? "ok" : "error");
   } catch (error) {
     if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function openRunyuLogin(reset = false) {
+  showFlash(reset ? "正在清理旧会话并打开润宇登录..." : "正在打开润宇登录...");
+  try {
+    state.runyuAuth = await window.mainShell.openRunyuLogin({ reset });
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (["setup", "judgments"].includes(state.view)) renderView();
+    showFlash("请在登录窗口完成润宇登录，成功后会自动验证", "ok");
+  } catch (error) {
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function clearRunyuLogin() {
+  const confirmed = window.confirm("确定清除这台电脑保存的润宇登录状态吗？清除后需要重新登录。");
+  if (!confirmed) return;
+  showFlash("正在清除本机润宇登录...");
+  try {
+    state.runyuAuth = await window.mainShell.clearRunyuLogin();
+    const [settings, judgments] = await Promise.all([
+      window.mainShell.getSettings(),
+      window.mainShell.getJudgmentsStatus()
+    ]);
+    state.settings = settings;
+    state.judgments = judgments;
+    renderView();
+    showFlash("本机润宇登录状态已清除", "ok");
+  } catch (error) {
     showFlash(String(error?.message || error), "error");
   }
 }

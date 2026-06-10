@@ -1,4 +1,4 @@
-import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen, shell } from "electron";
+import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen, session, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -22,6 +22,8 @@ const APP_USER_DATA_DIR_NAME = "小店AI客服";
 const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
+const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
+const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
 
 app.setName(APP_DISPLAY_NAME);
 
@@ -74,6 +76,16 @@ let loginScreenshotInProgress = false;
 let loginNotificationTimer = null;
 let judgmentRefreshTimer = null;
 let judgmentDownloadJob = null;
+let runyuLoginWindow = null;
+let runyuCookieCaptureTimer = null;
+let runyuCookieCaptureInProgress = false;
+let runyuAuthState = {
+  status: "unconfigured",
+  message: "尚未登录润宇判断库",
+  source: "",
+  updatedAt: 0,
+  verifiedAt: 0
+};
 let watchdogTimers = [];
 
 const gotLock = process.env.WECHAT_KF_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
@@ -104,6 +116,7 @@ async function startDesktopApp() {
   loadDotEnv(runtimeConfigRoot(), { override: true });
   config = await loadConfig();
   applyEnvBackedConfig();
+  initializeRunyuAuthState();
   await saveConfig();
   await loadNotifyOutbox();
   await loadReplyRecords();
@@ -116,6 +129,12 @@ async function startDesktopApp() {
   createMainWindow();
   createFloatingWindow();
   createTray();
+  if (process.argv.includes("--runyu-login")) {
+    setTimeout(() => {
+      openRunyuLoginWindow().catch((error) => console.error("[runyu] open login on start failed", error));
+    }, 800);
+  }
+  validateRunyuAuthOnStartup().catch((error) => console.error("[runyu] startup validation failed", error));
   startWatchdogs();
   startJudgmentRefreshScheduler();
   startNotifyOutboxPump();
@@ -1241,6 +1260,8 @@ function registerIpc() {
   ipcMain.handle("main-get-reply-records", (_event, options = {}) => replyRecordsPayload(options || {}));
   ipcMain.handle("main-test-ai-reply", (_event, payload = {}) => testAiReply(payload || {}));
   ipcMain.handle("main-get-judgments-status", () => getJudgmentLibraryStatus());
+  ipcMain.handle("main-open-runyu-login", (_event, options = {}) => openRunyuLoginWindow(options || {}));
+  ipcMain.handle("main-clear-runyu-login", () => clearRunyuLogin());
   ipcMain.handle("main-test-judgments", (_event, payload = {}) => testJudgmentLibrary(payload || {}));
   ipcMain.handle("main-refresh-judgments", (_event, payload = {}) => refreshJudgmentLibrary(payload || {}));
   ipcMain.handle("main-start-judgments-full-download", (_event, payload = {}) => startJudgmentFullDownload(payload || {}));
@@ -1332,6 +1353,7 @@ function statusPayload() {
       dailySummaryEnabled: Boolean(config?.notify?.dailySummaryEnabled),
       dailySummaryTime: String(config?.notify?.dailySummaryTime || `${config?.notify?.dailySummaryHour ?? 10}:00`)
     },
+    runyuAuth: runyuAuthStatusPayload(),
     judgmentLibrary: config?.judgmentLibrary || {},
     judgmentDownload: getJudgmentDownloadStatus(),
     records,
@@ -3604,6 +3626,7 @@ async function getJudgmentLibraryStatus() {
     return {
       ok: true,
       ...data,
+      auth: runyuAuthStatusPayload(),
       autoRefreshEnabled: Boolean(config?.judgmentLibrary?.autoRefreshEnabled),
       refreshIntervalHours: Number(config?.judgmentLibrary?.refreshIntervalHours || 168),
       configured: Boolean(env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE)
@@ -3614,9 +3637,236 @@ async function getJudgmentLibraryStatus() {
       enabled: Boolean(config?.judgmentLibrary?.enabled),
       configured: Boolean(env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE),
       records: 0,
+      auth: runyuAuthStatusPayload(),
       message: String(error?.message || error)
     };
   }
+}
+
+function initializeRunyuAuthState() {
+  const env = readEnvValues();
+  const hasCookie = Boolean(env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
+  runyuAuthState = hasCookie
+    ? {
+        status: "configured",
+        message: "已保存登录凭证，等待真实查询验证",
+        source: "saved",
+        updatedAt: Date.now(),
+        verifiedAt: 0
+      }
+    : {
+        status: "unconfigured",
+        message: "尚未登录润宇判断库",
+        source: "",
+        updatedAt: Date.now(),
+        verifiedAt: 0
+      };
+}
+
+function runyuAuthStatusPayload() {
+  return {
+    ...runyuAuthState,
+    loginWindowOpen: Boolean(runyuLoginWindow && !runyuLoginWindow.isDestroyed()),
+    configured: Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE)
+  };
+}
+
+function setRunyuAuthState(status, message, extra = {}) {
+  runyuAuthState = {
+    ...runyuAuthState,
+    ...extra,
+    status,
+    message: String(message || ""),
+    updatedAt: Date.now()
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("main-runyu-auth", runyuAuthStatusPayload());
+  }
+  broadcastStatus();
+  return runyuAuthStatusPayload();
+}
+
+async function validateRunyuAuthOnStartup() {
+  const persisted = await readRunyuSessionCookie();
+  if (persisted) {
+    await saveRunyuCookie(persisted, "browser_session");
+  }
+  const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
+  if (!configured) return setRunyuAuthState("unconfigured", "尚未登录润宇判断库");
+  setRunyuAuthState("checking", "正在验证已保存的润宇登录状态");
+  return verifyRunyuConnection({ notify: false, source: persisted ? "browser_session" : "saved" });
+}
+
+async function openRunyuLoginWindow(options = {}) {
+  if (options.reset === true) await clearRunyuBrowserSession({ clearSavedCookie: false });
+  if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) {
+    runyuLoginWindow.show();
+    runyuLoginWindow.focus();
+    scheduleRunyuCookieCapture("existing_window");
+    return runyuAuthStatusPayload();
+  }
+
+  setRunyuAuthState("login_required", "请在打开的窗口中登录润宇判断库", { source: "browser_login" });
+  runyuLoginWindow = new BrowserWindow({
+    width: 1180,
+    height: 780,
+    minWidth: 900,
+    minHeight: 620,
+    title: "登录润宇判断库",
+    icon: APP_ICON_PATH,
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      partition: RUNYU_AUTH_PARTITION
+    }
+  });
+
+  const wc = runyuLoginWindow.webContents;
+  const authSession = wc.session;
+  const onCookieChanged = (_event, cookie, cause, removed) => {
+    if (removed || cookie?.name !== "session_token") return;
+    if (!String(cookie?.domain || "").includes("zhiduoke.com.cn")) return;
+    scheduleRunyuCookieCapture(`cookie_${cause || "changed"}`);
+  };
+  authSession.cookies.on("changed", onCookieChanged);
+
+  runyuLoginWindow.once("ready-to-show", () => runyuLoginWindow?.show());
+  wc.on("did-finish-load", () => scheduleRunyuCookieCapture("page_loaded"));
+  wc.on("did-navigate", () => scheduleRunyuCookieCapture("navigated"));
+  wc.on("did-navigate-in-page", () => scheduleRunyuCookieCapture("in_page"));
+  wc.on("did-fail-load", (_event, code, description) => {
+    setRunyuAuthState("error", `润宇登录页加载失败：${description || code}`, { source: "browser_login" });
+  });
+  wc.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(RUNYU_BASE_URL)) {
+      wc.loadURL(url);
+      return { action: "deny" };
+    }
+    shell.openExternal(url).catch(() => {});
+    return { action: "deny" };
+  });
+  runyuLoginWindow.on("closed", () => {
+    authSession.cookies.removeListener("changed", onCookieChanged);
+    runyuLoginWindow = null;
+    if (runyuAuthState.status === "login_required") {
+      setRunyuAuthState("unconfigured", "登录窗口已关闭，尚未取得有效凭证", { source: "browser_login" });
+    } else {
+      broadcastStatus();
+    }
+  });
+
+  await wc.loadURL(`${RUNYU_BASE_URL}/`);
+  return runyuAuthStatusPayload();
+}
+
+function scheduleRunyuCookieCapture(source = "browser_login") {
+  clearTimeout(runyuCookieCaptureTimer);
+  runyuCookieCaptureTimer = setTimeout(() => {
+    captureAndVerifyRunyuCookie(source).catch((error) => {
+      console.error("[runyu] cookie capture failed", error);
+      setRunyuAuthState("error", String(error?.message || error), { source });
+    });
+  }, 700);
+}
+
+async function captureAndVerifyRunyuCookie(source = "browser_login") {
+  if (runyuCookieCaptureInProgress) return runyuAuthStatusPayload();
+  runyuCookieCaptureInProgress = true;
+  try {
+    const cookie = await readRunyuSessionCookie();
+    if (!cookie) {
+      if (runyuAuthState.status !== "connected") {
+        setRunyuAuthState("login_required", "等待润宇登录完成", { source });
+      }
+      return runyuAuthStatusPayload();
+    }
+    const normalized = normalizeRunyuCookie(cookie);
+    const current = normalizeRunyuCookie(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "");
+    if (normalized !== current) await saveRunyuCookie(normalized, source);
+    setRunyuAuthState("checking", "已取得登录凭证，正在执行真实查询验证", { source });
+    const result = await verifyRunyuConnection({ notify: true, source });
+    if (result.status === "connected" && runyuLoginWindow && !runyuLoginWindow.isDestroyed()) {
+      setTimeout(() => {
+        if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) runyuLoginWindow.close();
+      }, 900);
+    }
+    return result;
+  } finally {
+    runyuCookieCaptureInProgress = false;
+  }
+}
+
+async function readRunyuSessionCookie() {
+  const authSession = session.fromPartition(RUNYU_AUTH_PARTITION);
+  const cookies = await authSession.cookies.get({ url: `${RUNYU_BASE_URL}/`, name: "session_token" });
+  const cookie = cookies
+    .filter((item) => String(item.domain || "").includes("zhiduoke.com.cn") && item.value)
+    .sort((a, b) => Number(b.expirationDate || 0) - Number(a.expirationDate || 0))[0];
+  return cookie?.value ? `session_token=${cookie.value}` : "";
+}
+
+async function saveRunyuCookie(cookie, source = "browser_login") {
+  const normalized = normalizeRunyuCookie(cookie);
+  if (!normalized) throw new Error("没有读取到有效的 session_token");
+  await writeEnvValues({
+    RUNYU_WEB_COOKIE: normalized,
+    RUNYU_WEB_BASE_URL: RUNYU_BASE_URL,
+    RUNYU_JUDGMENTS_ENABLED: "enabled"
+  });
+  config.judgmentLibrary = normalizeJudgmentLibraryConfig({
+    ...config.judgmentLibrary,
+    enabled: true,
+    useRemote: true,
+    useCache: true
+  });
+  await saveConfig();
+  await session.fromPartition(RUNYU_AUTH_PARTITION).flushStorageData();
+  setRunyuAuthState("configured", "登录凭证已保存到这台电脑，等待验证", { source });
+}
+
+async function verifyRunyuConnection(options = {}) {
+  const result = await testJudgmentLibrary({
+    query: "会员",
+    limit: 1,
+    notify: options.notify !== false
+  });
+  if (result.ok) {
+    return setRunyuAuthState("connected", `润宇判断库连接成功，测试返回 ${result.results?.length || 0} 条`, {
+      source: options.source || runyuAuthState.source || "saved",
+      verifiedAt: Date.now()
+    });
+  }
+  const message = String(result.message || result.error || "判断库验证失败");
+  if (/没有.*权限|403|FORBIDDEN/i.test(message)) {
+    return setRunyuAuthState("forbidden", message, { source: options.source || runyuAuthState.source });
+  }
+  if (/未登录|过期|401|UNAUTHORIZED/i.test(message)) {
+    return setRunyuAuthState("expired", message, { source: options.source || runyuAuthState.source });
+  }
+  return setRunyuAuthState("error", message, { source: options.source || runyuAuthState.source });
+}
+
+async function clearRunyuBrowserSession(options = {}) {
+  const authSession = session.fromPartition(RUNYU_AUTH_PARTITION);
+  await authSession.clearStorageData({
+    origin: RUNYU_BASE_URL,
+    storages: ["cookies", "localstorage", "cachestorage"]
+  });
+  await authSession.flushStorageData();
+  if (options.clearSavedCookie !== false) {
+    await writeEnvValues({ RUNYU_WEB_COOKIE: "" });
+  }
+}
+
+async function clearRunyuLogin() {
+  if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) runyuLoginWindow.close();
+  await clearRunyuBrowserSession({ clearSavedCookie: true });
+  setRunyuAuthState("unconfigured", "已清除这台电脑上的润宇登录状态", { source: "" });
+  return runyuAuthStatusPayload();
 }
 
 async function testJudgmentLibrary(payload = {}) {
@@ -3630,9 +3880,9 @@ async function testJudgmentLibrary(payload = {}) {
     message: String(error?.message || error),
     results: []
   }));
-  if (result.ok) {
+  if (result.ok && payload.notify !== false) {
     await notifyHealthRecovered("judgments", "判断库接入已恢复", `测试关键词：${query}\n返回 ${result.results?.length || 0} 条。`);
-  } else {
+  } else if (!result.ok && payload.notify !== false) {
     await sendNotification("judgments_test_failed", "判断库接入测试失败", result.message || "请检查 Cookie、Base URL、权限和网络", {
       severity: "warning",
       recoveryKey: "judgments",

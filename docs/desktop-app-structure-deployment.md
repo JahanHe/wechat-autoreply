@@ -152,7 +152,7 @@ macOS：
 
 1. 安装 `小店AI客服.dmg`。
 2. 把 App 拖到 Applications。
-3. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook、外部判断库 Session Cookie。
+3. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook，并点击“登录并自动接入”完成润宇登录。
 4. 点“保存并自检”，确认 AI、Webhook、判断库、规则库和长期运行状态通过。
 5. 登录微信小店客服页。
 6. 确认主控制台 > 规则库里已有默认文字规则和页面动作规则。
@@ -161,13 +161,13 @@ macOS：
 Windows：
 
 1. 运行 Windows 安装包或 portable 版本。
-2. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook、外部判断库 Session Cookie。
+2. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook，并点击“登录并自动接入”完成润宇登录。
 3. 点“保存并自检”，确认 AI、Webhook、判断库、规则库和长期运行状态通过。
 4. 登录微信小店客服页。
 5. 确认主控制台 > 规则库里已有默认文字规则和页面动作规则。
 6. 悬浮窗显示“接管开启”后即可运行。
 
-判断库 Cookie 要从 Chrome 的 Application > Cookies > `runyuai.zhiduoke.com.cn` 复制 `session_token`。不要使用 Session Storage。`401` 表示 Cookie 过期或权限不足，`404` 通常是 Base URL 或网络解析问题；v0.3.3 起会自动规整 Base URL 并使用 `curl --resolve` 备用线路。
+判断库使用独立的 Electron 持久会话 `persist:runyu-auth`。每台电脑登录一次后，程序自动读取 `session_token`、保存到该电脑运行目录并真实查询验证；重启会自动恢复。如果返回 `401`，在判断库页点击“重新登录”；`403` 表示账号缺少对应工具权限；`404` 通常是 Base URL 或网络解析问题。
 
 ## 迁移配置
 

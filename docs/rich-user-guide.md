@@ -10,21 +10,21 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.3/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.3/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.3/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.4/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.4/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.4/wechat-autoreply-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 
 | 步骤 | 位置 | 用途 |
 | --- | --- | --- |
-| 1 | 主控制台 > 初始化 | 填 `DEEPSEEK_API_KEY`、企业微信 Webhook、外部判断库 Session Cookie |
+| 1 | 主控制台 > 初始化 | 填 `DEEPSEEK_API_KEY`、企业微信 Webhook，点击“登录并自动接入”完成润宇登录 |
 | 2 | 主控制台 > 初始化 | 点“保存并自检”，自动检查 AI、Webhook、判断库、规则库和长期运行状态 |
 | 3 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
 
 如果三项配置已经齐全，程序会直接进入客服页映射；如果换电脑后缺任意一项，会再次打开初始化页。
 
-外部判断库 Cookie 要从 Chrome 的 Application > Cookies > `runyuai.zhiduoke.com.cn` 里复制 `session_token`，不要用 Session Storage。可以粘裸 token、`session_token=...` 或完整 `Cookie: ...`，程序会自动抽取；Base URL 只填 `https://runyuai.zhiduoke.com.cn`。
+外部判断库默认通过应用内网页登录自动接入。每台电脑第一次使用时点击“登录并自动接入”，程序会使用独立持久会话保存登录状态、自动读取 `session_token` 并执行真实查询验证。重启应用会自动恢复；状态显示“登录已过期”时点击“重新登录”。手工粘贴 Cookie 只作为备用，Base URL 保持 `https://runyuai.zhiduoke.com.cn`。
 
 ## 自动初始化内容
 
