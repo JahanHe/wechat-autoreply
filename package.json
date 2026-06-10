@@ -1,6 +1,6 @@
 {
   "name": "wechat-shop-kf-bot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "微信小店客服自动回复桌面程序",
   "author": "local",
   "private": true,
@@ -41,6 +41,8 @@
       "extension/**/*",
       "config/**/*",
       "knowledge-base/**/*",
+      "src/**/*",
+      "docs/**/*",
       "server.js",
       "package.json"
     ],
@@ -52,6 +54,26 @@
       "category": "public.app-category.business",
       "icon": "build/icon.icns",
       "identity": null
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 270,
+          "y": 360,
+          "type": "file",
+          "path": "docs/mac-install-troubleshooting.md"
+        }
+      ]
     },
     "win": {
       "icon": "build/icon.ico",

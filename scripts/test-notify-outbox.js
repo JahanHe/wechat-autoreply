@@ -31,7 +31,7 @@ try {
     throw new Error("outbox was not populated after webhook failure");
   }
 
-  stopProcess(appProcess);
+  await stopProcess(appProcess);
   appProcess = null;
 
   const received = [];
@@ -78,13 +78,16 @@ try {
 
   console.log("Notify outbox test passed");
 } finally {
-  if (appProcess) stopProcess(appProcess);
+  if (appProcess) await stopProcess(appProcess);
   if (server) await new Promise((resolve) => server.close(resolve));
-  await rm(userDataDir, { recursive: true, force: true });
+  await rm(userDataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
 }
 
-function stopProcess(child) {
+async function stopProcess(child) {
+  if (!child || child.killed) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
+  await Promise.race([exited, sleep(3000)]);
 }
 
 async function waitForFile(path, timeoutMs) {
