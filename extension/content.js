@@ -1,11 +1,12 @@
 (() => {
-  const VERSION = "0.3.3";
+  const VERSION = "0.3.4";
 
   const CONFIG = {
     enabled: true,
     aiFallback: true,
     aiEndpoint: "http://127.0.0.1:8787/reply",
-    aiSlowMs: 50000,
+    aiSlowMs: 15000,
+    fallbackReplyMs: 60000,
     noResponseAlertMs: 90000,
     noResponseCheckMs: 5000,
     maxTextParts: 2,
@@ -14,11 +15,60 @@
     autoPasteImages: false,
     panelAutoActionsEnabled: false,
     imageReplies: [],
-    actionRules: [],
-    quickAck: "在",
+    actionRules: [
+      {
+        enabled: true,
+        name: "会员专区：使用和进群图文",
+        keywords: ["会员专区怎么使用", "怎么使用会员专区", "会员专区使用", "怎么进群", "如何进群", "怎么加入社群", "进社群", "进群", "会员进群", "年度会员进群", "前往小程序上课", "上课入口"],
+        actions: [
+          { type: "text", text: "上课在订单详情页点【前往小程序上课】\n进社群看小程序里的【会员专区使用攻略】" },
+          { type: "image", path: "config/reply-images/image1.png" },
+          { type: "image", path: "config/reply-images/image2.png" }
+        ]
+      },
+      {
+        enabled: true,
+        name: "会员专区：权益目录图文",
+        keywords: ["会员专区包含什么权益", "会员专区有什么权益", "会员专区包含哪些权益", "会员专区权益", "会员专区有什么", "会员专区有啥", "会员有什么", "会员有啥", "包含什么权益", "有什么权益", "有哪些权益", "权益有哪些", "会员权益", "包含什么内容", "会员专区包含什么", "课程目录", "大致目录", "专属视频", "直播回放", "专区问答"],
+        actions: [
+          { type: "text", text: "目前有专属视频、直播回放、社群和专区问答\n您可以先看课程目录" },
+          { type: "image", path: "config/reply-images/image3.jpg" }
+        ]
+      },
+      {
+        enabled: true,
+        name: "会员专区：发年度会员商品",
+        keywords: ["我想买会员专区", "想买会员", "买会员", "会员链接", "年度会员链接", "会员商品", "年度会员商品", "售价365", "会员入口", "商品链接", "发链接", "发商品"],
+        actions: [
+          { type: "text", text: "年度会员是365元的商品\n我把商品入口发您" },
+          { type: "product", productId: "10000275472384", productName: "润宇年度会员商业社群", button: "发商品" }
+        ]
+      },
+      {
+        enabled: true,
+        name: "会员专区：邀请下单",
+        keywords: ["怎么付款", "怎么买", "怎么购买", "怎么下单", "我要下单", "我要付款", "邀请下单", "买这个", "付款入口", "拍这个", "下单链接"],
+        actions: [
+          { type: "text", text: "我给您选好年度会员\n您点进去就可以下单" },
+          { type: "product", productId: "10000275472384", productName: "润宇年度会员商业社群", button: "邀请下单" }
+        ]
+      }
+    ],
+    quickAck: "我看一下",
+    quickAckReplies: [
+      "我看一下",
+      "稍等，我看下说明",
+      "这个问题我看一下"
+    ],
+    quickAckEveryMessage: true,
     debounceMs: 350,
     minReplyGapMs: 1500,
-    fallbackReply: "在\n您说",
+    fallbackReply: "这个问题我先看到了\n系统还在处理，您稍等一下",
+    fallbackReplies: [
+      "这个问题我先看到了\n系统还在处理，您稍等一下",
+      "我这边还没拿到准确答案\n您稍等一下",
+      "稍等，我尽量给您准确回复"
+    ],
     localQuickReplies: [
       "在"
     ],
@@ -30,13 +80,8 @@
     rules: [
       {
         name: "联系方式",
-        keywords: ["联系方式", "加微信", "微信号", "电话", "手机号", "联系润宇", "联系润玉"],
+        keywords: ["联系方式", "加微信", "微信号", "电话多少", "留电话", "留手机号", "发手机号", "手机号多少", "联系润宇", "联系润玉"],
         reply: "平台不支持发送联系方式\n直接在店铺里沟通"
-      },
-      {
-        name: "会员专区",
-        keywords: ["会员", "年度会员", "会员专区", "商业社群", "社群"],
-        reply: "年度会员有视频、回放、社群和专区问答\n售价365元"
       },
       {
         name: "会员退款",
@@ -64,6 +109,8 @@
     pendingCustomerMessages: new Map(),
     quickRepliesUsed: loadQuickRepliesUsed(),
     waitingRepliesUsed: loadWaitingRepliesUsed(),
+    fallbackRepliesUsed: loadFallbackRepliesUsed(),
+    sessionReplyMemory: loadSessionReplyMemory(),
     quickAckedSessions: loadQuickAckedSessions(),
     sessionSnapshots: new Map(),
     lastHref: location.href,
@@ -218,7 +265,8 @@
       return;
     }
 
-    const key = `${latest.id}:${latest.text}`;
+    const sessionKey = currentSessionKey();
+    const key = messageReplyKey(latest, sessionKey);
     if (state.replied.has(key)) {
       updateToolbar("已发送");
       return;
@@ -238,7 +286,7 @@
       const actionRule = matchActionRule(latest.text);
       if (actionRule) {
         updateToolbar("执行动作规则");
-        const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "");
+        const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "", sessionKey);
         if (!result.ok) {
           updateToolbar("动作规则失败");
           reportEvent("reply_failed", { stage: "action_rule", sourceType: "action_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: actionRule.name || "", error: result.message });
@@ -326,6 +374,10 @@
 
       const ruleReply = matchRuleReply(latest.text);
       if (ruleReply) {
+        if (hasSessionReply(sessionKey, ruleReply)) {
+          updateToolbar("跳过重复话术");
+          reportEvent("reply_skipped_duplicate", { stage: "rule_duplicate", sourceType: "text_rule", reason, customer: latest.text, reply: ruleReply });
+        } else {
         const sent = await sendReplyParts(ruleReply);
         if (!sent) {
           updateToolbar("发送失败");
@@ -336,6 +388,7 @@
 
         responseSent = true;
         markReplied(key);
+        rememberSessionReply(sessionKey, ruleReply);
         state.lastReplyAt = now;
         updateToolbar("文字已发送");
         reportReplySent({
@@ -351,82 +404,154 @@
         });
         log("rule replied", { reason, customer: latest.text, reply: ruleReply });
         return;
-      }
-
-      const sessionKey = currentSessionKey();
-      let firstReply = "";
-      if (shouldSendQuickAck(sessionKey)) {
-        firstReply = await askQuickReply(latest.text);
-        const sent = await sendReplyParts(firstReply);
-        if (!sent) {
-          updateToolbar("发送失败");
-          reportEvent("reply_failed", { stage: "quick_ack", sourceType: "quick_ack", usedDirectReply: true, reason, customer: latest.text, reply: firstReply });
-          warn("quick ack failed", { reason, latest, reply: firstReply });
-          return;
         }
-
-        responseSent = true;
-        markReplied(key);
-        state.quickAckedSessions.add(sessionKey);
-        persistQuickAckedSessions();
-        state.lastReplyAt = now;
-        updateToolbar("AI 请求中");
-        reportReplySent({
-          stage: "quick_ack",
-          sourceType: "quick_ack",
-          usedRuleLibrary: false,
-          usedDirectReply: true,
-          usedAi: false,
-          reason,
-          customer: latest.text,
-          status: "承接语已发送",
-          reply: firstReply
-        });
-        log("quick ack sent", { reason, customer: latest.text, reply: firstReply, sessionKey });
-      } else {
-        updateToolbar("AI 请求中");
-        log("skip quick ack", { reason, customer: latest.text, sessionKey });
       }
 
-      let waitingSent = false;
-      const waitingTimer = window.setTimeout(async () => {
-        if (!CONFIG.enabled) return;
-        const waitingReply = await askWaitingReply();
-        const sent = await sendReplyParts(waitingReply);
-        waitingSent = sent;
+      let slowReply = "";
+      let slowSent = false;
+      let slowStarted = false;
+      let fallbackReplyText = "";
+      let fallbackSent = false;
+      let fallbackStarted = false;
+      let aiCompleted = false;
+      let waitingTimer = null;
+      let fallbackTimer = null;
+      const clearAiTimers = () => {
+        if (waitingTimer) window.clearTimeout(waitingTimer);
+        if (fallbackTimer) window.clearTimeout(fallbackTimer);
+        waitingTimer = null;
+        fallbackTimer = null;
+      };
+      const sendSlowReply = async () => {
+        if (!CONFIG.enabled || aiCompleted || fallbackStarted || slowStarted) return false;
+        slowStarted = true;
+        slowReply = await askQuickReply(latest.text);
+        if (!slowReply || aiCompleted || fallbackStarted) return false;
+        const sent = await sendReplyParts(slowReply);
+        slowSent = sent;
         if (sent) {
           responseSent = true;
           markReplied(key);
+          rememberSessionReply(sessionKey, slowReply);
+          state.quickAckedSessions.add(sessionKey);
+          persistQuickAckedSessions();
           state.lastReplyAt = Date.now();
           updateToolbar("继续等 AI");
           reportReplySent({
-            stage: "waiting_reply",
-            sourceType: "waiting_reply",
+            stage: "quick_ack",
+            sourceType: "quick_ack",
             usedRuleLibrary: false,
             usedDirectReply: true,
             usedAi: false,
             reason,
             customer: latest.text,
-            status: "等待语已发送",
-            reply: waitingReply
+            status: "15秒承接语已发送",
+            reply: slowReply
           });
-          return;
+          log("slow quick ack sent", { reason, customer: latest.text, reply: slowReply, sessionKey });
+          return true;
         }
 
-        updateToolbar("等待语发送失败");
-        reportEvent("reply_failed", { stage: "waiting_reply", sourceType: "waiting_reply", usedDirectReply: true, reason, customer: latest.text, reply: waitingReply });
-      }, CONFIG.aiSlowMs);
-
-      const aiReply = await askLocalAi(latest.text, "deep");
-      window.clearTimeout(waitingTimer);
-      if (!aiReply || (firstReply && normalize(aiReply) === normalize(firstReply))) {
-        if (!responseSent) {
-          updateToolbar("未能回复");
-          reportEvent("reply_failed", { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, reason, customer: latest.text });
-          return;
+        updateToolbar("承接语发送失败");
+        reportEvent("reply_failed", { stage: "quick_ack", sourceType: "quick_ack", usedDirectReply: true, reason, customer: latest.text, reply: slowReply });
+        return false;
+      };
+      const sendFallbackReply = async (trigger, allowAfterAi = false) => {
+        if (!CONFIG.enabled || fallbackStarted || fallbackSent) return false;
+        if (aiCompleted && !allowAfterAi) return false;
+        fallbackStarted = true;
+        fallbackReplyText = await askFallbackReply(latest.text);
+        if (!fallbackReplyText) {
+          fallbackStarted = false;
+          return false;
+        }
+        const sent = await sendReplyParts(fallbackReplyText);
+        fallbackSent = sent;
+        if (sent) {
+          responseSent = true;
+          markReplied(key);
+          rememberSessionReply(sessionKey, fallbackReplyText);
+          state.lastReplyAt = Date.now();
+          updateToolbar("兜底已发送");
+          reportReplySent({
+            stage: "fallback_reply",
+            sourceType: "fallback_reply",
+            usedRuleLibrary: false,
+            usedDirectReply: true,
+            usedAi: false,
+            reason,
+            customer: latest.text,
+            status: trigger === "timeout" ? "60秒兜底已发送" : "AI无结果兜底已发送",
+            reply: fallbackReplyText
+          });
+          log("fallback sent", { reason, trigger, customer: latest.text, reply: fallbackReplyText });
+          return true;
         }
 
-        updateToolbar(waitingSent ? "等待语已发送" : "承接语已发送");
+        updateToolbar("兜底发送失败");
+        reportEvent("reply_failed", { stage: "fallback_reply", sourceType: "fallback_reply", usedDirectReply: true, reason, customer: latest.text, reply: fallbackReplyText });
+        fallbackStarted = false;
+        return false;
+      };
+
+      updateToolbar("AI 请求中");
+      if (shouldSendQuickAck(sessionKey)) {
+        waitingTimer = window.setTimeout(() => {
+          sendSlowReply().catch((error) => warn("slow reply failed", error));
+        }, normalizeDelay(CONFIG.aiSlowMs, 15000));
+      } else {
+        log("skip 15s quick ack", { reason, customer: latest.text, sessionKey });
+      }
+
+      fallbackTimer = window.setTimeout(() => {
+        sendFallbackReply("timeout").catch((error) => warn("fallback reply failed", error));
+      }, normalizeDelay(CONFIG.fallbackReplyMs, 60000));
+
+      const aiResult = await askLocalAi(latest.text, "deep");
+      aiCompleted = true;
+      clearAiTimers();
+      const aiReply = String(aiResult?.reply || aiResult || "").trim();
+      const usedJudgmentLibrary = Boolean(aiResult?.judgments?.used);
+      const followupStage = usedJudgmentLibrary ? "judgment_ai" : "ai_followup";
+      if (fallbackStarted || fallbackSent) {
+        updateToolbar("兜底已发送");
+        reportEvent("ai_followup_skipped", {
+          stage: followupStage,
+          sourceType: followupStage,
+          usedAi: true,
+          usedJudgmentLibrary,
+          reason,
+          customer: latest.text,
+          reply: aiReply,
+          skippedReason: "fallback_already_sent"
+        });
+        return;
+      }
+
+      if (!aiReply || (slowReply && normalize(aiReply) === normalize(slowReply))) {
+        const fallbackOk = await sendFallbackReply("ai_empty", true);
+        if (!fallbackOk) {
+          updateToolbar(responseSent ? "承接语已发送" : "未能回复");
+          reportEvent("reply_failed", { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, usedJudgmentLibrary, reason, customer: latest.text });
+        }
+        return;
+      }
+
+      if (hasSessionReply(sessionKey, aiReply)) {
+        const fallbackOk = await sendFallbackReply("ai_duplicate", true);
+        if (!fallbackOk) {
+          updateToolbar("跳过重复 AI");
+          reportEvent("ai_followup_skipped", {
+            stage: followupStage,
+            sourceType: followupStage,
+            usedAi: true,
+            usedJudgmentLibrary,
+            reason,
+            customer: latest.text,
+            reply: aiReply,
+            skippedReason: "duplicate_session_reply"
+          });
+        }
         return;
       }
 
@@ -434,25 +559,29 @@
       if (followupSent) {
         responseSent = true;
         markReplied(key);
+        rememberSessionReply(sessionKey, aiReply);
         state.lastReplyAt = Date.now();
         reportReplySent({
-          stage: "ai_followup",
-          sourceType: "ai_followup",
+          stage: followupStage,
+          sourceType: followupStage,
           usedRuleLibrary: false,
           usedDirectReply: false,
           usedAi: true,
+          usedJudgmentLibrary,
           reason,
           customer: latest.text,
-          status: "AI 已发送",
-          reply: aiReply
+          status: usedJudgmentLibrary ? "判断库/AI 已发送" : "AI 已发送",
+          reply: aiReply,
+          latencyMs: aiResult?.latencyMs || null
         });
-      } else if (!responseSent) {
-        reportEvent("reply_failed", { stage: "ai_followup", sourceType: "ai_followup", usedAi: true, reason, customer: latest.text, reply: aiReply });
       } else {
-        reportEvent("ai_followup_failed", { reason, customer: latest.text, reply: aiReply });
+        const fallbackOk = await sendFallbackReply("ai_send_failed", true);
+        if (!fallbackOk) {
+          reportEvent(responseSent ? "ai_followup_failed" : "reply_failed", { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary, reason, customer: latest.text, reply: aiReply });
+        }
       }
-      updateToolbar(followupSent ? "AI 已发送" : "AI 补充失败");
-      log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply });
+      updateToolbar(followupSent ? (usedJudgmentLibrary ? "判断库已发送" : "AI 已发送") : "AI 补充失败");
+      log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply, judgments: aiResult?.judgments || null });
     } finally {
       state.inFlight.delete(key);
     }
@@ -483,7 +612,7 @@
       return;
     }
 
-    const key = `${latest.id}:${latest.text}`;
+    const key = messageReplyKey(latest);
     if (state.replied.has(key)) {
       state.pendingCustomerMessages.delete(key);
       return;
@@ -514,6 +643,7 @@
   }
 
   function shouldSendQuickAck(sessionKey) {
+    if (CONFIG.quickAckEveryMessage) return true;
     if (state.quickAckedSessions.has(sessionKey)) return false;
     return !hasVisibleKfMessage();
   }
@@ -629,6 +759,10 @@
     return `session:${nickname || lines.join("|")}`;
   }
 
+  function messageReplyKey(message, sessionKey = currentSessionKey()) {
+    return `${sessionKey}:${message?.id || ""}:${message?.text || ""}`;
+  }
+
   function matchRuleReply(message) {
     const text = normalize(message);
     const rules = Array.isArray(CONFIG.rules) && CONFIG.rules.length > 0 ? CONFIG.rules : DEFAULT_RULES;
@@ -653,7 +787,7 @@
     }) || null;
   }
 
-  async function executeActions(actions, customerText, ruleName = "") {
+  async function executeActions(actions, customerText, ruleName = "", sessionKey = currentSessionKey()) {
     const result = {
       ok: false,
       sentText: false,
@@ -673,8 +807,15 @@
       const type = String(action.type || "").trim();
 
       if (type === "text") {
-        const sent = await sendReplyParts(action.text || action.reply || "");
+        const text = String(action.text || action.reply || "").trim();
+        if (!text) continue;
+        if (hasSessionReply(sessionKey, text)) {
+          result.skippedDuplicateText = true;
+          continue;
+        }
+        const sent = await sendReplyParts(text);
         result.sentText = result.sentText || sent;
+        if (sent) rememberSessionReply(sessionKey, text);
         if (!sent) return { ...result, message: "text action failed" };
       } else if (type === "ignore" || type === "noop") {
         result.ignored = true;
@@ -745,7 +886,7 @@
       }
     }
 
-    result.ok = result.sentText || result.sentImage || result.sentFile || result.sentProduct || result.sentMaterial || result.sentQuickReply || result.clicked || result.captured || result.ignored;
+    result.ok = result.sentText || result.sentImage || result.sentFile || result.sentProduct || result.sentMaterial || result.sentQuickReply || result.clicked || result.captured || result.ignored || result.skippedDuplicateText;
     return result.ok ? result : { ...result, message: "no action executed" };
   }
 
@@ -757,6 +898,7 @@
     if (result.sentMaterial) return "素材动作已发送";
     if (result.sentQuickReply) return "快捷语已发送";
     if (result.sentText) return "文字已发送";
+    if (result.skippedDuplicateText) return "重复话术已跳过";
     if (result.ignored) return "已忽略";
     return "动作已发送";
   }
@@ -1074,6 +1216,7 @@
 
   async function askLocalAi(message, mode = "normal") {
     if (!CONFIG.aiFallback) return "";
+    const startedAt = Date.now();
     try {
       updateToolbar("AI 请求中");
       const response = await fetch(CONFIG.aiEndpoint, {
@@ -1090,7 +1233,11 @@
       const data = await response.json();
       const reply = String(data.reply || "").trim();
       updateToolbar(reply ? "AI 已返回" : "AI 空回复");
-      return reply;
+      return {
+        reply,
+        judgments: data.judgments || null,
+        latencyMs: Date.now() - startedAt
+      };
     } catch (error) {
       warn("ai fallback failed", error);
       updateToolbar("AI 请求失败");
@@ -1100,6 +1247,9 @@
   }
 
   async function askQuickReply(message) {
+    const configured = pickConfiguredReply("quick", CONFIG.quickAckReplies, CONFIG.quickAck, CONFIG.localQuickReplies);
+    if (configured) return configured;
+
     try {
       updateToolbar("快速回复请求中");
       const response = await fetch(endpointFor("/quick-reply"), {
@@ -1118,7 +1268,7 @@
       persistQuickRepliesUsed();
       const text = String(data.text || "").trim();
       updateToolbar(text ? `快速回复 ${data.id || ""}`.trim() : "快速回复空");
-      return text || CONFIG.quickAck;
+      return text || pickConfiguredReply("quick", [], CONFIG.quickAck, CONFIG.localQuickReplies);
     } catch (error) {
       warn("quick reply failed", error);
       const local = pickLocalQuickReply();
@@ -1128,6 +1278,9 @@
   }
 
   async function askWaitingReply() {
+    const configured = pickConfiguredReply("waiting", CONFIG.fallbackReplies, CONFIG.fallbackReply, CONFIG.localWaitingReplies);
+    if (configured) return configured;
+
     try {
       updateToolbar("等待语请求中");
       const response = await fetch(endpointFor("/waiting-reply"), {
@@ -1151,6 +1304,47 @@
       warn("waiting reply failed", error);
       return pickLocalWaitingReply();
     }
+  }
+
+  async function askFallbackReply(message) {
+    const configured = pickConfiguredReply("fallback", CONFIG.fallbackReplies, CONFIG.fallbackReply, CONFIG.localWaitingReplies);
+    if (configured) return configured;
+    return askWaitingReply(message);
+  }
+
+  function pickConfiguredReply(kind, listValue, singleValue, fallbackList = []) {
+    const list = replyList(listValue);
+    const single = String(singleValue || "").trim();
+    const fallback = replyList(fallbackList);
+    const replies = list.length > 0 ? list : (single ? [single] : fallback);
+    if (!replies.length) return "";
+
+    const used = kind === "fallback" ? state.fallbackRepliesUsed : kind === "quick" ? state.quickRepliesUsed : state.waitingRepliesUsed;
+    const prefix = `config-${kind}-`;
+    let available = replies
+      .map((text, index) => ({ id: `${prefix}${index + 1}`, text }))
+      .filter((item) => !used.has(item.id));
+    if (available.length === 0) {
+      Array.from(used).forEach((id) => {
+        if (String(id).startsWith(prefix)) used.delete(id);
+      });
+      available = replies.map((text, index) => ({ id: `${prefix}${index + 1}`, text }));
+    }
+
+    const item = available[Math.floor(Math.random() * available.length)];
+    used.add(item.id);
+    if (kind === "fallback") persistFallbackRepliesUsed();
+    else if (kind === "quick") persistQuickRepliesUsed();
+    else persistWaitingRepliesUsed();
+    return item.text;
+  }
+
+  function replyList(value) {
+    if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+    return String(value || "")
+      .split(/\n{2,}|[|｜]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 
   function pickLocalQuickReply() {
@@ -1179,6 +1373,12 @@
     state.waitingRepliesUsed.add(id);
     persistWaitingRepliesUsed();
     return CONFIG.localWaitingReplies[Number(id.replace("local-waiting-", "")) - 1] || "稍等一下，我还在看";
+  }
+
+  function normalizeDelay(value, fallback) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return fallback;
+    return Math.max(1000, number);
   }
 
   function endpointFor(path) {
@@ -1654,6 +1854,23 @@
     }
   }
 
+  function loadFallbackRepliesUsed() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(`${STATE_KEY}_fallback_replies`) || "[]"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function loadSessionReplyMemory() {
+    try {
+      const value = JSON.parse(localStorage.getItem(`${STATE_KEY}_session_reply_memory`) || "{}");
+      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
   function loadQuickAckedSessions() {
     try {
       return new Set(JSON.parse(localStorage.getItem(`${STATE_KEY}_quick_acked_sessions`) || "[]"));
@@ -1672,6 +1889,36 @@
 
   function persistWaitingRepliesUsed() {
     localStorage.setItem(`${STATE_KEY}_waiting_replies`, JSON.stringify(Array.from(state.waitingRepliesUsed).slice(-20)));
+  }
+
+  function persistFallbackRepliesUsed() {
+    localStorage.setItem(`${STATE_KEY}_fallback_replies`, JSON.stringify(Array.from(state.fallbackRepliesUsed).slice(-20)));
+  }
+
+  function hasSessionReply(sessionKey, reply) {
+    const signature = replySignature(reply);
+    if (!signature) return false;
+    const key = String(sessionKey || currentSessionKey());
+    return Array.isArray(state.sessionReplyMemory[key]) && state.sessionReplyMemory[key].includes(signature);
+  }
+
+  function rememberSessionReply(sessionKey, reply) {
+    const signature = replySignature(reply);
+    if (!signature) return;
+    const key = String(sessionKey || currentSessionKey());
+    const items = Array.isArray(state.sessionReplyMemory[key]) ? state.sessionReplyMemory[key] : [];
+    if (!items.includes(signature)) items.push(signature);
+    state.sessionReplyMemory[key] = items.slice(-60);
+    persistSessionReplyMemory();
+  }
+
+  function replySignature(reply) {
+    return normalize(reply).replace(/\s+/g, "").slice(0, 220);
+  }
+
+  function persistSessionReplyMemory() {
+    const entries = Object.entries(state.sessionReplyMemory).slice(-120);
+    localStorage.setItem(`${STATE_KEY}_session_reply_memory`, JSON.stringify(Object.fromEntries(entries)));
   }
 
   function persistQuickAckedSessions() {

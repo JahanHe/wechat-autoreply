@@ -3,6 +3,13 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  formatJudgmentResultsForPrompt,
+  getJudgmentCacheStatus,
+  getRunyuJudgmentConfig,
+  refreshJudgmentCache,
+  searchJudgmentLibrary
+} from "./src/runyu-judgments.js";
 
 const ROOT = resolve(process.env.WECHAT_KF_ROOT || ".");
 const CONFIG_ROOT = resolve(process.env.WECHAT_KF_CONFIG_ROOT || ROOT);
@@ -88,6 +95,7 @@ export function createAiServer() {
 
   if (req.method === "GET" && req.url === "/health") {
     const aiConfig = getAiConfig();
+    const judgmentStatus = await getJudgmentCacheStatus();
     json(res, 200, {
       ok: true,
       model: aiConfig.model,
@@ -95,7 +103,8 @@ export function createAiServer() {
       hasKey: Boolean(aiConfig.apiKey),
       thinking: aiConfig.thinking,
       reasoningEffort: aiConfig.reasoningEffort,
-      review: aiConfig.reviewEnabled ? "enabled" : "disabled"
+      review: aiConfig.reviewEnabled ? "enabled" : "disabled",
+      judgments: judgmentStatus
     });
     return;
   }
@@ -133,6 +142,37 @@ export function createAiServer() {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/judgments/status") {
+    try {
+      json(res, 200, await getJudgmentCacheStatus());
+    } catch (error) {
+      json(res, 500, { error: "judgment_status_failed", message: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/judgments/search") {
+    try {
+      const body = await readJson(req);
+      const query = String(body.query || body.keyword || "").trim();
+      const limit = Number(body.limit || 10);
+      json(res, 200, await searchJudgmentLibrary(query, { limit }));
+    } catch (error) {
+      json(res, 500, { error: "judgment_search_failed", message: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/judgments/refresh") {
+    try {
+      const body = await readJson(req);
+      json(res, 200, await refreshJudgmentCache(body || {}));
+    } catch (error) {
+      json(res, 500, { error: "judgment_refresh_failed", message: error.message });
+    }
+    return;
+  }
+
   if (req.method !== "POST" || req.url !== "/reply") {
     json(res, 404, { error: "not_found" });
     return;
@@ -155,8 +195,8 @@ export function createAiServer() {
       return;
     }
 
-    const reply = await askDeepSeek({ message, context, mode, sideContext });
-    json(res, 200, { reply });
+    const result = await askDeepSeek({ message, context, mode, sideContext });
+    json(res, 200, result);
   } catch (error) {
     console.error("[ai-server]", error);
     json(res, 500, { error: "reply_failed", message: error.message });
@@ -216,7 +256,8 @@ function defaultAssistantProfile() {
     reviewPrompt: "",
     knowledgeFilesEnabled: true,
     sidebarContextEnabled: true,
-    reviewEnabled: true
+    reviewEnabled: true,
+    updatedAt: ""
   };
 }
 
@@ -233,7 +274,7 @@ function loadAssistantProfile() {
   }
 }
 
-function buildSystemPrompt({ profile, knowledge, sideContext }) {
+function buildSystemPrompt({ profile, knowledge, sideContext, judgmentContext }) {
   const sections = [
     String(profile.systemPrompt || "").trim() || SYSTEM_PROMPT,
     String(profile.salesPrompt || "").trim() || SALES_PROMPT
@@ -247,6 +288,10 @@ function buildSystemPrompt({ profile, knowledge, sideContext }) {
 
   if (Array.isArray(knowledge) && knowledge.length > 0) {
     sections.push(`可参考知识库：\n${knowledge.map((item, index) => `${index + 1}. 【${item.title}】${item.text}`).join("\n")}`);
+  }
+
+  if (judgmentContext) {
+    sections.push(`外部判断库检索结果：\n${judgmentContext}\n\n使用规则：只把这些结果当作判断依据和表达参考，不要透露“判断库/API/检索结果”等后台词。没有直接依据时，保持谨慎，不编造。`);
   }
 
   if (profile.sidebarContextEnabled !== false && sideContext) {
@@ -267,8 +312,10 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
   const knowledge = profile.knowledgeFilesEnabled === false
     ? []
     : searchKnowledge([message, sideContext, ...context.map((item) => item.text || "")].join("\n"));
+  const judgmentSearch = await maybeSearchJudgments({ message, mode });
+  const judgmentContext = formatJudgmentResultsForPrompt(judgmentSearch.results);
   const messages = [
-    { role: "system", content: buildSystemPrompt({ profile, knowledge, sideContext }) },
+    { role: "system", content: buildSystemPrompt({ profile, knowledge, sideContext, judgmentContext }) },
     ...context.map((item) => ({
       role: item.from === "kf" ? "assistant" : "user",
       content: String(item.text || "").slice(0, 500)
@@ -300,7 +347,34 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
     })
     : reply;
 
-  return guardReply(reviewed, { message, sideContext });
+  return {
+    reply: guardReply(reviewed, { message, sideContext }),
+    judgments: {
+      used: judgmentSearch.results.length > 0,
+      count: judgmentSearch.results.length,
+      fromCache: judgmentSearch.fromCache || 0,
+      fromRemote: judgmentSearch.fromRemote || 0,
+      error: judgmentSearch.error || ""
+    }
+  };
+}
+
+async function maybeSearchJudgments({ message, mode }) {
+  const config = getRunyuJudgmentConfig();
+  if (!config.enabled) return { results: [] };
+  if (!shouldUseJudgmentLibrary(message, mode)) return { results: [] };
+  return await searchJudgmentLibrary(message, { config }).catch((error) => ({
+    results: [],
+    error: String(error?.message || error)
+  }));
+}
+
+function shouldUseJudgmentLibrary(message, mode) {
+  const text = String(message || "").trim();
+  if (!text) return false;
+  if (/^(谢谢|感谢|好的|好|嗯|ok|OK|明白|收到|不用了|没事)[呀啊呢吧\s。.!！]*$/.test(text)) return false;
+  if (mode === "deep") return true;
+  return text.length >= 8 || /怎么|为什么|是否|能不能|值不值|适合|区别|建议|推荐|判断|怎么办|有没有/.test(text);
 }
 
 async function reviewReply({ draft, message, context, sideContext, aiConfig, profile }) {
@@ -513,7 +587,7 @@ function guardReply(reply, { message, sideContext }) {
 }
 
 function hasForbiddenContactIntent(text) {
-  return /(加微信|加我|私聊|私信|电话|手机号|联系方式|联系我|打给|致电|线下|私下交易|转账|离开平台)/.test(String(text || ""));
+  return /(加.{0,6}微信|微信号|加我|私聊|私信|联系方式|联系我|电话多少|留电话|电话联系|打电话|留手机号|发手机号|手机号多少|打给|致电|私下交易|转账|离开平台)/.test(String(text || ""));
 }
 
 function stripLeadingCustomerName(reply, sideContext) {

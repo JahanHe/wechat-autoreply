@@ -14,8 +14,8 @@
         --hairline: #e6dfd8;
         --card: #efe9de;
         --panel: #ffffff;
-        --dark: #181715;
-        --dark-elevated: #252320;
+        --soft-panel: #f4eee5;
+        --soft-panel-2: #f8f1e7;
         --primary: #cc785c;
         --primary-active: #a9583e;
         --success: #5db872;
@@ -77,9 +77,9 @@
       }
 
       button.dark {
-        border-color: var(--dark);
-        background: var(--dark);
-        color: #fff;
+        border-color: #d8cbbf;
+        background: var(--soft-panel);
+        color: var(--ink);
       }
 
       button.danger {
@@ -134,11 +134,11 @@
 
       .sidebar {
         height: 100vh;
-        background: var(--dark);
-        color: #f8f1e7;
+        background: rgba(255, 255, 255, .72);
+        color: var(--ink);
         display: flex;
         flex-direction: column;
-        border-right: 1px solid #2f2c28;
+        border-right: 1px solid var(--hairline);
         z-index: 5;
       }
 
@@ -154,7 +154,7 @@
         width: 42px;
         height: 42px;
         border-radius: 10px;
-        object-fit: cover;
+        object-fit: contain;
         background: var(--card);
       }
 
@@ -167,7 +167,7 @@
 
       .brand p {
         margin: 4px 0 0;
-        color: #b7afa4;
+        color: var(--muted);
         font-size: 12px;
         white-space: nowrap;
         overflow: hidden;
@@ -187,10 +187,10 @@
         gap: 8px;
         min-height: 30px;
         padding: 0 9px;
-        border: 1px solid #38342f;
+        border: 1px solid var(--hairline);
         border-radius: var(--control-radius);
-        background: var(--dark-elevated);
-        color: #e7dfd2;
+        background: var(--soft-panel-2);
+        color: var(--body);
         font-size: 12px;
       }
 
@@ -232,12 +232,13 @@
         padding: 0 10px;
         border-color: transparent;
         background: transparent;
-        color: #d9d0c3;
+        color: var(--body);
         text-align: left;
       }
 
       .nav button.active {
-        background: #f8f1e7;
+        border-color: #ead8cd;
+        background: #fff5ef;
         color: var(--ink);
       }
 
@@ -249,7 +250,7 @@
       .side-actions {
         margin-top: auto;
         padding: 12px;
-        border-top: 1px solid #2f2c28;
+        border-top: 1px solid var(--hairline);
         display: grid;
         gap: 8px;
       }
@@ -261,9 +262,9 @@
       }
 
       .side-actions button {
-        border-color: #403b35;
-        background: var(--dark-elevated);
-        color: #f8f1e7;
+        border-color: var(--hairline);
+        background: #fff;
+        color: var(--ink);
       }
 
       .side-actions button.primary {
@@ -324,6 +325,10 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
+      .grid.cols-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
       .card {
         border: 1px solid var(--hairline);
         border-radius: var(--radius);
@@ -336,14 +341,26 @@
       }
 
       .card.dark {
-        border-color: #302d29;
-        background: var(--dark);
-        color: #f8f1e7;
+        border-color: var(--hairline);
+        background: var(--soft-panel);
+        color: var(--ink);
       }
 
       .card h3 {
         margin: 0 0 10px;
         font-size: 15px;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .section-title h3 {
+        margin-bottom: 4px;
       }
 
       .metric {
@@ -364,7 +381,7 @@
 
       .dark .muted,
       .dark .hint {
-        color: #b7afa4;
+        color: var(--muted);
       }
 
       .field {
@@ -379,6 +396,19 @@
 
       .hint {
         font-size: 12px;
+      }
+
+      .path-control {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .path-control button {
+        min-width: 92px;
+        padding: 0 10px;
+        white-space: nowrap;
       }
 
       .form-grid {
@@ -444,7 +474,11 @@
       input[type="checkbox"] {
         appearance: none;
         width: 46px;
+        min-width: 46px;
+        max-width: 46px;
         height: 26px;
+        min-height: 26px;
+        max-height: 26px;
         border: 1px solid #d6cbc0;
         border-radius: 999px;
         background: #e9e0d4;
@@ -452,6 +486,8 @@
         position: relative;
         cursor: pointer;
         transition: .18s;
+        justify-self: end;
+        flex: 0 0 46px;
       }
 
       input[type="checkbox"]::before {
@@ -512,9 +548,117 @@
         color: #514477;
       }
 
+      .badge.judgment {
+        border-color: #b8d3cf;
+        background: #eef8f5;
+        color: #2f6b62;
+      }
+
       .badge.fail {
         border-color: #efc3bd;
         background: #fff0ee;
+        color: var(--error);
+      }
+
+      .choice-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .choice {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 8px;
+        align-items: center;
+        min-height: 38px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        background: #fff;
+        padding: 6px 8px;
+      }
+
+      .choice input[type="checkbox"] {
+        width: 18px;
+        min-width: 18px;
+        max-width: 18px;
+        height: 18px;
+        min-height: 18px;
+        max-height: 18px;
+        padding: 0;
+        border-radius: 5px;
+        justify-self: start;
+      }
+
+      .choice input[type="checkbox"]::before {
+        display: none;
+      }
+
+      .choice input[type="checkbox"]:checked {
+        background: var(--primary);
+      }
+
+      .choice span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .download-panel {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: #fff;
+        padding: 12px;
+      }
+
+      .download-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--ink);
+      }
+
+      .progress {
+        height: 9px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #eadfd4;
+      }
+
+      .progress span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--primary);
+        transition: width .2s ease;
+      }
+
+      .judgment-results {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .judgment-item {
+        display: grid;
+        gap: 6px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        background: #fff;
+        padding: 10px;
+      }
+
+      .judgment-item div {
+        color: var(--body);
+        font-size: 13px;
+        max-height: 86px;
+        overflow: auto;
+      }
+
+      .error-text {
         color: var(--error);
       }
 
@@ -568,9 +712,9 @@
       }
 
       .tabs button.active {
-        border-color: var(--dark);
-        background: var(--dark);
-        color: #fff;
+        border-color: var(--primary);
+        background: #fff5ef;
+        color: var(--primary-active);
       }
 
       .log-row {
@@ -599,8 +743,9 @@
         max-width: 420px;
         padding: 11px 13px;
         border-radius: var(--control-radius);
-        background: var(--dark);
-        color: #fff;
+        background: #fff5ef;
+        color: var(--ink);
+        border: 1px solid #ead8cd;
         box-shadow: 0 12px 36px rgba(20, 20, 19, .2);
         opacity: 0;
         transform: translateY(8px);
@@ -614,7 +759,8 @@
       }
 
       .flash.ok {
-        background: #245f36;
+        background: #ecf7ee;
+        color: #2f7d43;
       }
 
       .flash.error {
@@ -653,6 +799,7 @@
 
       @media (max-width: 1180px) {
         .grid.cols-3,
+        .grid.cols-4,
         .grid.cols-2,
         .form-grid,
         .rule-editor,
@@ -664,6 +811,14 @@
         .rule-editor .span-2 {
           grid-column: auto;
         }
+
+        .path-control {
+          grid-template-columns: 1fr;
+        }
+
+        .choice-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
     </style>
   </head>
@@ -671,7 +826,7 @@
     <div class="app">
       <aside class="sidebar">
         <div class="brand">
-          <img src="../wechat-shop-ai-reply-logo.png" alt="">
+          <img src="assets/logo.png" alt="">
           <div>
             <h1>微信小店客服控制台</h1>
             <p id="pageMini">客服页映射</p>

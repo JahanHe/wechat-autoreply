@@ -1,4 +1,4 @@
-import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen } from "electron";
+import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -6,16 +6,18 @@ import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeRunyuCookie } from "../src/runyu-judgments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(__dirname, "..");
 const CONTENT_SCRIPT_PATH = resolve(APP_ROOT, "extension/content.js");
 const FLOATING_HTML_PATH = resolve(__dirname, "floating.html");
 const MAIN_SHELL_HTML_PATH = resolve(__dirname, "main-shell.html");
+const APP_ICON_PATH = resolve(__dirname, "assets/logo.png");
 const BUNDLED_ASSISTANT_PROFILE_PATH = resolve(APP_ROOT, "config/assistant-profile.json");
 const BUNDLED_REPLIES_PATH = resolve(APP_ROOT, "config/replies.json");
 const BUNDLED_REPLY_IMAGES_DIR = resolve(APP_ROOT, "config/reply-images");
-const BOT_CONFIG_VERSION = "desktop-0.2.0";
+const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
 
 process.env.WECHAT_KF_ROOT = APP_ROOT;
@@ -63,6 +65,9 @@ let replySummaryState = {
 };
 let floatingBoundsTimer = null;
 let loginScreenshotInProgress = false;
+let loginNotificationTimer = null;
+let judgmentRefreshTimer = null;
+let judgmentDownloadJob = null;
 
 const gotLock = process.env.WECHAT_KF_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -77,6 +82,7 @@ if (!gotLock) {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  flushKfSession().catch((error) => console.error("[desktop] flush session before quit failed", error));
 });
 
 app.on("window-all-closed", () => {});
@@ -87,6 +93,7 @@ async function startDesktopApp() {
   process.env.WECHAT_KF_CONFIG_ROOT = runtimeConfigRoot();
   loadDotEnv(runtimeConfigRoot(), { override: true });
   config = await loadConfig();
+  applyEnvBackedConfig();
   await saveConfig();
   await loadNotifyOutbox();
   await loadReplyRecords();
@@ -100,12 +107,32 @@ async function startDesktopApp() {
   createFloatingWindow();
   createTray();
   startWatchdogs();
+  startJudgmentRefreshScheduler();
   startNotifyOutboxPump();
   startReplySummaryScheduler();
   await sendNotification("app_started", "客服桌面程序已启动", "程序、悬浮窗和本地 AI 服务已开始运行", {
     cooldownMs: 60_000
   });
   await notifyMissingWebhookIfNeeded();
+}
+
+function applyEnvBackedConfig() {
+  if (!config) return;
+  if (process.env.RUNYU_JUDGMENTS_ENABLED) {
+    config.judgmentLibrary = normalizeJudgmentLibraryConfig({
+      ...config.judgmentLibrary,
+      enabled: /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_ENABLED),
+      useCache: process.env.RUNYU_JUDGMENTS_USE_CACHE ? /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_USE_CACHE) : config.judgmentLibrary?.useCache,
+      useRemote: process.env.RUNYU_JUDGMENTS_USE_REMOTE ? /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_USE_REMOTE) : config.judgmentLibrary?.useRemote,
+      sources: process.env.RUNYU_JUDGMENTS_SOURCES || config.judgmentLibrary?.sources,
+      searchTypes: process.env.RUNYU_JUDGMENTS_SEARCH_TYPES || config.judgmentLibrary?.searchTypes,
+      maxResults: process.env.RUNYU_JUDGMENTS_MAX_RESULTS || config.judgmentLibrary?.maxResults,
+      limitPerQuery: process.env.RUNYU_JUDGMENTS_LIMIT_PER_QUERY || config.judgmentLibrary?.limitPerQuery,
+      refreshLimit: process.env.RUNYU_JUDGMENTS_REFRESH_LIMIT || config.judgmentLibrary?.refreshLimit,
+      timeoutMs: process.env.RUNYU_JUDGMENTS_TIMEOUT_MS || config.judgmentLibrary?.timeoutMs,
+      refreshKeywords: process.env.RUNYU_JUDGMENTS_REFRESH_KEYWORDS || config.judgmentLibrary?.refreshKeywords
+    });
+  }
 }
 
 function applyUserDataOverride() {
@@ -117,15 +144,28 @@ function defaultConfig() {
   const replyDefaults = loadBundledReplyDefaults();
   return {
     kfUrl: "https://store.weixin.qq.com/shop/kf",
+    lastKfUrl: "",
     autoStart: true,
     bot: {
       configVersion: BOT_CONFIG_VERSION,
       enabled: true,
       aiFallback: true,
       aiEndpoint: `http://127.0.0.1:${PORT}/reply`,
-      quickAck: replyDefaults.quickAck || "在",
-      fallbackReply: replyDefaults.fallbackReply || "在\n您说",
-      aiSlowMs: 50000,
+      quickAck: replyDefaults.quickAck || "我看一下",
+      quickAckReplies: normalizeReplyTextList(replyDefaults.quickAckReplies || replyDefaults.quickAck || [
+        "我看一下",
+        "稍等，我看下说明",
+        "这个问题我看一下"
+      ]),
+      quickAckEveryMessage: replyDefaults.quickAckEveryMessage !== false,
+      fallbackReply: replyDefaults.fallbackReply || "这个问题我先看到了\n系统还在处理，您稍等一下",
+      fallbackReplies: normalizeReplyTextList(replyDefaults.fallbackReplies || replyDefaults.fallbackReply || [
+        "这个问题我先看到了\n系统还在处理，您稍等一下",
+        "我这边还没拿到准确答案\n您稍等一下",
+        "稍等，我尽量给您准确回复"
+      ]),
+      aiSlowMs: Number(replyDefaults.aiSlowMs || 15000),
+      fallbackReplyMs: Number(replyDefaults.fallbackReplyMs || 60000),
       noResponseAlertMs: 90000,
       maxTextParts: Number(replyDefaults.maxTextParts || 2),
       maxReplyPartLength: Number(replyDefaults.maxReplyPartLength || 500),
@@ -137,12 +177,15 @@ function defaultConfig() {
       actionRules: replyDefaults.actionRules || []
     },
     floatWindow: {
+      uiVersion: 2,
       enabled: true,
       visible: true,
       alwaysOnTop: true,
+      mode: "compact",
       bounds: null,
-      compactSize: { width: 320, height: 182 },
-      settingsSize: { width: 760, height: 680 }
+      compactSize: { width: 276, height: 166 },
+      miniSize: { width: 188, height: 44 },
+      settingsSize: { width: 276, height: 166 }
     },
     notify: {
       enabled: Boolean(process.env.WECOM_BOT_WEBHOOK_URL),
@@ -166,6 +209,23 @@ function defaultConfig() {
         replySuccess: false,
         summaries: true
       }
+    },
+    judgmentLibrary: {
+      enabled: false,
+      useCache: true,
+      useRemote: true,
+      autoRefreshEnabled: true,
+      refreshIntervalHours: 168,
+      sources: ["runyu", "liurun", "xiangshui", "xingxing", "book", "dedao"],
+      searchTypes: ["judgments", "quotes", "cases"],
+      maxResults: 4,
+      limitPerQuery: 8,
+      refreshLimit: 80,
+      fullDownloadPageLimit: 300,
+      fullDownloadMaxPages: 20,
+      timeoutMs: 12000,
+      refreshKeywords: ["会员", "退款", "课程", "订单", "发票", "社群", "视频号", "直播", "线下课", "小店"],
+      lastAutoRefreshAt: 0
     },
     watchdog: {
       aiHealthMs: 60_000,
@@ -252,20 +312,30 @@ function replySummaryStatePath() {
 }
 
 function mergeConfig(base, saved) {
+  const savedFloatWindow = saved?.floatWindow || {};
+  const resetFloatingSizes = Number(savedFloatWindow.uiVersion || 0) !== Number(base.floatWindow.uiVersion);
+  const migratedCompactSize = resetFloatingSizes ? base.floatWindow.compactSize : savedFloatWindow.compactSize || {};
+  const migratedMiniSize = resetFloatingSizes ? base.floatWindow.miniSize : savedFloatWindow.miniSize || {};
   return {
     ...base,
     ...saved,
     bot: mergeBotConfig(base.bot, saved?.bot || {}),
     floatWindow: {
       ...base.floatWindow,
-      ...(saved?.floatWindow || {}),
+      ...savedFloatWindow,
+      uiVersion: base.floatWindow.uiVersion,
+      mode: normalizeFloatingMode(savedFloatWindow.mode || base.floatWindow.mode),
       compactSize: {
         ...base.floatWindow.compactSize,
-        ...(saved?.floatWindow?.compactSize || {})
+        ...normalizeFloatingSize("compact", migratedCompactSize)
+      },
+      miniSize: {
+        ...base.floatWindow.miniSize,
+        ...normalizeFloatingSize("mini", migratedMiniSize)
       },
       settingsSize: {
         ...base.floatWindow.settingsSize,
-        ...(saved?.floatWindow?.settingsSize || {})
+        ...(savedFloatWindow.settingsSize || {})
       }
     },
     notify: {
@@ -276,17 +346,35 @@ function mergeConfig(base, saved) {
         ...(saved?.notify?.eventRules || {})
       }
     },
+    judgmentLibrary: normalizeJudgmentLibraryConfig({
+      ...base.judgmentLibrary,
+      ...(saved?.judgmentLibrary || {})
+    }),
     watchdog: { ...base.watchdog, ...(saved?.watchdog || {}) }
   };
 }
 
 function mergeBotConfig(baseBot, savedBot) {
   const bot = { ...baseBot, ...savedBot };
+  const oldVersion = savedBot?.configVersion !== BOT_CONFIG_VERSION;
+  bot.quickAckReplies = normalizeReplyTextList(savedBot.quickAckReplies || savedBot.quickAck || baseBot.quickAckReplies);
+  bot.fallbackReplies = normalizeReplyTextList(savedBot.fallbackReplies || savedBot.fallbackReply || baseBot.fallbackReplies);
+  if (oldVersion && Number(savedBot.aiSlowMs || 0) >= 50000) bot.aiSlowMs = baseBot.aiSlowMs;
+  if (!Number.isFinite(Number(bot.aiSlowMs)) || Number(bot.aiSlowMs) <= 0) bot.aiSlowMs = baseBot.aiSlowMs;
+  if (!Number.isFinite(Number(bot.fallbackReplyMs)) || Number(bot.fallbackReplyMs) <= 0) bot.fallbackReplyMs = baseBot.fallbackReplyMs;
   bot.configVersion = BOT_CONFIG_VERSION;
   bot.rules = mergeRuleList(baseBot.rules, savedBot.rules);
   bot.actionRules = mergeRuleList(baseBot.actionRules, savedBot.actionRules);
   bot.imageReplies = mergeRuleList(baseBot.imageReplies, savedBot.imageReplies);
   return bot;
+}
+
+function normalizeReplyTextList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value || "")
+    .split(/\n{2,}|[|｜]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function mergeRuleList(defaultRules, savedRules) {
@@ -315,8 +403,12 @@ function mergeRuleList(defaultRules, savedRules) {
 
 function mergeRule(defaultRule, savedRule) {
   const rule = { ...defaultRule, ...savedRule };
-  if (Array.isArray(defaultRule.keywords) && (!Array.isArray(savedRule.keywords) || savedRule.keywords.length === 0)) {
-    rule.keywords = defaultRule.keywords;
+  if (Array.isArray(defaultRule.keywords)) {
+    if (Array.isArray(savedRule.keywords) && savedRule.keywords.length > 0) {
+      rule.keywords = mergeTextList(defaultRule.keywords, savedRule.keywords);
+    } else {
+      rule.keywords = defaultRule.keywords;
+    }
   }
   if (Array.isArray(defaultRule.actions) && (!Array.isArray(savedRule.actions) || savedRule.actions.length === 0)) {
     rule.actions = defaultRule.actions;
@@ -326,6 +418,15 @@ function mergeRule(defaultRule, savedRule) {
   }
   if (defaultRule.path && !savedRule.path) rule.path = defaultRule.path;
   return cloneJson(rule);
+}
+
+function mergeTextList(defaultItems, savedItems) {
+  const output = [];
+  for (const item of [...(defaultItems || []), ...(savedItems || [])]) {
+    const text = String(item || "").trim();
+    if (text && !output.includes(text)) output.push(text);
+  }
+  return output;
 }
 
 function ruleKey(rule) {
@@ -392,7 +493,7 @@ async function startDesktopControlServer() {
       }
 
       const url = new URL(req.url || "/", `http://127.0.0.1:${CONTROL_PORT}`);
-      if (req.method === "GET" && url.pathname === "/health") {
+      if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/status")) {
         controlJson(res, 200, {
           ok: true,
           port: CONTROL_PORT,
@@ -410,6 +511,34 @@ async function startDesktopControlServer() {
 
       if (req.method === "GET" && url.pathname === "/capture") {
         controlJson(res, 200, await capturePageStructure());
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/judgments/status") {
+        controlJson(res, 200, await getJudgmentLibraryStatus());
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/judgments/search") {
+        const body = await readControlJson(req);
+        controlJson(res, 200, await testJudgmentLibrary(body || {}));
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/judgments/refresh") {
+        const body = await readControlJson(req);
+        controlJson(res, 200, await refreshJudgmentLibrary(body || {}));
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/judgments/full-download") {
+        const body = await readControlJson(req);
+        controlJson(res, 200, await startJudgmentFullDownload(body || {}));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/judgments/download-status") {
+        controlJson(res, 200, getJudgmentDownloadStatus());
         return;
       }
 
@@ -489,6 +618,7 @@ function createMainWindow() {
     minWidth: 1100,
     minHeight: 720,
     title: "微信小店客服自动回复",
+    icon: APP_ICON_PATH,
     show: true,
     webPreferences: {
       preload: resolve(__dirname, "main-shell-preload.cjs"),
@@ -579,13 +709,18 @@ function createKfView() {
   });
 
   wc.on("did-finish-load", () => {
-    injectBotScript();
     inspectLoginState();
+    injectBotScript();
+    persistAuthenticatedKfUrlSoon();
+    flushKfSessionSoon();
     broadcastStatus();
   });
 
   wc.on("did-navigate", () => {
+    inspectLoginState();
     injectBotScript();
+    persistAuthenticatedKfUrlSoon();
+    flushKfSessionSoon();
     broadcastStatus();
   });
 
@@ -602,13 +737,54 @@ function createKfView() {
     return { action: "deny" };
   });
 
-  wc.loadURL(config.kfUrl);
+  wc.loadURL(initialKfUrl());
   return kfView;
+}
+
+function initialKfUrl() {
+  const lastUrl = String(config?.lastKfUrl || "").trim();
+  return isAuthenticatedKfUrl(lastUrl) ? lastUrl : config.kfUrl;
+}
+
+let authenticatedUrlTimer = null;
+
+function persistAuthenticatedKfUrlSoon() {
+  clearTimeout(authenticatedUrlTimer);
+  authenticatedUrlTimer = setTimeout(async () => {
+    const wc = getKfWebContents();
+    if (!wc || wc.isDestroyed()) return;
+    const url = wc.getURL();
+    if (!isAuthenticatedKfUrl(url)) return;
+    if (config.lastKfUrl === url) return;
+    config.lastKfUrl = url;
+    await saveConfig();
+  }, 1000);
+}
+
+function isAuthenticatedKfUrl(url) {
+  return /^https:\/\/store\.weixin\.qq\.com\/shop\/kf(?:[?#].*)?$/.test(String(url || ""));
 }
 
 function getKfWebContents() {
   if (!kfView || kfView.webContents.isDestroyed()) return null;
   return kfView.webContents;
+}
+
+let sessionFlushTimer = null;
+
+function flushKfSessionSoon() {
+  clearTimeout(sessionFlushTimer);
+  sessionFlushTimer = setTimeout(() => {
+    flushKfSession().catch((error) => console.error("[desktop] flush kf session failed", error));
+  }, 1200);
+}
+
+async function flushKfSession() {
+  const wc = getKfWebContents();
+  if (!wc || wc.isDestroyed()) return;
+  const ses = wc.session;
+  if (ses?.cookies?.flushStore) await ses.cookies.flushStore();
+  if (ses?.flushStorageData) await ses.flushStorageData();
 }
 
 function ensureKfView() {
@@ -681,9 +857,15 @@ async function setMainMode(mode) {
 function createFloatingWindow() {
   if (!config.floatWindow.enabled || config.floatWindow.visible === false) return;
 
-  const initialBounds = normalizeBounds(config.floatWindow.bounds) || {
-    width: Number(config.floatWindow.compactSize?.width || 320),
-    height: Number(config.floatWindow.compactSize?.height || 182)
+  const mode = normalizeFloatingMode(config.floatWindow.mode);
+  const modeSize = floatingSizeForMode(mode);
+  const savedBounds = normalizeBounds(config.floatWindow.bounds);
+  const initialBounds = {
+    width: modeSize.width,
+    height: modeSize.height,
+    ...(Number.isFinite(Number(savedBounds?.x)) && Number.isFinite(Number(savedBounds?.y))
+      ? { x: savedBounds.x, y: savedBounds.y }
+      : {})
   };
 
   floatWindow = new BrowserWindow({
@@ -692,8 +874,9 @@ function createFloatingWindow() {
     x: initialBounds.x,
     y: initialBounds.y,
     frame: false,
-    resizable: true,
+    resizable: false,
     movable: true,
+    icon: APP_ICON_PATH,
     alwaysOnTop: Boolean(config.floatWindow.alwaysOnTop),
     skipTaskbar: true,
     title: "客服状态",
@@ -746,16 +929,19 @@ function updateTrayMenu() {
 }
 
 function createTrayImage() {
-  const png = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAI0lEQVR4AWNkYGD4z0ABYBw1gGE0DBqG////GQkE0KQBAEOjAhHhXi8YAAAAAElFTkSuQmCC";
-  const image = nativeImage.createFromDataURL(`data:image/png;base64,${png}`);
-  image.setTemplateImage(process.platform === "darwin");
+  const image = existsSync(APP_ICON_PATH)
+    ? nativeImage.createFromPath(APP_ICON_PATH)
+    : nativeImage.createEmpty();
+  if (image.isEmpty()) {
+    return nativeImage.createFromDataURL("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAI0lEQVR4AWNkYGD4z0ABYBw1gGE0DBqG////GQkE0KQBAEOjAhHhXi8YAAAAAElFTkSuQmCC");
+  }
   return image;
 }
 
 function normalizeBounds(bounds) {
   if (!bounds || typeof bounds !== "object") return null;
-  const width = clampInt(bounds.width, 280, 1200);
-  const height = clampInt(bounds.height, 160, 1000);
+  const width = clampInt(bounds.width, 160, 1200);
+  const height = clampInt(bounds.height, 44, 1000);
   const normalized = { width, height };
   if (Number.isFinite(Number(bounds.x)) && Number.isFinite(Number(bounds.y))) {
     const display = screen.getDisplayMatching({
@@ -783,6 +969,18 @@ function persistFloatingBoundsSoon() {
   floatingBoundsTimer = setTimeout(async () => {
     if (!floatWindow || floatWindow.isDestroyed()) return;
     config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
+    const mode = normalizeFloatingMode(config.floatWindow.mode);
+    if (mode === "mini") {
+      config.floatWindow.miniSize = {
+        width: config.floatWindow.bounds.width,
+        height: config.floatWindow.bounds.height
+      };
+    } else {
+      config.floatWindow.compactSize = {
+        width: config.floatWindow.bounds.width,
+        height: config.floatWindow.bounds.height
+      };
+    }
     await saveConfig();
     broadcastStatus();
   }, 500);
@@ -807,14 +1005,37 @@ function showFloatingWindow() {
 
 async function setFloatingMode(mode) {
   if (!floatWindow || floatWindow.isDestroyed()) return false;
-  const size = mode === "settings" ? config.floatWindow.settingsSize : config.floatWindow.compactSize;
-  const width = clampInt(size?.width, 280, 1200);
-  const height = clampInt(size?.height, 160, 1000);
+  const normalized = normalizeFloatingMode(mode);
+  const size = floatingSizeForMode(normalized);
+  const width = size.width;
+  const height = size.height;
+  config.floatWindow.mode = normalized;
   floatWindow.setSize(width, height, true);
   config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
   await saveConfig();
   broadcastStatus();
   return true;
+}
+
+function normalizeFloatingMode(mode) {
+  return String(mode || "").trim() === "mini" ? "mini" : "compact";
+}
+
+function floatingSizeForMode(mode) {
+  const normalized = normalizeFloatingMode(mode);
+  const size = normalized === "mini" ? config.floatWindow.miniSize : config.floatWindow.compactSize;
+  return normalizeFloatingSize(normalized, size);
+}
+
+function normalizeFloatingSize(mode, size = {}) {
+  const normalized = normalizeFloatingMode(mode);
+  const defaults = normalized === "mini"
+    ? { width: 188, height: 44 }
+    : { width: 276, height: 166 };
+  return {
+    width: clampInt(size?.width || defaults.width, normalized === "mini" ? 180 : 260, normalized === "mini" ? 320 : 420),
+    height: clampInt(size?.height || defaults.height, normalized === "mini" ? 44 : 160, normalized === "mini" ? 72 : 260)
+  };
 }
 
 async function setFloatingAlwaysOnTop(value) {
@@ -834,6 +1055,14 @@ async function injectBotScript() {
   if (!url.includes("store.weixin.qq.com")) return;
 
   try {
+    const pageState = await readLoginPageState(wc).catch(() => null);
+    if (!isAuthenticatedKfUrl(url) && pageState?.hasLoginText && !pageState?.hasInput) {
+      if (!pageState.hasQr) updateFloatingStatus("等待二维码");
+      scheduleLoginScreenshotNotification();
+      updateFloatingStatus(pageState.hasQr ? "等待扫码确认" : "等待二维码");
+      return;
+    }
+
     const content = await readFile(CONTENT_SCRIPT_PATH, "utf8");
     await wc.executeJavaScript(content, true);
     lastBotStatus = {
@@ -949,8 +1178,15 @@ function registerIpc() {
   ipcMain.handle("main-capture-structure", () => capturePageStructure());
   ipcMain.handle("main-run-action", (_event, action) => runPageAction(action || {}));
   ipcMain.handle("main-choose-image", () => chooseImagePath());
+  ipcMain.handle("main-choose-file", (_event, options = {}) => chooseFilePath(options || {}));
+  ipcMain.handle("main-reveal-path", (_event, targetPath = "") => revealPath(targetPath));
   ipcMain.handle("main-get-reply-records", (_event, options = {}) => replyRecordsPayload(options || {}));
   ipcMain.handle("main-test-ai-reply", (_event, payload = {}) => testAiReply(payload || {}));
+  ipcMain.handle("main-get-judgments-status", () => getJudgmentLibraryStatus());
+  ipcMain.handle("main-test-judgments", (_event, payload = {}) => testJudgmentLibrary(payload || {}));
+  ipcMain.handle("main-refresh-judgments", (_event, payload = {}) => refreshJudgmentLibrary(payload || {}));
+  ipcMain.handle("main-start-judgments-full-download", (_event, payload = {}) => startJudgmentFullDownload(payload || {}));
+  ipcMain.handle("main-get-judgments-download-status", () => getJudgmentDownloadStatus());
 }
 
 function sendConfigChanges(changes) {
@@ -1018,6 +1254,7 @@ function statusPayload() {
       enabled: Boolean(config?.floatWindow?.enabled),
       visible: Boolean(floatWindow && !floatWindow.isDestroyed() && floatWindow.isVisible()),
       alwaysOnTop: Boolean(config?.floatWindow?.alwaysOnTop),
+      mode: normalizeFloatingMode(config?.floatWindow?.mode),
       bounds: floatWindow && !floatWindow.isDestroyed() ? floatWindow.getBounds() : config?.floatWindow?.bounds || null
     },
     notify: {
@@ -1030,6 +1267,8 @@ function statusPayload() {
       dailySummaryEnabled: Boolean(config?.notify?.dailySummaryEnabled),
       dailySummaryTime: String(config?.notify?.dailySummaryTime || `${config?.notify?.dailySummaryHour ?? 10}:00`)
     },
+    judgmentLibrary: config?.judgmentLibrary || {},
+    judgmentDownload: getJudgmentDownloadStatus(),
     records,
     now: Date.now()
   };
@@ -1071,6 +1310,7 @@ function settingsPayload() {
       kfUrl: config.kfUrl,
       bot: config.bot,
       notify: config.notify,
+      judgmentLibrary: config.judgmentLibrary,
       floatWindow: config.floatWindow,
       watchdog: config.watchdog
     },
@@ -1085,6 +1325,18 @@ function settingsPayload() {
       deepseekTimeoutMs: env.DEEPSEEK_TIMEOUT_MS || process.env.DEEPSEEK_TIMEOUT_MS || "80000",
       deepseekReviewTimeoutMs: env.DEEPSEEK_REVIEW_TIMEOUT_MS || process.env.DEEPSEEK_REVIEW_TIMEOUT_MS || "25000",
       wecomWebhookUrl: env.WECOM_BOT_WEBHOOK_URL || process.env.WECOM_BOT_WEBHOOK_URL || "",
+      runyuWebCookie: env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "",
+      runyuWebBaseUrl: env.RUNYU_WEB_BASE_URL || process.env.RUNYU_WEB_BASE_URL || "https://runyuai.zhiduoke.com.cn",
+      runyuJudgmentsEnabled: env.RUNYU_JUDGMENTS_ENABLED || process.env.RUNYU_JUDGMENTS_ENABLED || "disabled",
+      runyuJudgmentsSources: env.RUNYU_JUDGMENTS_SOURCES || process.env.RUNYU_JUDGMENTS_SOURCES || "runyu,liurun,xiangshui,xingxing,book,dedao",
+      runyuJudgmentsSearchTypes: env.RUNYU_JUDGMENTS_SEARCH_TYPES || process.env.RUNYU_JUDGMENTS_SEARCH_TYPES || "judgments,quotes,cases",
+      runyuJudgmentsUseCache: env.RUNYU_JUDGMENTS_USE_CACHE || process.env.RUNYU_JUDGMENTS_USE_CACHE || "enabled",
+      runyuJudgmentsUseRemote: env.RUNYU_JUDGMENTS_USE_REMOTE || process.env.RUNYU_JUDGMENTS_USE_REMOTE || "enabled",
+      runyuJudgmentsMaxResults: env.RUNYU_JUDGMENTS_MAX_RESULTS || process.env.RUNYU_JUDGMENTS_MAX_RESULTS || "4",
+      runyuJudgmentsLimitPerQuery: env.RUNYU_JUDGMENTS_LIMIT_PER_QUERY || process.env.RUNYU_JUDGMENTS_LIMIT_PER_QUERY || "8",
+      runyuJudgmentsRefreshLimit: env.RUNYU_JUDGMENTS_REFRESH_LIMIT || process.env.RUNYU_JUDGMENTS_REFRESH_LIMIT || "80",
+      runyuJudgmentsTimeoutMs: env.RUNYU_JUDGMENTS_TIMEOUT_MS || process.env.RUNYU_JUDGMENTS_TIMEOUT_MS || "12000",
+      runyuJudgmentsRefreshKeywords: env.RUNYU_JUDGMENTS_REFRESH_KEYWORDS || process.env.RUNYU_JUDGMENTS_REFRESH_KEYWORDS || "会员,退款,课程,订单,发票,社群,视频号,直播,线下课,小店",
       port: env.PORT || process.env.PORT || String(PORT)
     },
     paths: {
@@ -1136,22 +1388,42 @@ async function saveDesktopSettings(payload) {
       config.notify.enabled = Boolean(config.notify.enabled && config.notify.wecomWebhookUrl);
     }
 
+    if (payload.config.judgmentLibrary && typeof payload.config.judgmentLibrary === "object") {
+      config.judgmentLibrary = normalizeJudgmentLibraryConfig({
+        ...config.judgmentLibrary,
+        ...payload.config.judgmentLibrary
+      });
+    }
+
     if (payload.config.floatWindow && typeof payload.config.floatWindow === "object") {
       config.floatWindow = {
         ...config.floatWindow,
         ...payload.config.floatWindow,
         compactSize: {
           ...config.floatWindow.compactSize,
-          ...(payload.config.floatWindow.compactSize || {})
+          ...normalizeFloatingSize("compact", payload.config.floatWindow.compactSize || {})
+        },
+        miniSize: {
+          ...config.floatWindow.miniSize,
+          ...normalizeFloatingSize("mini", payload.config.floatWindow.miniSize || {})
         },
         settingsSize: {
           ...config.floatWindow.settingsSize,
           ...(payload.config.floatWindow.settingsSize || {})
         }
       };
+      config.floatWindow.mode = normalizeFloatingMode(config.floatWindow.mode);
       config.floatWindow.bounds = normalizeBounds(config.floatWindow.bounds);
       if (floatWindow && !floatWindow.isDestroyed()) {
         floatWindow.setAlwaysOnTop(Boolean(config.floatWindow.alwaysOnTop));
+        const mode = normalizeFloatingMode(config.floatWindow.mode);
+        const size = floatingSizeForMode(mode);
+        floatWindow.setSize(
+          size.width,
+          size.height,
+          true
+        );
+        config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
       }
     }
 
@@ -1178,6 +1450,18 @@ async function saveDesktopSettings(payload) {
       DEEPSEEK_TIMEOUT_MS: payload.env.deepseekTimeoutMs,
       DEEPSEEK_REVIEW_TIMEOUT_MS: payload.env.deepseekReviewTimeoutMs,
       WECOM_BOT_WEBHOOK_URL: payload.env.wecomWebhookUrl,
+      RUNYU_WEB_COOKIE: payload.env.runyuWebCookie == null ? undefined : normalizeRunyuCookie(payload.env.runyuWebCookie),
+      RUNYU_WEB_BASE_URL: payload.env.runyuWebBaseUrl,
+      RUNYU_JUDGMENTS_ENABLED: payload.env.runyuJudgmentsEnabled,
+      RUNYU_JUDGMENTS_SOURCES: payload.env.runyuJudgmentsSources,
+      RUNYU_JUDGMENTS_SEARCH_TYPES: payload.env.runyuJudgmentsSearchTypes,
+      RUNYU_JUDGMENTS_USE_CACHE: payload.env.runyuJudgmentsUseCache,
+      RUNYU_JUDGMENTS_USE_REMOTE: payload.env.runyuJudgmentsUseRemote,
+      RUNYU_JUDGMENTS_MAX_RESULTS: payload.env.runyuJudgmentsMaxResults,
+      RUNYU_JUDGMENTS_LIMIT_PER_QUERY: payload.env.runyuJudgmentsLimitPerQuery,
+      RUNYU_JUDGMENTS_REFRESH_LIMIT: payload.env.runyuJudgmentsRefreshLimit,
+      RUNYU_JUDGMENTS_TIMEOUT_MS: payload.env.runyuJudgmentsTimeoutMs,
+      RUNYU_JUDGMENTS_REFRESH_KEYWORDS: payload.env.runyuJudgmentsRefreshKeywords,
       PORT: payload.env.port
     };
     await writeEnvValues(envUpdates);
@@ -1192,6 +1476,35 @@ async function saveDesktopSettings(payload) {
   broadcastStatus();
   flushNotifyOutbox().catch((error) => console.error("[notify] flush after settings failed", error));
   return settingsPayload();
+}
+
+function normalizeJudgmentLibraryConfig(value = {}) {
+  return {
+    ...defaultConfig().judgmentLibrary,
+    ...value,
+    enabled: Boolean(value.enabled),
+    useCache: value.useCache !== false,
+    useRemote: value.useRemote !== false,
+    autoRefreshEnabled: value.autoRefreshEnabled !== false,
+    refreshIntervalHours: clampInt(value.refreshIntervalHours || 168, 24, 720),
+    sources: normalizeList(value.sources || defaultConfig().judgmentLibrary.sources),
+    searchTypes: normalizeList(value.searchTypes || defaultConfig().judgmentLibrary.searchTypes).filter((type) => ["judgments", "quotes", "cases"].includes(type)),
+    maxResults: clampInt(value.maxResults || 4, 1, 20),
+    limitPerQuery: clampInt(value.limitPerQuery || 8, 1, 50),
+    refreshLimit: clampInt(value.refreshLimit || 80, 1, 3000),
+    fullDownloadPageLimit: clampInt(value.fullDownloadPageLimit || 300, 10, 3000),
+    fullDownloadMaxPages: clampInt(value.fullDownloadMaxPages || 20, 1, 200),
+    timeoutMs: clampInt(value.timeoutMs || 12000, 1000, 60000),
+    refreshKeywords: normalizeList(value.refreshKeywords || defaultConfig().judgmentLibrary.refreshKeywords)
+  };
+}
+
+function normalizeList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value || "")
+    .split(/[,，、\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function loadAssistantProfile() {
@@ -1212,7 +1525,8 @@ async function saveAssistantProfile(profile) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify({
     ...defaultAssistantProfile(),
-    ...profile
+    ...profile,
+    updatedAt: new Date().toISOString()
   }, null, 2), "utf8");
 }
 
@@ -1228,7 +1542,8 @@ function defaultAssistantProfile() {
     reviewPrompt: "",
     knowledgeFilesEnabled: true,
     sidebarContextEnabled: true,
-    reviewEnabled: true
+    reviewEnabled: true,
+    updatedAt: ""
   };
 }
 
@@ -1310,15 +1625,41 @@ async function testWebhookUrl(webhookUrl) {
 }
 
 async function chooseImagePath() {
-  const result = await dialog.showOpenDialog(floatWindow || mainWindow, {
-    title: "选择回复图片",
+  return chooseFilePath({ kind: "image", title: "选择回复图片" });
+}
+
+async function chooseFilePath(options = {}) {
+  const kind = String(options.kind || "file");
+  const title = String(options.title || (kind === "image" ? "选择回复图片" : "选择回复文件"));
+  const filters = kind === "image"
+    ? [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }]
+    : [
+        { name: "常用文件", extensions: ["png", "jpg", "jpeg", "webp", "gif", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "zip"] },
+        { name: "All Files", extensions: ["*"] }
+      ];
+  const result = await dialog.showOpenDialog(mainWindow || floatWindow, {
+    title,
     properties: ["openFile"],
-    filters: [
-      { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }
-    ]
+    filters
   });
   if (result.canceled || !result.filePaths[0]) return "";
   return result.filePaths[0];
+}
+
+async function revealPath(targetPath) {
+  const normalized = String(targetPath || "").trim();
+  if (!normalized) return { ok: false, message: "路径为空" };
+  const absolute = resolve(APP_ROOT, normalized);
+  if (existsSync(absolute)) {
+    shell.showItemInFolder(absolute);
+    return { ok: true, path: absolute };
+  }
+  const parent = dirname(absolute);
+  if (existsSync(parent)) {
+    await shell.openPath(parent);
+    return { ok: true, path: parent, missing: true, message: "文件不存在，已打开所在目录" };
+  }
+  return { ok: false, path: absolute, message: "路径不存在" };
 }
 
 async function setFloatingPreset(preset) {
@@ -1520,13 +1861,32 @@ async function runPageAction(action = {}) {
   const type = String(action.type || "").trim();
   if (!type) return { ok: false, message: "缺少 action.type" };
   if (type === "capture_structure") return capturePageStructure();
+  if (type === "capture_login_screenshot") {
+    const path = await captureLoginScreenshot();
+    return { ok: true, path };
+  }
   if (type === "open_float") {
     showFloatingWindow();
-    if (action.mode === "settings") await setFloatingMode("settings");
+    if (action.mode) await setFloatingMode(action.mode);
     return { ok: true };
   }
-  if (type === "image") return handleImageReply(action);
-  if (type === "file") return handleFileReply(action);
+  if (type === "hide_float") {
+    if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide();
+    config.floatWindow.visible = false;
+    await saveConfig();
+    broadcastStatus();
+    return { ok: true };
+  }
+  if (type === "image") {
+    const result = await handleImageReply(action);
+    await maybeRecordManualAction(action, result);
+    return result;
+  }
+  if (type === "file") {
+    const result = await handleFileReply(action);
+    await maybeRecordManualAction(action, result);
+    return result;
+  }
   const wc = getKfWebContents();
   if (!wc) return { ok: false, message: "客服窗口未打开" };
   if (type === "native_click") return nativeClickPageTarget(action);
@@ -1554,7 +1914,7 @@ async function runPageAction(action = {}) {
       });
       const stillPending = await wc.executeJavaScript(`(${visibleTargetScript.toString()})(${JSON.stringify(result.pendingSelector)})`, true)
         .catch(() => true);
-      return {
+      const fallbackResult = {
         ...result,
         nativeFallback: nativeResult,
         pendingDialog: Boolean(stillPending),
@@ -1562,11 +1922,29 @@ async function runPageAction(action = {}) {
         sent: Boolean(nativeResult.ok && !stillPending),
         message: nativeResult.ok && !stillPending ? "panel action sent by native fallback" : result.message
       };
+      await maybeRecordManualAction(action, fallbackResult);
+      return fallbackResult;
     }
+    await maybeRecordManualAction(action, result);
     return result;
   }
 
   return { ok: false, message: `未知 action.type: ${type}` };
+}
+
+async function maybeRecordManualAction(action = {}, result = {}) {
+  if (action.audit !== true && action.manual !== true && action.sourceType !== "manual_action") return;
+  const type = String(action.type || "action").trim() || "action";
+  const sent = Boolean(result?.sent || result?.ok);
+  await recordReplyEvent(sent ? "sent" : "failed", {
+    stage: "panel_action",
+    sourceType: "panel_action",
+    rule: action.name || action.rule || "手动动作",
+    customer: action.customer || action.message || "",
+    reply: result?.message || action.text || action.reply || "",
+    status: sent ? "" : result?.message || "动作未完成",
+    actions: [{ ...action, type }]
+  });
 }
 
 function pageActionScript(action) {
@@ -1667,8 +2045,9 @@ function pageActionScript(action) {
       findRightPanelButton(buttonLabel) ||
       (fallbackButton ? findRightPanelButton(fallbackButton) : null);
     if (!button) return { ok: false, message: "panel button not found" };
-    const clickedText = textOf(button);
-    button.click();
+    const clickedText = targetText(button) || buttonLabel || fallbackButton;
+    const clickedDrawerAction = Boolean(button.__productDrawerTarget);
+    clickTarget(button);
     await sleep(Number(action.afterClickMs || 700));
 
     if ((action.tab || tabLabel) === "快捷语") {
@@ -1685,18 +2064,19 @@ function pageActionScript(action) {
     }
 
     const defaultConfirmButton = buttonLabel === "邀请下单" ? "邀请下单" : "发送";
-    const confirmed = action.confirm === false ? false : await confirmSendDialog(action.confirmButton || defaultConfirmButton);
+    const shouldConfirm = action.confirm !== false && !clickedDrawerAction;
+    const confirmed = shouldConfirm ? await confirmSendDialog(action.confirmButton || defaultConfirmButton) : false;
     await sleep(Number(action.afterConfirmMs || defaultAfterConfirmMs(tabLabel)));
-    const pendingButton = action.confirm === false ? null : findDialogButton(action.confirmButton || defaultConfirmButton);
+    const pendingButton = shouldConfirm ? findDialogButton(action.confirmButton || defaultConfirmButton) : null;
     const pendingDialog = Boolean(pendingButton);
-    const sent = action.confirm === false || !pendingDialog;
+    const sent = action.confirm === false || clickedDrawerAction || !pendingDialog;
     return {
       ok: sent,
       sent,
-      button: textOf(button),
+      button: clickedText,
       confirmed,
       pendingDialog,
-      pendingSelector: pendingButton ? buildSelector(pendingButton) : "",
+      pendingSelector: targetSelector(pendingButton),
       message: sent ? "panel action sent" : "panel action needs confirmation"
     };
   }
@@ -1793,15 +2173,51 @@ function pageActionScript(action) {
 
   function findProductButton(item, buttonLabel, fallbackButton) {
     const labels = [buttonLabel, fallbackButton].map((label) => String(label || "").trim()).filter(Boolean);
+    const terms = matchTerms(item, ["productId", "productName", "query", "match", "name"]);
+    const drawerButton = findProductDrawerButton(item, terms, buttonLabel, fallbackButton);
+    if (drawerButton) return drawerButton;
+
     const cards = Array.from(document.querySelectorAll(".product-panel .product-card, .product-card"))
       .filter(visible)
       .filter(isRightPanelNode)
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
     if (!cards.length) return null;
 
-    const terms = matchTerms(item, ["productId", "productName", "query", "match", "name"]);
     const card = findMatchedNode(cards, terms) || cards[0];
     return findButtonInside(card, labels);
+  }
+
+  function findProductDrawerButton(item, terms, buttonLabel, fallbackButton) {
+    const drawer = findProductDrawer();
+    if (!drawer) return null;
+    if (!productDrawerMatches(drawer, terms)) return null;
+    const target = findLabelTargetInside(drawer, productDrawerLabels(buttonLabel, fallbackButton));
+    if (target) target.__productDrawerTarget = true;
+    return target;
+  }
+
+  function findProductDrawer() {
+    return Array.from(document.querySelectorAll(".product-detail-drawer, .t-drawer, [class*='product-detail'], [class*='drawer']"))
+      .filter(visible)
+      .filter((node) => /商品预览|邀请下单|发送/.test(textOf(node)))
+      .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || null;
+  }
+
+  function productDrawerMatches(drawer, terms) {
+    if (!terms.length) return true;
+    const text = textOf(drawer).toLowerCase();
+    return terms.every((term) => text.includes(term)) || terms.some((term) => text.includes(term));
+  }
+
+  function productDrawerLabels(buttonLabel, fallbackButton) {
+    const output = [];
+    for (const label of [buttonLabel, fallbackButton]) {
+      const value = String(label || "").trim();
+      if (!value) continue;
+      if (value === "发商品") output.push("发送", "发商品");
+      else output.push(value);
+    }
+    return output.filter((label, index, list) => label && list.indexOf(label) === index);
   }
 
   function findMaterialButton(item, buttonLabel, fallbackButton) {
@@ -1863,6 +2279,89 @@ function pageActionScript(action) {
     return null;
   }
 
+  function findLabelTargetInside(scope, labels) {
+    if (!scope || !labels.length) return null;
+    const selectors = "button,[role='button'],a,.weui-desktop-btn,[class*='btn'],div,span,li";
+    const nodes = Array.from(scope.querySelectorAll(selectors))
+      .filter(visible)
+      .filter((node) => !node.disabled && node.getAttribute("aria-disabled") !== "true")
+      .sort((a, b) => targetScore(a) - targetScore(b));
+    for (const label of labels) {
+      const exact = nodes.find((node) => labelMatches(textOf(node), label));
+      if (exact) return exact;
+      const pointTarget = findTextRangeTarget(scope, label);
+      if (pointTarget) return pointTarget;
+    }
+    return null;
+  }
+
+  function targetScore(node) {
+    const rect = node.getBoundingClientRect();
+    const tag = String(node.tagName || "").toLowerCase();
+    const role = node.getAttribute("role") || "";
+    const interactivePenalty = tag === "button" || tag === "a" || role === "button" ? -100000 : 0;
+    return rect.width * rect.height + interactivePenalty;
+  }
+
+  function findTextRangeTarget(scope, label) {
+    const expected = String(label || "").trim();
+    if (!expected) return null;
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!String(node.nodeValue || "").includes(expected)) return NodeFilter.FILTER_REJECT;
+        if (!visible(node.parentElement)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    let node = walker.nextNode();
+    while (node) {
+      const value = String(node.nodeValue || "");
+      const start = value.indexOf(expected);
+      if (start >= 0) {
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + expected.length);
+        const rect = Array.from(range.getClientRects())
+          .filter((item) => item.width > 0 && item.height > 0)
+          .sort((a, b) => b.bottom - a.bottom)[0];
+        range.detach();
+        if (rect) {
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          const target = nearestClickable(hit, scope) || hit || node.parentElement;
+          return {
+            __pointTarget: true,
+            node: target,
+            x,
+            y,
+            label: expected,
+            selector: target ? buildSelector(target) : ""
+          };
+        }
+      }
+      node = walker.nextNode();
+    }
+    return null;
+  }
+
+  function nearestClickable(node, scope) {
+    let current = node;
+    while (current && current !== scope.parentElement) {
+      if (!visible(current)) return null;
+      const tag = String(current.tagName || "").toLowerCase();
+      const role = current.getAttribute?.("role") || "";
+      const style = window.getComputedStyle(current);
+      if (tag === "button" || tag === "a" || role === "button" || style.cursor === "pointer" || typeof current.onclick === "function") {
+        return current;
+      }
+      if (current === scope) break;
+      current = current.parentElement;
+    }
+    return null;
+  }
+
   function findClickableText(scope, terms) {
     if (!scope || !terms.length) return null;
     return Array.from(scope.querySelectorAll("button,[role='button'],a,div,span,li"))
@@ -1879,7 +2378,7 @@ function pageActionScript(action) {
     while (Date.now() - started < 5000) {
       const button = findDialogButton(label);
       if (button) {
-        button.click();
+        clickTarget(button);
         await sleep(600);
         return true;
       }
@@ -1899,6 +2398,8 @@ function pageActionScript(action) {
         .filter((node) => labelMatches(textOf(node), label))
         .sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0];
       if (button) return button;
+      const textTarget = findLabelTargetInside(scope, [label]);
+      if (textTarget) return textTarget;
     }
     return null;
   }
@@ -1935,6 +2436,7 @@ function pageActionScript(action) {
   }
 
   function buildSelector(node) {
+    if (!node || node.nodeType !== 1) return "";
     const escape = (value) => {
       if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
       return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
@@ -1962,6 +2464,48 @@ function pageActionScript(action) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
     if (descriptor?.set) descriptor.set.call(element, value);
     else element.textContent = value;
+  }
+
+  function targetNode(target) {
+    if (!target) return null;
+    return target.__pointTarget ? target.node : target;
+  }
+
+  function targetText(target) {
+    if (!target) return "";
+    return target.__pointTarget ? String(target.label || textOf(target.node) || "") : textOf(target);
+  }
+
+  function targetSelector(target) {
+    if (!target) return "";
+    if (target.__pointTarget) return target.selector || "";
+    return buildSelector(target);
+  }
+
+  function clickTarget(target) {
+    if (!target) return false;
+    if (target.__pointTarget) return clickAtPoint(target.x, target.y);
+    if (typeof target.click === "function") {
+      target.click();
+      return true;
+    }
+    return false;
+  }
+
+  function clickAtPoint(x, y) {
+    const target = document.elementFromPoint(x, y);
+    if (!target) return false;
+    for (const eventType of ["mouseover", "mousemove", "mousedown", "mouseup", "click"]) {
+      target.dispatchEvent(new MouseEvent(eventType, {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: x,
+        clientY: y,
+        button: 0
+      }));
+    }
+    return true;
   }
 }
 
@@ -2589,6 +3133,7 @@ async function recordReplyEvent(kind, payload = {}) {
     usedRuleLibrary: source.usedRuleLibrary,
     usedDirectReply: source.usedDirectReply,
     usedAi: source.usedAi,
+    usedJudgmentLibrary: Boolean(payload.usedJudgmentLibrary || source.sourceType === "judgment_ai"),
     rule: String(payload.rule || payload.ruleName || ""),
     status: String(payload.status || payload.error || payload.reason || ""),
     customer: clip(String(payload.customer || payload.message || ""), 180),
@@ -2608,6 +3153,16 @@ function classifyReplySource(stageValue, payload = {}) {
   const actions = Array.isArray(payload.actions) ? payload.actions : [];
   const hasProductAction = actions.some((action) => ["product", "material", "quick_reply", "file", "image"].includes(String(action?.type || "")));
 
+  if (payload.usedJudgmentLibrary === true || stage === "judgment_ai") {
+    return {
+      sourceType: "judgment_ai",
+      sourceLabel: "判断库补充",
+      usedRuleLibrary: false,
+      usedDirectReply: false,
+      usedAi: true
+    };
+  }
+
   if (payload.usedAi === true || /^ai/.test(stage)) {
     return {
       sourceType: "ai_followup",
@@ -2615,6 +3170,16 @@ function classifyReplySource(stageValue, payload = {}) {
       usedRuleLibrary: false,
       usedDirectReply: false,
       usedAi: true
+    };
+  }
+
+  if (stage === "panel_action") {
+    return {
+      sourceType: "panel_action",
+      sourceLabel: "页面动作",
+      usedRuleLibrary: true,
+      usedDirectReply: false,
+      usedAi: false
     };
   }
 
@@ -2632,16 +3197,6 @@ function classifyReplySource(stageValue, payload = {}) {
     return {
       sourceType: "image_rule",
       sourceLabel: "图片规则库",
-      usedRuleLibrary: true,
-      usedDirectReply: false,
-      usedAi: false
-    };
-  }
-
-  if (stage === "panel_action") {
-    return {
-      sourceType: "panel_action",
-      sourceLabel: "页面动作",
       usedRuleLibrary: true,
       usedDirectReply: false,
       usedAi: false
@@ -2672,6 +3227,16 @@ function classifyReplySource(stageValue, payload = {}) {
     return {
       sourceType: "waiting_reply",
       sourceLabel: "等待补偿",
+      usedRuleLibrary: false,
+      usedDirectReply: true,
+      usedAi: false
+    };
+  }
+
+  if (stage === "fallback_reply") {
+    return {
+      sourceType: "fallback_reply",
+      sourceLabel: "60秒兜底",
       usedRuleLibrary: false,
       usedDirectReply: true,
       usedAi: false
@@ -2944,6 +3509,200 @@ async function testAiReply(payload = {}) {
   }
 }
 
+async function getJudgmentLibraryStatus() {
+  const env = readEnvValues();
+  try {
+    const data = await fetchJson(`http://127.0.0.1:${PORT}/judgments/status`, 5000);
+    return {
+      ok: true,
+      ...data,
+      autoRefreshEnabled: Boolean(config?.judgmentLibrary?.autoRefreshEnabled),
+      refreshIntervalHours: Number(config?.judgmentLibrary?.refreshIntervalHours || 168),
+      configured: Boolean(env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      enabled: Boolean(config?.judgmentLibrary?.enabled),
+      configured: Boolean(env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE),
+      records: 0,
+      message: String(error?.message || error)
+    };
+  }
+}
+
+async function testJudgmentLibrary(payload = {}) {
+  const query = String(payload.query || payload.keyword || "会员").trim();
+  if (!query) return { ok: false, message: "测试关键词不能为空" };
+  return await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/search`, {
+    query,
+    limit: clampInt(payload.limit || 10, 1, 30)
+  }, Number(config?.judgmentLibrary?.timeoutMs || 12000) + 5000).catch((error) => ({
+    ok: false,
+    message: String(error?.message || error),
+    results: []
+  }));
+}
+
+async function refreshJudgmentLibrary(payload = {}) {
+  const library = normalizeJudgmentLibraryConfig({
+    ...config.judgmentLibrary,
+    ...(payload || {})
+  });
+  return await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/refresh`, {
+    keywords: normalizeList(payload.keywords || library.refreshKeywords),
+    sources: normalizeList(payload.sources || library.sources),
+    searchTypes: normalizeList(payload.searchTypes || library.searchTypes),
+    limit: clampInt(payload.limit || library.refreshLimit, 1, 3000),
+    offset: clampInt(payload.offset || 0, 0, 1_000_000),
+    reason: payload.reason || "manual_refresh"
+  }, Math.max(20_000, Number(library.timeoutMs || 12000) * Math.max(1, normalizeList(payload.keywords || library.refreshKeywords).length))).catch((error) => ({
+    ok: false,
+    message: String(error?.message || error),
+    errors: [{ message: String(error?.message || error) }]
+  }));
+}
+
+async function startJudgmentFullDownload(payload = {}) {
+  if (judgmentDownloadJob?.status === "running") return getJudgmentDownloadStatus();
+  const library = normalizeJudgmentLibraryConfig({
+    ...config.judgmentLibrary,
+    ...(payload || {})
+  });
+  const status = await getJudgmentLibraryStatus();
+  if (!library.enabled && !status.enabled) return { ok: false, message: "判断库未启用" };
+  if (!status.configured) return { ok: false, message: "缺少 Runyu Session Cookie" };
+
+  const keywords = normalizeList(payload.keywords || library.refreshKeywords);
+  const sources = normalizeList(payload.sources || library.sources);
+  const searchTypes = normalizeList(payload.searchTypes || library.searchTypes);
+  const combinations = [];
+  for (const keyword of keywords) {
+    for (const source of sources) {
+      for (const searchType of searchTypes) {
+        combinations.push({ keyword, source, searchType });
+      }
+    }
+  }
+  if (!combinations.length) return { ok: false, message: "缺少下载范围" };
+
+  judgmentDownloadJob = {
+    ok: true,
+    id: `${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    status: "running",
+    startedAt: Date.now(),
+    finishedAt: 0,
+    totalSteps: combinations.length,
+    completedSteps: 0,
+    current: "",
+    fetched: 0,
+    added: 0,
+    updated: 0,
+    unchanged: 0,
+    errors: [],
+    cachePath: status.cachePath || "",
+    progress: 0
+  };
+  runJudgmentFullDownload({ library, combinations }).catch((error) => {
+    if (!judgmentDownloadJob) return;
+    judgmentDownloadJob.status = "failed";
+    judgmentDownloadJob.finishedAt = Date.now();
+    judgmentDownloadJob.errors.push({ message: String(error?.message || error) });
+    judgmentDownloadJob.progress = 100;
+    broadcastStatus();
+  });
+  return getJudgmentDownloadStatus();
+}
+
+function getJudgmentDownloadStatus() {
+  if (!judgmentDownloadJob) {
+    return { ok: true, status: "idle", progress: 0, message: "未开始下载" };
+  }
+  return { ...judgmentDownloadJob };
+}
+
+async function runJudgmentFullDownload({ library, combinations }) {
+  const pageLimit = clampInt(library.fullDownloadPageLimit || library.refreshLimit || 300, 10, 3000);
+  const maxPages = clampInt(library.fullDownloadMaxPages || 20, 1, 200);
+
+  for (let index = 0; index < combinations.length; index += 1) {
+    if (!judgmentDownloadJob || judgmentDownloadJob.status !== "running") return;
+    const combo = combinations[index];
+    judgmentDownloadJob.current = `${combo.source}/${combo.searchType}/${combo.keyword}`;
+    let offset = 0;
+    let pages = 0;
+    while (pages < maxPages) {
+      pages += 1;
+      if (!judgmentDownloadJob || judgmentDownloadJob.status !== "running") return;
+      const result = await refreshJudgmentLibrary({
+        keywords: [combo.keyword],
+        sources: [combo.source],
+        searchTypes: [combo.searchType],
+        limit: pageLimit,
+        offset,
+        reason: "full_download"
+      });
+      judgmentDownloadJob.fetched += Number(result.fetched || 0);
+      judgmentDownloadJob.added += Number(result.added || 0);
+      judgmentDownloadJob.updated += Number(result.updated || 0);
+      judgmentDownloadJob.unchanged += Number(result.unchanged || 0);
+      if (Array.isArray(result.errors) && result.errors.length) {
+        judgmentDownloadJob.errors.push(...result.errors);
+      }
+      const pageProgress = Math.min(0.9, pages / maxPages) * (100 / combinations.length);
+      judgmentDownloadJob.progress = Math.min(99, Math.round(((index / combinations.length) * 100) + pageProgress));
+      broadcastStatus();
+      if (!result.ok || Number(result.fetched || 0) < pageLimit) break;
+      offset += pageLimit;
+    }
+    judgmentDownloadJob.completedSteps = index + 1;
+    judgmentDownloadJob.progress = Math.min(99, Math.round((judgmentDownloadJob.completedSteps / combinations.length) * 100));
+    broadcastStatus();
+  }
+
+  if (!judgmentDownloadJob) return;
+  judgmentDownloadJob.status = judgmentDownloadJob.errors.length ? "completed_with_errors" : "completed";
+  judgmentDownloadJob.finishedAt = Date.now();
+  judgmentDownloadJob.current = "";
+  judgmentDownloadJob.progress = 100;
+  config.judgmentLibrary.lastAutoRefreshAt = Date.now();
+  await saveConfig();
+  broadcastStatus();
+}
+
+function startJudgmentRefreshScheduler() {
+  if (judgmentRefreshTimer) clearInterval(judgmentRefreshTimer);
+  judgmentRefreshTimer = setInterval(() => {
+    maybeAutoRefreshJudgments().catch((error) => console.error("[judgments] auto refresh failed", error));
+  }, 10 * 60_000);
+  setTimeout(() => {
+    maybeAutoRefreshJudgments().catch((error) => console.error("[judgments] initial refresh failed", error));
+  }, 20_000);
+}
+
+async function maybeAutoRefreshJudgments() {
+  const library = normalizeJudgmentLibraryConfig(config?.judgmentLibrary || {});
+  if (!library.enabled || !library.autoRefreshEnabled) return;
+  const status = await getJudgmentLibraryStatus();
+  if (!status.configured) return;
+  const lastAt = Number(status.updatedAt || library.lastAutoRefreshAt || 0);
+  const intervalMs = clampInt(library.refreshIntervalHours || 168, 24, 720) * 60 * 60 * 1000;
+  if (lastAt && Date.now() - lastAt < intervalMs) return;
+
+  const result = await refreshJudgmentLibrary({
+    ...library,
+    reason: "auto_refresh"
+  });
+  config.judgmentLibrary.lastAutoRefreshAt = Date.now();
+  await saveConfig();
+  if (!result.ok) {
+    await sendNotification("judgments_refresh_failed", "判断库自动刷新失败", result.message || "请打开控制台检查 Cookie、权限和关键词", {
+      severity: "warning",
+      cooldownMs: 6 * 60 * 60_000
+    });
+  }
+}
+
 async function inspectLoginState() {
   const wc = getKfWebContents();
   if (!wc) return;
@@ -2959,19 +3718,58 @@ async function inspectLoginState() {
   }
 
   try {
-    const pageState = await wc.executeJavaScript(`({
-      text: document.body ? document.body.innerText.slice(0, 3000) : "",
-      hasInput: Boolean(document.querySelector("#input-textarea")),
-      hasQr: (${detectQrReadyScript.toString()})()
-    })`, true);
-    if (/登录|扫码|微信扫一扫|二维码|验证/.test(pageState.text) && !pageState.hasInput) {
+    const pageState = await readLoginPageState(wc);
+    if (pageState.hasInput || isAuthenticatedKfUrl(url)) {
+      clearPendingLoginNotification();
+      return;
+    }
+    if (pageState.hasLoginText && !pageState.hasInput) {
       if (!pageState.hasQr) updateFloatingStatus("等待二维码");
-      const sent = await sendLoginScreenshotNotification();
-      updateFloatingStatus(sent ? "需要登录" : "等待二维码");
+      scheduleLoginScreenshotNotification();
+      updateFloatingStatus(pageState.hasQr ? "等待扫码确认" : "等待二维码");
     }
   } catch {
     // Page can be between navigations; the next watchdog pass will retry.
   }
+}
+
+async function readLoginPageState(wc) {
+  return await wc.executeJavaScript(`(() => {
+    const text = document.body ? document.body.innerText.slice(0, 3000) : "";
+    const hasInput = Boolean(document.querySelector("#input-textarea"));
+    const hasLoginText = /登录|扫码|微信扫一扫|二维码|验证/.test(text);
+    const hasQr = (${detectQrReadyScript.toString()})();
+    return { text, hasInput, hasLoginText, hasQr };
+  })()`, true);
+}
+
+function scheduleLoginScreenshotNotification() {
+  if (loginNotificationTimer) return;
+  loginNotificationTimer = setTimeout(async () => {
+    loginNotificationTimer = null;
+    if (!(await isLoginStillRequired())) return;
+    const sent = await sendLoginScreenshotNotification();
+    updateFloatingStatus(sent ? "需要登录" : "等待二维码");
+  }, 30_000);
+}
+
+function clearPendingLoginNotification() {
+  if (!loginNotificationTimer) return;
+  clearTimeout(loginNotificationTimer);
+  loginNotificationTimer = null;
+}
+
+async function isLoginStillRequired() {
+  const wc = getKfWebContents();
+  if (!wc || wc.isDestroyed() || wc.isLoading()) return false;
+  if (isAuthenticatedKfUrl(wc.getURL())) return false;
+  return await wc.executeJavaScript(`(() => {
+    const text = document.body ? document.body.innerText.slice(0, 3000) : "";
+    const hasInput = Boolean(document.querySelector("#input-textarea"));
+    const hasLoginText = /登录|扫码|微信扫一扫|二维码|验证/.test(text);
+    const hasQr = (${detectQrReadyScript.toString()})();
+    return hasLoginText && hasQr && !hasInput;
+  })()`, true).catch(() => false);
 }
 
 async function inspectBotHeartbeat() {
@@ -3193,6 +3991,15 @@ async function captureLoginScreenshot() {
 }
 
 async function captureKfPageImage() {
+  const wc = getKfWebContents();
+  if (wc) {
+    try {
+      return await wc.capturePage();
+    } catch (error) {
+      console.error("[notify] kf webContents capture failed", error);
+    }
+  }
+
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
       if (kfView && kfViewAttached) {
@@ -3201,15 +4008,6 @@ async function captureKfPageImage() {
       return await mainWindow.capturePage();
     } catch (error) {
       console.error("[notify] main window capture failed", error);
-    }
-  }
-
-  const wc = getKfWebContents();
-  if (wc) {
-    try {
-      return await wc.capturePage();
-    } catch (error) {
-      console.error("[notify] kf view capture failed", error);
     }
   }
 
@@ -3454,6 +4252,24 @@ async function fetchJson(url, timeoutMs) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJsonPost(url, payload, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload || {}),
+      signal: controller.signal
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
     return data;

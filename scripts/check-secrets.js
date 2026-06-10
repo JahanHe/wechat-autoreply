@@ -13,6 +13,10 @@ const patterns = [
   {
     name: "committed env API assignment",
     regex: /(?:DEEPSEEK_API_KEY|OPENAI_API_KEY)\s*=\s*["']?(?:sk-[A-Za-z0-9_-]{12,})/i
+  },
+  {
+    name: "Runyu session cookie",
+    regex: /(?:RUNYU_WEB_COOKIE\s*=\s*["']?)?session_token=[A-Za-z0-9_-]{24,}/i
   }
 ];
 

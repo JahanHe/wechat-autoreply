@@ -1,8 +1,10 @@
 const DEFAULTS = {
-  configVersion: "0.2.5",
+  configVersion: "0.3.4",
   enabled: true,
   aiFallback: true,
-  aiEndpoint: "http://127.0.0.1:8787/reply"
+  aiEndpoint: "http://127.0.0.1:8787/reply",
+  aiSlowMs: 15000,
+  fallbackReplyMs: 60000
 };
 
 const enabled = document.querySelector("#enabled");

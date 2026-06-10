@@ -6,6 +6,7 @@ const navItems = [
   { id: "dashboard", title: "总览状态", hint: "监控" },
   { id: "bot", title: "Bot 接管", hint: "开关" },
   { id: "api", title: "API 接入", hint: "模型" },
+  { id: "judgments", title: "判断库", hint: "外部" },
   { id: "webhook", title: "Webhook", hint: "通知" },
   { id: "rules", title: "规则库", hint: "回复" },
   { id: "logs", title: "日志库", hint: "追踪" },
@@ -20,7 +21,9 @@ const sourceLabels = {
   panel_action: { label: "页面动作", className: "rule" },
   quick_ack: { label: "直接承接", className: "direct" },
   waiting_reply: { label: "等待补偿", className: "direct" },
+  fallback_reply: { label: "60秒兜底", className: "direct" },
   ai_followup: { label: "AI 接管", className: "ai" },
+  judgment_ai: { label: "判断库补充", className: "judgment" },
   ignore: { label: "忽略", className: "direct" },
   unknown: { label: "未分类", className: "" }
 };
@@ -31,7 +34,11 @@ const state = {
   status: null,
   settings: null,
   records: null,
+  judgments: null,
+  judgmentDownload: null,
+  judgmentPollTimer: null,
   apiKeyShown: false,
+  runyuCookieShown: false,
   loading: false
 };
 
@@ -51,14 +58,18 @@ async function init() {
     renderChrome();
     if (["dashboard", "logs"].includes(state.view)) renderView();
   });
-  const [settings, status, records] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
-    window.mainShell.getReplyRecords({ limit: 300 })
+    window.mainShell.getReplyRecords({ limit: 300 }),
+    window.mainShell.getJudgmentsStatus(),
+    window.mainShell.getJudgmentsDownloadStatus()
   ]);
   state.settings = settings;
   state.status = status;
   state.records = records;
+  state.judgments = judgments;
+  state.judgmentDownload = judgmentDownload;
   renderChrome();
   await switchView("page");
 }
@@ -141,6 +152,7 @@ function renderView() {
   if (state.view === "dashboard") return renderDashboard();
   if (state.view === "bot") return renderBot();
   if (state.view === "api") return renderApi();
+  if (state.view === "judgments") return renderJudgments();
   if (state.view === "webhook") return renderWebhook();
   if (state.view === "rules") return renderRules();
   if (state.view === "logs") return renderLogs();
@@ -163,6 +175,7 @@ function renderDashboard() {
   const status = state.status || {};
   const records = status.records || {};
   const page = status.page || {};
+  const judgments = state.judgments || {};
   content.innerHTML = `
     ${pageHead("总览状态", "查看客服页、Bot、AI、Webhook、悬浮窗和回复日志的真实运行状态。", `
       <button id="dashRefresh">刷新</button>
@@ -172,6 +185,7 @@ function renderDashboard() {
       ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", status.bot?.status || "等待状态", status.enabled ? "ok" : "warn")}
       ${metricCard("AI 服务", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
       ${metricCard("Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn")}
+      ${metricCard("判断库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺 Cookie") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
       ${metricCard("客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad")}
       ${metricCard("悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn")}
       ${metricCard("回复记录", String(records.total || 0), `成功 ${records.sent || 0} / 失败 ${records.failed || 0} / 超时 ${records.timeout || 0}`, records.failed || records.timeout ? "warn" : "ok")}
@@ -184,6 +198,7 @@ function renderDashboard() {
           <button id="dashOpenFloat">打开悬浮窗</button>
           <button id="dashReload">重载客服页</button>
           <button id="dashCapture">捕捉页面结构</button>
+          <button id="dashJudgments">判断库设置</button>
         </div>
       </div>
       <div class="card">
@@ -201,6 +216,7 @@ function renderDashboard() {
   $("#dashOpenFloat").addEventListener("click", () => window.mainShell.openFloating("compact"));
   $("#dashReload").addEventListener("click", () => window.mainShell.reload());
   $("#dashCapture").addEventListener("click", () => $("#captureStructure").click());
+  $("#dashJudgments").addEventListener("click", () => switchView("judgments"));
 }
 
 function renderBot() {
@@ -216,6 +232,7 @@ function renderBot() {
         <div class="grid">
           ${toggleRow("botEnabled", "默认开启 Bot 接管", "关闭后只监控页面，不自动回复客户。", bot.enabled !== false)}
           ${toggleRow("aiFallback", "无命中规则时调用 AI", "规则库没有匹配时，会请求本地 AI 服务生成补充回复。", bot.aiFallback !== false)}
+          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI/判断库时，先等 AI；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
           ${toggleRow("autoStart", "开机自动启动桌面程序", "启动后会自动运行本地 AI 服务、客服页监控和悬浮窗。", cfg.autoStart !== false)}
           ${toggleRow("imageRepliesEnabled", "允许图片回复", "动作规则和图片规则可以上传并发送本地图片。", Boolean(bot.imageRepliesEnabled))}
           ${toggleRow("autoPasteImages", "图片自动上传/粘贴发送", "优先使用页面上传控件，失败时复制到剪贴板再粘贴发送。", Boolean(bot.autoPasteImages))}
@@ -226,9 +243,10 @@ function renderBot() {
         <h3>运行参数</h3>
         <div class="form-grid">
           ${field("aiEndpoint", "AI 回复地址", bot.aiEndpoint || "", "本地默认是 http://127.0.0.1:8787/reply。", "span-2")}
-          ${textareaField("quickAck", "AI 慢回复承接语", bot.quickAck || "在", "AI 需要时间时先发出的短回复。")}
-          ${textareaField("fallbackReply", "兜底回复", bot.fallbackReply || "", "规则和 AI 都不可用时的保底文本。")}
-          ${numberField("aiSlowMs", "AI 慢回复阈值 ms", bot.aiSlowMs || 50000, "超过这个时间仍无 AI 结果，会先发承接语。")}
+          ${textareaField("quickAck", "AI 慢回复承接语列表", replyListText(bot.quickAckReplies, bot.quickAck || "我看一下"), "一条回复占一段；用空行或 | 分隔。AI 超过 15 秒未返回时轮换发送。", "span-2")}
+          ${textareaField("fallbackReply", "60 秒兜底回复列表", replyListText(bot.fallbackReplies, bot.fallbackReply || ""), "一条回复占一段；用空行或 | 分隔。AI/判断库 60 秒内仍无可用答案时轮换发送。", "span-2")}
+          ${numberField("aiSlowMs", "AI 慢回复阈值 ms", bot.aiSlowMs || 15000, "超过这个时间仍无 AI 结果，会先发承接语。")}
+          ${numberField("fallbackReplyMs", "兜底回复阈值 ms", bot.fallbackReplyMs || 60000, "超过这个时间仍无 AI 可用答案，发送兜底回复。")}
           ${numberField("noResponseAlertMs", "超时告警 ms", bot.noResponseAlertMs || 90000, "客户消息超过该时间仍未完成处理，会记录超时并通知。")}
           ${numberField("maxTextParts", "最多文本段数", bot.maxTextParts || 2, "单次回复最多拆成几段文字。")}
           ${numberField("maxReplyPartLength", "单段最长字数", bot.maxReplyPartLength || 500, "过长回复会被限制，避免客服消息异常。")}
@@ -252,6 +270,11 @@ function renderApi() {
     <div class="grid cols-2">
       <div class="card">
         <h3>模型接入</h3>
+        <div class="badge-row" style="margin-bottom:10px">
+          <span class="badge ${state.status?.ai?.hasKey ? "rule" : "fail"}">${state.status?.ai?.hasKey ? "Key 已配置" : "缺少 Key"}</span>
+          <span class="badge ${state.status?.ai?.ok ? "direct" : ""}">${state.status?.ai?.ok ? "AI 健康" : "待检查"}</span>
+          <span class="badge">${escapeHtml(state.status?.ai?.message || "未检查")}</span>
+        </div>
         <div class="form-grid">
           <div class="field span-2">
             <label for="deepseekApiKey">API Key</label>
@@ -284,7 +307,14 @@ function renderApi() {
       </div>
     </div>
     <div class="card" style="margin-top:14px">
-      <h3>知识库、参考库、风格灵魂</h3>
+      <div class="section-title">
+        <div>
+          <h3>知识库、参考库、风格灵魂</h3>
+          <div class="hint">这些内容实时从本机配置读取，改完后点这里或页面顶部保存才会生效。</div>
+        </div>
+        <button id="saveProfile" class="primary">保存风格与知识库</button>
+      </div>
+      ${profileStatus(profile)}
       <div class="form-grid">
         ${toggleRow("knowledgeFilesEnabled", "读取本地 knowledge-base", "开启后 AI 会结合仓库内知识文件。", profile.knowledgeFilesEnabled !== false)}
         ${toggleRow("sidebarContextEnabled", "读取客服页右侧上下文", "开启后 AI 会参考客服页可见的商品和用户信息。", profile.sidebarContextEnabled !== false)}
@@ -306,7 +336,153 @@ function renderApi() {
   });
   $("#checkAi").addEventListener("click", checkAi);
   $("#saveApi").addEventListener("click", saveApiSettings);
+  $("#saveProfile").addEventListener("click", saveApiSettings);
   $("#testAiReply").addEventListener("click", testAiReply);
+}
+
+function profileStatus(profile) {
+  return `
+    <div class="badge-row" style="margin:10px 0 14px">
+      <span class="badge ${profile.knowledgeFilesEnabled !== false ? "rule" : ""}">本地知识库 ${profile.knowledgeFilesEnabled !== false ? "开启" : "关闭"}</span>
+      <span class="badge ${profile.sidebarContextEnabled !== false ? "rule" : ""}">右侧上下文 ${profile.sidebarContextEnabled !== false ? "开启" : "关闭"}</span>
+      <span class="badge ${profile.reviewEnabled !== false ? "rule" : ""}">回复审核 ${profile.reviewEnabled !== false ? "开启" : "关闭"}</span>
+      <span class="badge">最近保存 ${profile.updatedAt ? formatFullTime(profile.updatedAt) : "未记录"}</span>
+    </div>
+  `;
+}
+
+function renderJudgments() {
+  const cfg = state.settings.config || {};
+  const library = cfg.judgmentLibrary || {};
+  const env = state.settings.env || {};
+  const status = state.judgments || {};
+  const cookieType = state.runyuCookieShown ? "text" : "password";
+  const sources = splitKeywords(env.runyuJudgmentsSources || library.sources || "runyu");
+  const searchTypes = splitKeywords(env.runyuJudgmentsSearchTypes || library.searchTypes || "judgments");
+  content.innerHTML = `
+    ${pageHead("判断库接入", "接入 Runyu 外部判断库，让复杂问题先请求 AI/判断库；超时才承接或兜底。", `
+      <button id="testJudgments">测试 10 条</button>
+      <button id="refreshJudgments" class="dark">立即刷新缓存</button>
+      <button id="downloadAllJudgments" class="dark">全部下载本地库</button>
+      <button id="saveJudgments" class="primary">保存判断库设置</button>
+    `)}
+    <div class="grid cols-4">
+      ${metricCard("接入状态", library.enabled ? (status.hasCookie ? "已启用" : "缺 Cookie") : "未启用", status.message || (status.hasCookie ? "Cookie 已配置" : "等待配置"), library.enabled && status.hasCookie ? "ok" : library.enabled ? "warn" : "warn")}
+      ${metricCard("本地缓存", String(status.records || 0), status.cachePath || "未生成缓存", status.records ? "ok" : "warn")}
+      ${metricCard("最近刷新", status.updatedAt ? formatFullTime(status.updatedAt) : "未刷新", lastRefreshSummary(status.lastRefresh), status.updatedAt ? "ok" : "warn")}
+      ${metricCard("刷新周期", library.autoRefreshEnabled !== false ? `${library.refreshIntervalHours || 168} 小时` : "手动", "可改为 24 小时、3 天或 7 天", library.autoRefreshEnabled !== false ? "ok" : "warn")}
+    </div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card">
+        <h3>连接与鉴权</h3>
+        <div class="form-grid">
+          ${toggleRow("judgmentEnabled", "启用外部判断库", "开启后 AI 补充回复会先检索判断库。", Boolean(library.enabled))}
+          ${toggleRow("judgmentUseRemote", "允许实时查询远端", "本地缓存不足时，直接调用 Runyu API 查询。", library.useRemote !== false)}
+          ${toggleRow("judgmentUseCache", "优先读取本地缓存", "缓存命中会更快，远端结果会自动合并回本地。", library.useCache !== false)}
+          ${toggleRow("judgmentAutoRefresh", "自动刷新本地缓存", "按周期重新拉取关键词结果，只合并变化部分。", library.autoRefreshEnabled !== false)}
+          <div class="field span-2">
+            <label for="runyuWebCookie">Session Cookie</label>
+            <div style="display:grid;grid-template-columns:minmax(0,1fr)86px;gap:8px">
+              <input id="runyuWebCookie" type="${cookieType}" value="${attr(env.runyuWebCookie || "")}" placeholder="session_token=...">
+              <button id="toggleRunyuCookie" type="button">${state.runyuCookieShown ? "隐藏" : "显示"}</button>
+            </div>
+            <div class="hint">只保存到本机 .env。可以填完整 session_token=...，也可以只填 token 值。</div>
+          </div>
+          ${field("runyuWebBaseUrl", "Runyu Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "默认不用改。")}
+          ${selectField("judgmentRefreshInterval", "自动刷新周期", String(library.refreshIntervalHours || 168), [["24", "每 24 小时"], ["72", "每 3 天"], ["168", "每 7 天"], ["336", "每 14 天"], ["720", "每 30 天"]], "到期后自动刷新缓存。")}
+        </div>
+      </div>
+      <div class="card">
+        <h3>下载范围</h3>
+        <div class="field">
+          <label>判断库来源</label>
+          <div class="choice-grid">
+            ${checkboxChoice("judgment-source", "runyu", "润宇", sources.includes("runyu"))}
+            ${checkboxChoice("judgment-source", "liurun", "刘润", sources.includes("liurun"))}
+            ${checkboxChoice("judgment-source", "xiangshui", "响水", sources.includes("xiangshui"))}
+            ${checkboxChoice("judgment-source", "xingxing", "星星", sources.includes("xingxing"))}
+            ${checkboxChoice("judgment-source", "book", "图书", sources.includes("book"))}
+            ${checkboxChoice("judgment-source", "dedao", "得到", sources.includes("dedao"))}
+          </div>
+          <div class="hint">每次请求只查一个 source，刷新时会按这里的来源逐个合并。</div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label>查询类型</label>
+          <div class="choice-grid">
+            ${checkboxChoice("judgment-type", "judgments", "判断", searchTypes.includes("judgments"))}
+            ${checkboxChoice("judgment-type", "quotes", "引语", searchTypes.includes("quotes"))}
+            ${checkboxChoice("judgment-type", "cases", "案例", searchTypes.includes("cases"))}
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:14px">
+          ${numberField("judgmentMaxResults", "回复引用条数", library.maxResults || 4, "AI 单次最多参考多少条。")}
+          ${numberField("judgmentLimitPerQuery", "实时测试条数", library.limitPerQuery || 8, "每个来源/类型查询多少条。")}
+          ${numberField("judgmentRefreshLimit", "刷新每组上限", library.refreshLimit || 80, "批量刷新每个关键词、来源、类型最多拉多少条。")}
+          ${numberField("judgmentFullPageLimit", "全局下载分页", library.fullDownloadPageLimit || 300, "全部下载每页拉取数量。")}
+          ${numberField("judgmentFullMaxPages", "每组最大页数", library.fullDownloadMaxPages || 20, "防止远端接口重复返回同一页导致无限循环。")}
+          ${numberField("judgmentTimeoutMs", "请求超时 ms", library.timeoutMs || 12000, "单次 API 请求超时。")}
+        </div>
+      </div>
+    </div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card">
+        <h3>刷新关键词</h3>
+        ${textareaField("judgmentRefreshKeywords", "关键词列表", keywordsText(env.runyuJudgmentsRefreshKeywords || library.refreshKeywords || ""), "按逗号、顿号或换行分隔。自动刷新会按这些关键词更新本地缓存。", "span-2")}
+        <p class="hint">当前 Runyu API 文档没有全量导出游标，所以这里按关键词增量合并。相同 id 或内容哈希不重复写入，内容变化会更新。</p>
+      </div>
+      <div class="card">
+        <h3>测试查询</h3>
+        ${field("judgmentTestKeyword", "测试关键词", "会员", "首次测试默认只取 10 条。")}
+        <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
+          <button id="testJudgmentsInline" class="primary">测试 10 条</button>
+          <button id="refreshJudgmentsInline">立即刷新缓存</button>
+          <button id="downloadAllJudgmentsInline">全部下载本地库</button>
+        </div>
+        ${judgmentDownloadPanel()}
+        <div id="judgmentResult" class="card cream" style="margin-top:12px;min-height:120px">测试和刷新结果会显示在这里。</div>
+      </div>
+    </div>
+  `;
+  bindToggleButtons();
+  $("#toggleRunyuCookie").addEventListener("click", () => {
+    state.runyuCookieShown = !state.runyuCookieShown;
+    renderJudgments();
+  });
+  $("#saveJudgments").addEventListener("click", () => saveJudgmentSettings());
+  $("#testJudgments").addEventListener("click", testJudgments);
+  $("#testJudgmentsInline").addEventListener("click", testJudgments);
+  $("#refreshJudgments").addEventListener("click", refreshJudgments);
+  $("#refreshJudgmentsInline").addEventListener("click", refreshJudgments);
+  $("#downloadAllJudgments").addEventListener("click", downloadAllJudgments);
+  $("#downloadAllJudgmentsInline").addEventListener("click", downloadAllJudgments);
+  pollJudgmentDownloadIfNeeded();
+}
+
+function judgmentDownloadPanel() {
+  const job = state.judgmentDownload || { status: "idle", progress: 0 };
+  const statusText = {
+    idle: "未开始",
+    running: "下载中",
+    completed: "已完成",
+    completed_with_errors: "完成但有错误",
+    failed: "失败"
+  }[job.status] || job.status || "未开始";
+  const progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
+  return `
+    <div class="download-panel">
+      <div class="download-head">
+        <strong>全局下载状态：${escapeHtml(statusText)}</strong>
+        <span>${progress}%</span>
+      </div>
+      <div class="progress"><span style="width:${progress}%"></span></div>
+      <div class="hint">
+        ${job.current ? `当前：${escapeHtml(job.current)} · ` : ""}
+        进度 ${Number(job.completedSteps || 0)}/${Number(job.totalSteps || 0)} ·
+        拉取 ${Number(job.fetched || 0)} · 新增 ${Number(job.added || 0)} · 更新 ${Number(job.updated || 0)} · 不变 ${Number(job.unchanged || 0)}
+      </div>
+      ${job.errors?.length ? `<div class="hint error-text">错误 ${job.errors.length} 条：${escapeHtml(job.errors.slice(-1)[0]?.message || job.errors.slice(-1)[0]?.error || "")}</div>` : ""}
+    </div>
+  `;
 }
 
 function renderWebhook() {
@@ -446,7 +622,7 @@ function renderRuleSpecificEditor(type, rule) {
 
   if (type === "imageReplies") {
     return `
-      ${field("", "图片路径", rule.path || rule.imagePath || "", "支持 config/reply-images/xxx.png 或绝对路径。", "", "data-rule-field=\"path\"")}
+      ${pathField("", "图片路径", rule.path || rule.imagePath || "", "支持 config/reply-images/xxx.png 或绝对路径。可选择新图片或打开所在位置替换。", "", "data-rule-field=\"path\"", "image")}
       ${field("", "图片说明", rule.caption || "", "可选，用于日志和规则说明。", "", "data-rule-field=\"caption\"")}
     `;
   }
@@ -485,7 +661,7 @@ function renderActionRow(action, index) {
         ], "动作执行类型。", "", "data-action-field=\"type\"")}
         ${field("", "按钮/标签", action.button || action.label || action.tab || "", "商品动作可填“发商品”或“邀请下单”；素材和快捷语一般填“发送”。", "", "data-action-field=\"button\"")}
         ${textareaField("", "文本/匹配内容", action.text || action.reply || action.query || action.match || "", "文字动作填回复；商品/素材/快捷语可填匹配词。", "", "data-action-field=\"text\"")}
-        ${field("", "文件/图片路径", action.path || action.filePath || action.imagePath || "", "图片或文件动作的本地路径。", "", "data-action-field=\"path\"")}
+        ${pathField("", "文件/图片路径", action.path || action.filePath || action.imagePath || "", "图片/文件动作的本地路径。可选择文件、替换路径或打开所在位置。", "", "data-action-field=\"path\"", "auto")}
         ${field("", "商品码", action.productId || "", "微信小店商品卡片匹配用的商品 ID。", "", "data-action-field=\"productId\"")}
         ${field("", "商品名", action.productName || "", "商品卡片匹配用的名称，可与商品码配合。", "", "data-action-field=\"productName\"")}
       </div>
@@ -514,7 +690,9 @@ function renderLogs() {
         <option value="image_rule">图片规则库</option>
         <option value="quick_ack">直接承接</option>
         <option value="waiting_reply">等待补偿</option>
+        <option value="fallback_reply">60秒兜底</option>
         <option value="ai_followup">AI 接管</option>
+        <option value="judgment_ai">判断库补充</option>
       </select>
       <button id="refreshLogs" class="primary">刷新日志</button>
     `)}
@@ -561,7 +739,7 @@ function renderFloating() {
   const floatWindow = state.settings.config?.floatWindow || {};
   const status = state.status || {};
   content.innerHTML = `
-    ${pageHead("悬浮窗设置", "悬浮窗只是桌面辅助入口，隐藏不会关闭程序，可从主控制台或托盘重新打开。", `
+    ${pageHead("悬浮窗设置", "悬浮窗只显示 AI、本地、脚本和登录状态。隐藏不会关闭程序，可从这里或托盘重新打开。", `
       <button id="showFloat" class="primary">打开悬浮窗</button>
       <button id="hideFloat">隐藏悬浮窗</button>
       <button id="saveFloat" class="dark">保存悬浮窗设置</button>
@@ -573,15 +751,15 @@ function renderFloating() {
           ${toggleRow("floatEnabled", "启用悬浮窗功能", "关闭后不自动创建悬浮窗，但主控制台仍可重新启用。", floatWindow.enabled !== false)}
           ${toggleRow("alwaysOnTop", "保持置顶", "适合客服值守时防止窗口被遮挡。", Boolean(floatWindow.alwaysOnTop))}
         </div>
-        <p class="hint">当前状态：${status.floating?.visible ? "正在显示" : "已隐藏"}，${status.floating?.alwaysOnTop ? "置顶" : "不置顶"}</p>
+        <p class="hint">当前状态：${status.floating?.visible ? "正在显示" : "已隐藏"}，${status.floating?.alwaysOnTop ? "置顶" : "不置顶"}，模式：${status.floating?.mode === "mini" ? "最小化" : "状态窗"}</p>
       </div>
       <div class="card">
         <h3>尺寸</h3>
         <div class="form-grid">
-          ${numberField("compactWidth", "小窗宽度", floatWindow.compactSize?.width || 320, "悬浮窗运行态宽度。")}
-          ${numberField("compactHeight", "小窗高度", floatWindow.compactSize?.height || 182, "悬浮窗运行态高度。")}
-          ${numberField("settingsWidth", "设置窗宽度", floatWindow.settingsSize?.width || 760, "悬浮窗设置态宽度。")}
-          ${numberField("settingsHeight", "设置窗高度", floatWindow.settingsSize?.height || 680, "悬浮窗设置态高度。")}
+          ${numberField("compactWidth", "状态窗宽度", floatWindow.compactSize?.width || 276, "完整状态灯窗口宽度。", "", "min=\"260\" max=\"420\" step=\"1\"")}
+          ${numberField("compactHeight", "状态窗高度", floatWindow.compactSize?.height || 166, "完整状态灯窗口高度。", "", "min=\"160\" max=\"260\" step=\"1\"")}
+          ${numberField("miniWidth", "最小化宽度", floatWindow.miniSize?.width || 188, "最小化状态条宽度。", "", "min=\"180\" max=\"320\" step=\"1\"")}
+          ${numberField("miniHeight", "最小化高度", floatWindow.miniSize?.height || 44, "最小化状态条高度。", "", "min=\"44\" max=\"72\" step=\"1\"")}
         </div>
       </div>
     </div>
@@ -633,10 +811,14 @@ async function saveBotSettings() {
       bot: {
         enabled: checked("botEnabled"),
         aiFallback: checked("aiFallback"),
+        quickAckEveryMessage: checked("quickAckEveryMessage"),
         aiEndpoint: value("aiEndpoint"),
-        quickAck: value("quickAck"),
-        fallbackReply: value("fallbackReply"),
-        aiSlowMs: numberValue("aiSlowMs", 50000),
+        quickAck: splitReplyList(value("quickAck"))[0] || value("quickAck"),
+        quickAckReplies: splitReplyList(value("quickAck")),
+        fallbackReply: splitReplyList(value("fallbackReply"))[0] || value("fallbackReply"),
+        fallbackReplies: splitReplyList(value("fallbackReply")),
+        aiSlowMs: numberValue("aiSlowMs", 15000),
+        fallbackReplyMs: numberValue("fallbackReplyMs", 60000),
         noResponseAlertMs: numberValue("noResponseAlertMs", 90000),
         maxTextParts: numberValue("maxTextParts", 2),
         maxReplyPartLength: numberValue("maxReplyPartLength", 500),
@@ -678,6 +860,158 @@ async function saveApiSettings() {
   await saveSettings(payload, "API 与风格设置已保存");
 }
 
+function collectJudgmentSettings() {
+  const sources = collectCheckedChoices("judgment-source");
+  const searchTypes = collectCheckedChoices("judgment-type");
+  const refreshKeywords = splitKeywords(value("judgmentRefreshKeywords"));
+  return {
+    config: {
+      judgmentLibrary: {
+        enabled: checked("judgmentEnabled"),
+        useRemote: checked("judgmentUseRemote"),
+        useCache: checked("judgmentUseCache"),
+        autoRefreshEnabled: checked("judgmentAutoRefresh"),
+        refreshIntervalHours: numberValue("judgmentRefreshInterval", 168),
+        sources,
+        searchTypes,
+        maxResults: numberValue("judgmentMaxResults", 4),
+        limitPerQuery: numberValue("judgmentLimitPerQuery", 8),
+        refreshLimit: numberValue("judgmentRefreshLimit", 80),
+        fullDownloadPageLimit: numberValue("judgmentFullPageLimit", 300),
+        fullDownloadMaxPages: numberValue("judgmentFullMaxPages", 20),
+        timeoutMs: numberValue("judgmentTimeoutMs", 12000),
+        refreshKeywords
+      }
+    },
+    env: {
+      runyuWebCookie: value("runyuWebCookie"),
+      runyuWebBaseUrl: value("runyuWebBaseUrl"),
+      runyuJudgmentsEnabled: checked("judgmentEnabled") ? "enabled" : "disabled",
+      runyuJudgmentsSources: sources.join(","),
+      runyuJudgmentsSearchTypes: searchTypes.join(","),
+      runyuJudgmentsUseCache: checked("judgmentUseCache") ? "enabled" : "disabled",
+      runyuJudgmentsUseRemote: checked("judgmentUseRemote") ? "enabled" : "disabled",
+      runyuJudgmentsMaxResults: String(numberValue("judgmentMaxResults", 4)),
+      runyuJudgmentsLimitPerQuery: String(numberValue("judgmentLimitPerQuery", 8)),
+      runyuJudgmentsRefreshLimit: String(numberValue("judgmentRefreshLimit", 80)),
+      runyuJudgmentsTimeoutMs: String(numberValue("judgmentTimeoutMs", 12000)),
+      runyuJudgmentsRefreshKeywords: refreshKeywords.join(",")
+    }
+  };
+}
+
+async function saveJudgmentSettings(options = {}) {
+  const payload = collectJudgmentSettings();
+  if (!payload.config.judgmentLibrary.sources.length) throw new Error("至少选择一个判断库来源");
+  if (!payload.config.judgmentLibrary.searchTypes.length) throw new Error("至少选择一个查询类型");
+  if (!payload.config.judgmentLibrary.refreshKeywords.length) throw new Error("至少填写一个刷新关键词");
+  await saveSettings(payload, options.message || "判断库设置已保存");
+  state.judgments = await window.mainShell.getJudgmentsStatus();
+  state.judgmentDownload = await window.mainShell.getJudgmentsDownloadStatus();
+  if (state.view === "judgments" && options.render !== false) renderJudgments();
+  return payload;
+}
+
+async function testJudgments() {
+  const box = $("#judgmentResult");
+  if (box) box.textContent = "正在保存配置并测试 10 条...";
+  try {
+    await saveJudgmentSettings({ message: "判断库设置已保存，开始测试", render: false });
+    const result = await window.mainShell.testJudgments({ query: value("judgmentTestKeyword") || "会员", limit: 10 });
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (box) box.innerHTML = judgmentResultHtml(result);
+    showFlash(result.ok ? `判断库测试完成：${result.results?.length || 0} 条` : result.message, result.ok ? "ok" : "error");
+  } catch (error) {
+    if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function refreshJudgments() {
+  const box = $("#judgmentResult");
+  if (box) box.textContent = "正在保存配置并刷新本地缓存...";
+  try {
+    const payload = await saveJudgmentSettings({ message: "判断库设置已保存，开始刷新", render: false });
+    const library = payload.config.judgmentLibrary;
+    const result = await window.mainShell.refreshJudgments({
+      keywords: library.refreshKeywords,
+      sources: library.sources,
+      searchTypes: library.searchTypes,
+      limit: library.refreshLimit
+    });
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (box) box.innerHTML = judgmentRefreshHtml(result);
+    showFlash(result.ok ? `刷新完成：新增 ${result.added || 0}，更新 ${result.updated || 0}` : result.message, result.ok ? "ok" : "error");
+  } catch (error) {
+    if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function downloadAllJudgments() {
+  const box = $("#judgmentResult");
+  if (box) box.textContent = "正在保存配置并启动全局下载...";
+  try {
+    const payload = await saveJudgmentSettings({ message: "判断库设置已保存，开始全局下载", render: false });
+    const library = payload.config.judgmentLibrary;
+    state.judgmentDownload = await window.mainShell.startJudgmentsFullDownload({
+      keywords: library.refreshKeywords,
+      sources: library.sources,
+      searchTypes: library.searchTypes,
+      fullDownloadPageLimit: library.fullDownloadPageLimit,
+      fullDownloadMaxPages: library.fullDownloadMaxPages
+    });
+    if (box) box.innerHTML = judgmentRefreshHtml(state.judgmentDownload);
+    renderJudgments();
+    showFlash(state.judgmentDownload.ok ? "全局下载已开始" : state.judgmentDownload.message, state.judgmentDownload.ok ? "ok" : "error");
+  } catch (error) {
+    if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+function pollJudgmentDownloadIfNeeded() {
+  if (state.judgmentPollTimer) clearTimeout(state.judgmentPollTimer);
+  if (state.view !== "judgments") return;
+  const job = state.judgmentDownload || {};
+  if (job.status !== "running") return;
+  state.judgmentPollTimer = setTimeout(async () => {
+    state.judgmentDownload = await window.mainShell.getJudgmentsDownloadStatus();
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (state.view === "judgments") renderJudgments();
+  }, 1500);
+}
+
+function judgmentResultHtml(result) {
+  const items = Array.isArray(result.results) ? result.results.slice(0, 10) : [];
+  if (!result.ok && !items.length) {
+    return `<strong>失败：</strong><div class="hint">${escapeHtml(result.message || result.error || "判断库查询失败")}</div>`;
+  }
+  return `
+    <strong>查询结果：${items.length} 条</strong>
+    <div class="hint">远端 ${Number(result.fromRemote || 0)}，缓存 ${Number(result.fromCache || 0)}${result.error ? `，错误：${escapeHtml(result.error)}` : ""}</div>
+    <div class="judgment-results">
+      ${items.map((item) => `
+        <div class="judgment-item">
+          <span class="badge judgment">${escapeHtml(item.source || "")}/${escapeHtml(item.type || "")}</span>
+          <strong>${escapeHtml(item.title || "判断记录")}</strong>
+          <div>${escapeHtml(item.text || item.searchText || "")}</div>
+        </div>
+      `).join("") || `<div class="empty">没有匹配结果，请换更宽泛的关键词。</div>`}
+    </div>
+  `;
+}
+
+function judgmentRefreshHtml(result) {
+  return `
+    <strong>${escapeHtml(result.status ? "下载状态" : "刷新结果")}</strong>
+    <div class="hint">拉取 ${Number(result.fetched || 0)} · 新增 ${Number(result.added || 0)} · 更新 ${Number(result.updated || 0)} · 不变 ${Number(result.unchanged || 0)} · 总计 ${Number(result.total || 0)}</div>
+    ${result.cachePath ? `<div class="hint">缓存：${escapeHtml(result.cachePath)}</div>` : ""}
+    ${result.current ? `<div class="hint">当前：${escapeHtml(result.current)}</div>` : ""}
+    ${result.errors?.length ? `<div class="hint error-text">错误 ${result.errors.length} 条：${escapeHtml(result.errors.slice(-1)[0]?.message || result.errors.slice(-1)[0]?.error || "")}</div>` : ""}
+  `;
+}
+
 async function saveWebhookSettings() {
   const webhookUrl = value("webhookUrl");
   const payload = {
@@ -713,12 +1047,12 @@ async function saveFloatingSettings() {
         visible: state.status?.floating?.visible || false,
         alwaysOnTop: checked("alwaysOnTop"),
         compactSize: {
-          width: numberValue("compactWidth", 320),
-          height: numberValue("compactHeight", 182)
+          width: numberValue("compactWidth", 276),
+          height: numberValue("compactHeight", 166)
         },
-        settingsSize: {
-          width: numberValue("settingsWidth", 760),
-          height: numberValue("settingsHeight", 680)
+        miniSize: {
+          width: numberValue("miniWidth", 188),
+          height: numberValue("miniHeight", 52)
         }
       }
     }
@@ -753,14 +1087,18 @@ async function saveSettings(payload, okMessage) {
 }
 
 async function refreshAll() {
-  const [settings, status, records] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
-    window.mainShell.getReplyRecords({ limit: 300 })
+    window.mainShell.getReplyRecords({ limit: 300 }),
+    window.mainShell.getJudgmentsStatus(),
+    window.mainShell.getJudgmentsDownloadStatus()
   ]);
   state.settings = settings;
   state.status = status;
   state.records = records;
+  state.judgments = judgments;
+  state.judgmentDownload = judgmentDownload;
   renderChrome();
   renderView();
   showFlash("已刷新", "ok");
@@ -836,9 +1174,37 @@ function bindRuleActions() {
       showFlash(String(error?.message || error), "error");
     }
   });
-  $("#ruleList").addEventListener("click", (event) => {
+  $("#ruleList").addEventListener("click", async (event) => {
     const command = event.target?.dataset?.ruleCommand;
     if (!command) return;
+    if (command === "choose-path") {
+      event.preventDefault();
+      const fieldNode = event.target.closest(".path-field");
+      const input = $("input", fieldNode);
+      const row = event.target.closest(".action-row");
+      const actionType = row ? inputValue($("[data-action-field='type']", row)) : "";
+      const configuredKind = fieldNode?.dataset.pathKind || "file";
+      const kind = configuredKind === "auto" && actionType === "image" ? "image" : configuredKind === "image" ? "image" : "file";
+      const picked = await window.mainShell.chooseFile({ kind });
+      if (picked && input) {
+        input.value = picked;
+        showFlash(kind === "image" ? "图片路径已更新，记得保存规则库" : "文件路径已更新，记得保存规则库", "ok");
+      }
+      return;
+    }
+    if (command === "reveal-path") {
+      event.preventDefault();
+      const fieldNode = event.target.closest(".path-field");
+      const input = $("input", fieldNode);
+      const targetPath = inputValue(input);
+      if (!targetPath) {
+        showFlash("路径为空，先选择或填写文件路径", "error");
+        return;
+      }
+      const result = await window.mainShell.revealPath(targetPath);
+      showFlash(result.ok ? (result.missing ? "文件不存在，已打开所在目录" : "已打开文件所在位置") : result.message, result.ok ? "ok" : "error");
+      return;
+    }
     const card = event.target.closest(".rule-card");
     const index = Number(card?.dataset.index || -1);
     const list = state.settings.config.bot[state.ruleTab] || [];
@@ -1024,12 +1390,37 @@ function eventToggle(key, title, on) {
   `;
 }
 
+function checkboxChoice(name, value, label, on) {
+  const id = `${name}-${value}`;
+  return `
+    <label class="choice" for="${id}">
+      <input id="${id}" type="checkbox" name="${name}" value="${attr(value)}" ${on ? "checked" : ""}>
+      <span>${escapeHtml(label)}</span>
+    </label>
+  `;
+}
+
 function field(id, label, currentValue, hint, extraClass = "", extraAttrs = "") {
   const idAttr = id ? `id="${id}"` : "";
   return `
     <div class="field ${extraClass}">
       <label ${id ? `for="${id}"` : ""}>${escapeHtml(label)}</label>
       <input ${idAttr} value="${attr(currentValue)}" ${extraAttrs}>
+      ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
+    </div>
+  `;
+}
+
+function pathField(id, label, currentValue, hint, extraClass = "", extraAttrs = "", kind = "file") {
+  const idAttr = id ? `id="${id}"` : "";
+  return `
+    <div class="field path-field ${extraClass}" data-path-kind="${attr(kind)}">
+      <label ${id ? `for="${id}"` : ""}>${escapeHtml(label)}</label>
+      <div class="path-control">
+        <input ${idAttr} value="${attr(currentValue)}" ${extraAttrs}>
+        <button type="button" data-rule-command="choose-path">选择/替换</button>
+        <button type="button" data-rule-command="reveal-path">打开位置</button>
+      </div>
       ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
     </div>
   `;
@@ -1074,6 +1465,10 @@ function checked(id) {
   return Boolean($(`#${id}`)?.checked);
 }
 
+function collectCheckedChoices(name) {
+  return $$(`input[name="${name}"]:checked`).map((input) => input.value).filter(Boolean);
+}
+
 function value(id) {
   return String($(`#${id}`)?.value || "").trim();
 }
@@ -1099,6 +1494,20 @@ function keywordsText(value) {
   return splitKeywords(value).join("\n");
 }
 
+function splitReplyList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value || "")
+    .split(/\n{2,}|[|｜]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function replyListText(value, fallback = "") {
+  const items = splitReplyList(value);
+  if (items.length) return items.join("\n\n");
+  return String(fallback || "");
+}
+
 function actionSummary(actions) {
   if (!Array.isArray(actions) || !actions.length) return "";
   return actions.map((action) => {
@@ -1118,6 +1527,27 @@ function formatTime(value) {
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+function formatFullTime(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function lastRefreshSummary(refresh) {
+  if (!refresh) return "还没有刷新记录";
+  return [
+    refresh.reason ? `方式 ${refresh.reason}` : "",
+    `新增 ${Number(refresh.added || 0)}`,
+    `更新 ${Number(refresh.updated || 0)}`,
+    refresh.errors?.length ? `错误 ${refresh.errors.length}` : ""
+  ].filter(Boolean).join(" / ");
 }
 
 function escapeHtml(value) {

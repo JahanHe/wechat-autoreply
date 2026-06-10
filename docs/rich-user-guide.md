@@ -10,9 +10,9 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.2.0/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.2.0/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.2.0/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.0/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.0/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.0/wechat-autoreply-windows-portable.exe)
 
 首次打开后只需要补三件事：
 
@@ -69,11 +69,17 @@ flowchart TD
   D -- "是" --> E["按顺序执行 text / image / product / ignore"]
   D -- "否" --> F{"命中文字规则"}
   F -- "是" --> G["最多发送两段文字"]
-  F -- "否" --> H["先发承接语：在"]
-  H --> I["调用本地 AI 兜底"]
+  F -- "否" --> H["立即请求 AI / 判断库"]
+  H --> I{"15 秒内是否返回"}
+  I -- "否" --> L["轮换发送慢回复承接语"]
+  I -- "是" --> M["发送 AI 精准回复"]
+  L --> N{"60 秒内是否有可用答案"}
+  N -- "是" --> M
+  N -- "否" --> O["轮换发送兜底回复"]
   E --> J["记录动作结果"]
   G --> J
-  I --> J
+  M --> J
+  O --> J
   J --> K["小时总结 / 每日总览 / 失败通知"]
 ```
 
@@ -89,7 +95,7 @@ flowchart TD
 | 使用和进群 | 怎么使用会员专区、怎么进群 | 文字加两张说明图 |
 | 月度会员取消 | 取消自动续费、App Store 订阅 | 文字加图 |
 | 咨询俱乐部 | 咨询俱乐部、产品详情 | 文字加图 |
-| 联系方式限制 | 加微信、手机号、电话 | 平台内沟通提示 |
+| 联系方式限制 | 加微信、微信号、留电话、留手机号 | 平台内沟通提示 |
 | 道谢结束 | 谢谢、明白了、OK | `ignore`，不再补话 |
 
 ## 规则图片预览
@@ -139,6 +145,8 @@ flowchart TD
 | `material` | `subtab`, `query` | 发素材库内容 |
 | `quick_reply` | `query` | 发后台快捷语 |
 | `ignore` | 无 | 命中后不发送 |
+
+图片和文件路径在主控制台 > 规则库里可直接操作：手动编辑路径，点“选择/替换”改成新图片或文件，点“打开位置”直达当前文件所在目录。
 
 ## 通知和汇总
 

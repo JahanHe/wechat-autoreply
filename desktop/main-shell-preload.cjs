@@ -45,10 +45,31 @@ contextBridge.exposeInMainWorld("mainShell", {
   chooseImage() {
     return ipcRenderer.invoke("main-choose-image");
   },
+  chooseFile(options) {
+    return ipcRenderer.invoke("main-choose-file", options || {});
+  },
+  revealPath(targetPath) {
+    return ipcRenderer.invoke("main-reveal-path", targetPath || "");
+  },
   getReplyRecords(options) {
     return ipcRenderer.invoke("main-get-reply-records", options || {});
   },
   testAiReply(payload) {
     return ipcRenderer.invoke("main-test-ai-reply", payload || {});
+  },
+  getJudgmentsStatus() {
+    return ipcRenderer.invoke("main-get-judgments-status");
+  },
+  testJudgments(payload) {
+    return ipcRenderer.invoke("main-test-judgments", payload || {});
+  },
+  refreshJudgments(payload) {
+    return ipcRenderer.invoke("main-refresh-judgments", payload || {});
+  },
+  startJudgmentsFullDownload(payload) {
+    return ipcRenderer.invoke("main-start-judgments-full-download", payload || {});
+  },
+  getJudgmentsDownloadStatus() {
+    return ipcRenderer.invoke("main-get-judgments-download-status");
   }
 });
