@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,7 @@ const userDataDir = await mkdtemp(join(tmpdir(), "wechat-kf-outbox-"));
 const projectRoot = new URL("..", import.meta.url).pathname;
 const webhookUrl = "http://127.0.0.1:19092/webhook";
 const outboxPath = join(userDataDir, "notify-outbox.json");
+const desktopConfigPath = join(userDataDir, "desktop-config.json");
 let appProcess = null;
 let server = null;
 
@@ -48,7 +49,14 @@ try {
   await new Promise((resolve) => server.listen(19092, "127.0.0.1", resolve));
 
   const patched = queued.map((item) => ({ ...item, nextTryAt: 0 }));
-  await import("node:fs/promises").then(({ writeFile }) => writeFile(outboxPath, JSON.stringify(patched, null, 2), "utf8"));
+  await writeFile(outboxPath, JSON.stringify(patched, null, 2), "utf8");
+  const desktopConfig = JSON.parse(await readFile(desktopConfigPath, "utf8"));
+  desktopConfig.notify = {
+    ...(desktopConfig.notify || {}),
+    enabled: true,
+    wecomWebhookUrl: webhookUrl
+  };
+  await writeFile(desktopConfigPath, JSON.stringify(desktopConfig, null, 2), "utf8");
 
   appProcess = spawn("npx", ["electron", "."], {
     cwd: projectRoot,

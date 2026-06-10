@@ -241,7 +241,7 @@
         const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "");
         if (!result.ok) {
           updateToolbar("动作规则失败");
-          reportEvent("reply_failed", { stage: "action_rule", reason, customer: latest.text, reply: actionRule.name || "", error: result.message });
+          reportEvent("reply_failed", { stage: "action_rule", sourceType: "action_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: actionRule.name || "", error: result.message });
           return;
         }
 
@@ -251,6 +251,10 @@
         updateToolbar(actionResultStatus(result));
         reportReplySent({
           stage: "action_rule",
+          sourceType: "action_rule",
+          usedRuleLibrary: true,
+          usedDirectReply: false,
+          usedAi: false,
           reason,
           customer: latest.text,
           rule: actionRule.name || "",
@@ -270,7 +274,7 @@
 
         if (!captionSent && !imageResult.ok) {
           updateToolbar("图片回复失败");
-          reportEvent("reply_failed", { stage: "image_reply", reason, customer: latest.text, reply: caption, error: imageResult.message });
+          reportEvent("reply_failed", { stage: "image_reply", sourceType: "image_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: caption, error: imageResult.message });
           return;
         }
 
@@ -280,6 +284,10 @@
         updateToolbar(imageResult.sent ? "图片已发送" : imageResult.pasted ? "图片已粘贴" : imageResult.ok ? "图片待发送" : "图片已承接");
         reportReplySent({
           stage: "image_reply",
+          sourceType: "image_rule",
+          usedRuleLibrary: true,
+          usedDirectReply: false,
+          usedAi: false,
           reason,
           customer: latest.text,
           rule: imageReply.name || "",
@@ -301,6 +309,10 @@
           updateToolbar(panelAction.successStatus);
           reportReplySent({
             stage: "panel_action",
+            sourceType: "panel_action",
+            usedRuleLibrary: true,
+            usedDirectReply: false,
+            usedAi: false,
             reason,
             customer: latest.text,
             rule: panelAction.successStatus || "",
@@ -317,7 +329,7 @@
         const sent = await sendReplyParts(ruleReply);
         if (!sent) {
           updateToolbar("发送失败");
-          reportEvent("reply_failed", { stage: "rule", reason, customer: latest.text, reply: ruleReply });
+          reportEvent("reply_failed", { stage: "rule", sourceType: "text_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: ruleReply });
           warn("send failed", { reason, latest, reply: ruleReply });
           return;
         }
@@ -328,6 +340,10 @@
         updateToolbar("文字已发送");
         reportReplySent({
           stage: "rule",
+          sourceType: "text_rule",
+          usedRuleLibrary: true,
+          usedDirectReply: false,
+          usedAi: false,
           reason,
           customer: latest.text,
           status: "文字已发送",
@@ -344,7 +360,7 @@
         const sent = await sendReplyParts(firstReply);
         if (!sent) {
           updateToolbar("发送失败");
-          reportEvent("reply_failed", { stage: "quick_ack", reason, customer: latest.text, reply: firstReply });
+          reportEvent("reply_failed", { stage: "quick_ack", sourceType: "quick_ack", usedDirectReply: true, reason, customer: latest.text, reply: firstReply });
           warn("quick ack failed", { reason, latest, reply: firstReply });
           return;
         }
@@ -357,6 +373,10 @@
         updateToolbar("AI 请求中");
         reportReplySent({
           stage: "quick_ack",
+          sourceType: "quick_ack",
+          usedRuleLibrary: false,
+          usedDirectReply: true,
+          usedAi: false,
           reason,
           customer: latest.text,
           status: "承接语已发送",
@@ -381,6 +401,10 @@
           updateToolbar("继续等 AI");
           reportReplySent({
             stage: "waiting_reply",
+            sourceType: "waiting_reply",
+            usedRuleLibrary: false,
+            usedDirectReply: true,
+            usedAi: false,
             reason,
             customer: latest.text,
             status: "等待语已发送",
@@ -390,7 +414,7 @@
         }
 
         updateToolbar("等待语发送失败");
-        reportEvent("reply_failed", { stage: "waiting_reply", reason, customer: latest.text, reply: waitingReply });
+        reportEvent("reply_failed", { stage: "waiting_reply", sourceType: "waiting_reply", usedDirectReply: true, reason, customer: latest.text, reply: waitingReply });
       }, CONFIG.aiSlowMs);
 
       const aiReply = await askLocalAi(latest.text, "deep");
@@ -398,7 +422,7 @@
       if (!aiReply || (firstReply && normalize(aiReply) === normalize(firstReply))) {
         if (!responseSent) {
           updateToolbar("未能回复");
-          reportEvent("reply_failed", { stage: "ai_empty", reason, customer: latest.text });
+          reportEvent("reply_failed", { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, reason, customer: latest.text });
           return;
         }
 
@@ -413,13 +437,17 @@
         state.lastReplyAt = Date.now();
         reportReplySent({
           stage: "ai_followup",
+          sourceType: "ai_followup",
+          usedRuleLibrary: false,
+          usedDirectReply: false,
+          usedAi: true,
           reason,
           customer: latest.text,
           status: "AI 已发送",
           reply: aiReply
         });
       } else if (!responseSent) {
-        reportEvent("reply_failed", { stage: "ai_followup", reason, customer: latest.text, reply: aiReply });
+        reportEvent("reply_failed", { stage: "ai_followup", sourceType: "ai_followup", usedAi: true, reason, customer: latest.text, reply: aiReply });
       } else {
         reportEvent("ai_followup_failed", { reason, customer: latest.text, reply: aiReply });
       }
@@ -606,6 +634,7 @@
     const rules = Array.isArray(CONFIG.rules) && CONFIG.rules.length > 0 ? CONFIG.rules : DEFAULT_RULES;
     for (const rule of rules) {
       if (!rule) continue;
+      if (rule.enabled === false) continue;
       const keywords = Array.isArray(rule.keywords) ? rule.keywords : splitKeywords(rule.keywords);
       if (keywords.some((keyword) => text.includes(normalize(keyword)))) {
         return rule.reply;

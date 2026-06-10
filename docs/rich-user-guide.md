@@ -4,23 +4,23 @@
 
 ## 一句话定位
 
-这是一个把微信小店客服页封装成桌面应用的自动回复工具。它不是单纯的浏览器脚本，而是一个带悬浮窗、规则库、本地 AI 服务、页面动作接口、Webhook 通知和安装包发布流程的桌面客服工作台。
+这是一个把微信小店客服页封装成桌面应用的自动回复工具。它不是单纯的浏览器脚本，而是一个带主控制台、客服页映射、悬浮窗、规则库、本地 AI 服务、页面动作接口、Webhook 通知和安装包发布流程的桌面客服工作台。
 
 ## 下载安装
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.1.0/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.1.0/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.1.0/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.2.0/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.2.0/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.2.0/wechat-autoreply-windows-portable.exe)
 
 首次打开后只需要补三件事：
 
 | 步骤 | 位置 | 用途 |
 | --- | --- | --- |
-| 1 | 悬浮窗 > API | 填 `DEEPSEEK_API_KEY` |
-| 2 | 悬浮窗 > 通知 | 填企业微信机器人 Webhook |
-| 3 | 桌面客服页 | 微信扫码登录小店客服 |
+| 1 | 主控制台 > API 接入 | 填 `DEEPSEEK_API_KEY`，并点真实回复测试 |
+| 2 | 主控制台 > Webhook | 填企业微信机器人 Webhook，并点测试 |
+| 3 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
 
 ## 自动初始化内容
 
@@ -41,9 +41,11 @@
 
 ```mermaid
 flowchart LR
-  User["客服/运营"] --> Float["桌面悬浮窗"]
-  Float --> Config["运行配置和规则库"]
-  Float --> App["Electron 桌面应用"]
+  User["客服/运营"] --> Console["主控制台"]
+  User --> Float["桌面悬浮窗"]
+  Console --> Config["运行配置和规则库"]
+  Float --> Console
+  Console --> App["Electron 桌面应用"]
   App --> Page["微信小店客服页"]
   Page --> Bot["content.js 自动回复 Bot"]
   Bot --> Rules["确定性规则"]
@@ -104,7 +106,7 @@ flowchart TD
 
 ## 页面动作规格
 
-规则写在悬浮窗 > 回复 > 页面动作规则 JSON。
+规则优先在主控制台 > 规则库里用卡片编辑；高级 JSON 只作为批量迁移和排查入口。
 
 ```json
 {
@@ -168,9 +170,9 @@ flowchart TD
 | 现象 | 最可能原因 | 处理 |
 | --- | --- | --- |
 | 发图片/发商品都失败 | 还停在扫码页，没进 `/shop/kf` 客服工作台 | 扫码登录并选中测试会话 |
-| AI 不回复 | 未填 DeepSeek API Key | 悬浮窗 > API 填写后保存 |
-| Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 悬浮窗 > 通知，保存后点测试 |
-| 规则看起来没加载 | 旧运行配置覆盖过新版规则 | 新版会自动补齐；也可在悬浮窗规则页检查 |
+| AI 不回复 | 未填 DeepSeek API Key | 主控制台 > API 接入 填写后保存 |
+| Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 主控制台 > Webhook，保存后点测试 |
+| 规则看起来没加载 | 旧运行配置覆盖过新版规则 | 新版会自动补齐；也可在主控制台 > 规则库检查 |
 | macOS 提示无法打开 | 未签名本地应用的系统提示 | 右键打开，或在系统设置安全性里允许 |
 | Windows 提示未知发布者 | 当前安装包未代码签名 | 选择仍要运行，后续可接入证书签名 |
 

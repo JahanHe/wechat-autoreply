@@ -1,6 +1,6 @@
 {
   "name": "wechat-shop-kf-bot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "微信小店客服自动回复桌面程序",
   "author": "local",
   "private": true,

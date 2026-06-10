@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen } from "electron";
+import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -11,10 +11,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(__dirname, "..");
 const CONTENT_SCRIPT_PATH = resolve(APP_ROOT, "extension/content.js");
 const FLOATING_HTML_PATH = resolve(__dirname, "floating.html");
+const MAIN_SHELL_HTML_PATH = resolve(__dirname, "main-shell.html");
 const BUNDLED_ASSISTANT_PROFILE_PATH = resolve(APP_ROOT, "config/assistant-profile.json");
 const BUNDLED_REPLIES_PATH = resolve(APP_ROOT, "config/replies.json");
 const BUNDLED_REPLY_IMAGES_DIR = resolve(APP_ROOT, "config/reply-images");
 const BOT_CONFIG_VERSION = "desktop-0.2.0";
+const MAIN_SHELL_SIDEBAR_WIDTH = 236;
 
 process.env.WECHAT_KF_ROOT = APP_ROOT;
 process.env.WECHAT_KF_CONFIG_ROOT = APP_ROOT;
@@ -25,6 +27,9 @@ const CONTROL_PORT = Number(process.env.DESKTOP_CONTROL_PORT || 8797);
 
 let config = null;
 let mainWindow = null;
+let kfView = null;
+let kfViewAttached = false;
+let mainMode = "page";
 let floatWindow = null;
 let tray = null;
 let aiServer = null;
@@ -133,6 +138,7 @@ function defaultConfig() {
     },
     floatWindow: {
       enabled: true,
+      visible: true,
       alwaysOnTop: true,
       bounds: null,
       compactSize: { width: 320, height: 182 },
@@ -144,8 +150,22 @@ function defaultConfig() {
       wecomWebhookUrl: process.env.WECOM_BOT_WEBHOOK_URL || "",
       cooldownMs: 300_000,
       hourlySummaryEnabled: true,
+      hourlySummaryIntervalHours: 1,
       dailySummaryEnabled: true,
-      dailySummaryHour: 10
+      dailySummaryHour: 10,
+      dailySummaryTime: "10:00",
+      summaryDetailLimit: 12,
+      successReplyMode: "log_only",
+      eventRules: {
+        app: true,
+        health: true,
+        page: true,
+        login: true,
+        replyFailed: true,
+        replyTimeout: true,
+        replySuccess: false,
+        summaries: true
+      }
     },
     watchdog: {
       aiHealthMs: 60_000,
@@ -187,6 +207,7 @@ async function saveConfig() {
 }
 
 function runtimeConfigRoot() {
+  if (process.env.WECHAT_KF_DESKTOP_USER_DATA) return app.getPath("userData");
   return app.isPackaged ? app.getPath("userData") : APP_ROOT;
 }
 
@@ -235,8 +256,26 @@ function mergeConfig(base, saved) {
     ...base,
     ...saved,
     bot: mergeBotConfig(base.bot, saved?.bot || {}),
-    floatWindow: { ...base.floatWindow, ...(saved?.floatWindow || {}) },
-    notify: { ...base.notify, ...(saved?.notify || {}) },
+    floatWindow: {
+      ...base.floatWindow,
+      ...(saved?.floatWindow || {}),
+      compactSize: {
+        ...base.floatWindow.compactSize,
+        ...(saved?.floatWindow?.compactSize || {})
+      },
+      settingsSize: {
+        ...base.floatWindow.settingsSize,
+        ...(saved?.floatWindow?.settingsSize || {})
+      }
+    },
+    notify: {
+      ...base.notify,
+      ...(saved?.notify || {}),
+      eventRules: {
+        ...base.notify.eventRules,
+        ...(saved?.notify?.eventRules || {})
+      }
+    },
     watchdog: { ...base.watchdog, ...(saved?.watchdog || {}) }
   };
 }
@@ -358,10 +397,7 @@ async function startDesktopControlServer() {
           ok: true,
           port: CONTROL_PORT,
           app: "微信小店客服自动回复",
-          page: mainWindow && !mainWindow.isDestroyed() ? {
-            url: mainWindow.webContents.getURL(),
-            title: mainWindow.webContents.getTitle()
-          } : null,
+          page: pageInfoPayload(),
           status: statusPayload()
         });
         return;
@@ -455,11 +491,10 @@ function createMainWindow() {
     title: "微信小店客服自动回复",
     show: true,
     webPreferences: {
-      preload: resolve(__dirname, "preload.cjs"),
+      preload: resolve(__dirname, "main-shell-preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      partition: "persist:wechat-kf-desktop"
+      sandbox: false
     }
   });
 
@@ -471,7 +506,7 @@ function createMainWindow() {
   });
 
   mainWindow.on("unresponsive", () => {
-    sendNotification("page_unresponsive", "客服页面无响应", "桌面程序将尝试重载客服页面", {
+    sendNotification("shell_unresponsive", "控制台窗口无响应", "桌面程序将尝试重载控制台", {
       severity: "critical",
       cooldownMs: 60_000
     });
@@ -479,39 +514,172 @@ function createMainWindow() {
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
-    sendNotification("page_crashed", "客服页面进程异常", `原因：${details.reason || "unknown"}，已尝试重开`, {
+    sendNotification("shell_crashed", "控制台进程异常", `原因：${details.reason || "unknown"}，已尝试重开`, {
       severity: "critical",
       cooldownMs: 60_000
     });
-    mainWindow.loadURL(config.kfUrl);
+    mainWindow.loadFile(MAIN_SHELL_HTML_PATH);
   });
 
   mainWindow.webContents.on("did-finish-load", () => {
-    injectBotScript();
-    inspectLoginState();
+    broadcastStatus();
   });
 
-  mainWindow.webContents.on("did-navigate", () => {
-    injectBotScript();
-  });
+  mainWindow.on("resize", layoutKfView);
+  mainWindow.on("maximize", layoutKfView);
+  mainWindow.on("unmaximize", layoutKfView);
 
   mainWindow.webContents.on("did-fail-load", (_event, code, description, url) => {
-    sendNotification("page_load_failed", "客服页面加载失败", `${description || code}\n${url || ""}`, {
+    sendNotification("shell_load_failed", "控制台加载失败", `${description || code}\n${url || ""}`, {
       severity: "critical",
       cooldownMs: 60_000
     });
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    mainWindow.loadURL(url);
+    getKfWebContents()?.loadURL(url);
+    setMainMode("page").catch((error) => console.error("[desktop] set page mode failed", error));
     return { action: "deny" };
   });
 
-  mainWindow.loadURL(config.kfUrl);
+  mainWindow.loadFile(MAIN_SHELL_HTML_PATH);
+  createKfView();
+  showKfView();
+}
+
+function createKfView() {
+  if (kfView && !kfView.webContents.isDestroyed()) return kfView;
+
+  kfViewAttached = false;
+  kfView = new BrowserView({
+    webPreferences: {
+      preload: resolve(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      partition: "persist:wechat-kf-desktop"
+    }
+  });
+
+  const wc = kfView.webContents;
+  wc.on("unresponsive", () => {
+    sendNotification("page_unresponsive", "客服页面无响应", "桌面程序将尝试重载客服页面", {
+      severity: "critical",
+      cooldownMs: 60_000
+    });
+    wc.reload();
+  });
+
+  wc.on("render-process-gone", (_event, details) => {
+    sendNotification("page_crashed", "客服页面进程异常", `原因：${details.reason || "unknown"}，已尝试重开`, {
+      severity: "critical",
+      cooldownMs: 60_000
+    });
+    wc.loadURL(config.kfUrl);
+  });
+
+  wc.on("did-finish-load", () => {
+    injectBotScript();
+    inspectLoginState();
+    broadcastStatus();
+  });
+
+  wc.on("did-navigate", () => {
+    injectBotScript();
+    broadcastStatus();
+  });
+
+  wc.on("did-fail-load", (_event, code, description, url) => {
+    sendNotification("page_load_failed", "客服页面加载失败", `${description || code}\n${url || ""}`, {
+      severity: "critical",
+      cooldownMs: 60_000
+    });
+    broadcastStatus();
+  });
+
+  wc.setWindowOpenHandler(({ url }) => {
+    wc.loadURL(url);
+    return { action: "deny" };
+  });
+
+  wc.loadURL(config.kfUrl);
+  return kfView;
+}
+
+function getKfWebContents() {
+  if (!kfView || kfView.webContents.isDestroyed()) return null;
+  return kfView.webContents;
+}
+
+function ensureKfView() {
+  return createKfView();
+}
+
+function pageInfoPayload() {
+  const wc = getKfWebContents();
+  if (!wc) {
+    return {
+      ready: false,
+      visible: false,
+      url: "",
+      title: "",
+      loading: false
+    };
+  }
+
+  return {
+    ready: true,
+    visible: Boolean(kfViewAttached && mainMode === "page"),
+    url: wc.getURL(),
+    title: wc.getTitle(),
+    loading: wc.isLoading()
+  };
+}
+
+function showKfView() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  ensureKfView();
+  if (!kfViewAttached) {
+    mainWindow.addBrowserView(kfView);
+    kfViewAttached = true;
+  }
+  mainWindow.setTopBrowserView(kfView);
+  layoutKfView();
+}
+
+function hideKfView() {
+  if (!mainWindow || mainWindow.isDestroyed() || !kfView || !kfViewAttached) return;
+  mainWindow.removeBrowserView(kfView);
+  kfViewAttached = false;
+}
+
+function layoutKfView() {
+  if (!mainWindow || mainWindow.isDestroyed() || !kfView || !kfViewAttached) return;
+  const [width, height] = mainWindow.getContentSize();
+  kfView.setBounds({
+    x: MAIN_SHELL_SIDEBAR_WIDTH,
+    y: 0,
+    width: Math.max(0, width - MAIN_SHELL_SIDEBAR_WIDTH),
+    height: Math.max(0, height)
+  });
+  kfView.setAutoResize({ width: true, height: true });
+}
+
+async function setMainMode(mode) {
+  const normalized = String(mode || "page").trim() || "page";
+  mainMode = normalized;
+  if (normalized === "page") {
+    showKfView();
+    getKfWebContents()?.focus();
+  } else {
+    hideKfView();
+  }
+  broadcastStatus();
+  return statusPayload();
 }
 
 function createFloatingWindow() {
-  if (!config.floatWindow.enabled) return;
+  if (!config.floatWindow.enabled || config.floatWindow.visible === false) return;
 
   const initialBounds = normalizeBounds(config.floatWindow.bounds) || {
     width: Number(config.floatWindow.compactSize?.width || 320),
@@ -540,10 +708,13 @@ function createFloatingWindow() {
   floatWindow.once("ready-to-show", () => broadcastStatus());
   floatWindow.on("move", persistFloatingBoundsSoon);
   floatWindow.on("resize", persistFloatingBoundsSoon);
-  floatWindow.on("close", () => {
+  floatWindow.on("close", (event) => {
     if (isQuitting) return;
-    isQuitting = true;
-    app.quit();
+    event.preventDefault();
+    floatWindow.hide();
+    config.floatWindow.visible = false;
+    saveConfig().catch((error) => console.error("[desktop] save floating visible failed", error));
+    broadcastStatus();
   });
 }
 
@@ -619,12 +790,17 @@ function persistFloatingBoundsSoon() {
 
 function showFloatingWindow() {
   if (floatWindow && !floatWindow.isDestroyed()) {
+    config.floatWindow.enabled = true;
+    config.floatWindow.visible = true;
+    saveConfig().catch((error) => console.error("[desktop] save floating visible failed", error));
     floatWindow.show();
     floatWindow.focus();
+    broadcastStatus();
     return;
   }
 
   config.floatWindow.enabled = true;
+  config.floatWindow.visible = true;
   saveConfig().catch((error) => console.error("[desktop] save floating enabled failed", error));
   createFloatingWindow();
 }
@@ -652,18 +828,19 @@ async function setFloatingAlwaysOnTop(value) {
 }
 
 async function injectBotScript() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const url = mainWindow.webContents.getURL();
+  const wc = getKfWebContents();
+  if (!wc) return;
+  const url = wc.getURL();
   if (!url.includes("store.weixin.qq.com")) return;
 
   try {
     const content = await readFile(CONTENT_SCRIPT_PATH, "utf8");
-    await mainWindow.webContents.executeJavaScript(content, true);
+    await wc.executeJavaScript(content, true);
     lastBotStatus = {
       ...lastBotStatus,
       status: "脚本已注入",
       href: url,
-      title: mainWindow.webContents.getTitle(),
+      title: wc.getTitle(),
       at: Date.now()
     };
     broadcastStatus();
@@ -721,9 +898,13 @@ function registerIpc() {
   ipcMain.handle("float-set-mode", (_event, mode) => setFloatingMode(mode));
   ipcMain.handle("float-set-always-on-top", (_event, value) => setFloatingAlwaysOnTop(value));
   ipcMain.handle("float-set-preset", (_event, preset) => setFloatingPreset(preset));
-  ipcMain.handle("float-hide", () => {
-    isQuitting = true;
-    app.quit();
+  ipcMain.handle("float-hide", async () => {
+    if (floatWindow && !floatWindow.isDestroyed()) {
+      floatWindow.hide();
+    }
+    config.floatWindow.visible = false;
+    await saveConfig();
+    broadcastStatus();
     return true;
   });
   ipcMain.handle("float-quit", () => {
@@ -741,11 +922,41 @@ function registerIpc() {
   ipcMain.handle("page-capture-structure", () => capturePageStructure());
   ipcMain.handle("page-save-structure", (_event, snapshot) => savePageStructureSnapshot(snapshot || {}));
   ipcMain.handle("page-run-action", (_event, action) => runPageAction(action || {}));
+
+  ipcMain.handle("main-get-status", () => statusPayload());
+  ipcMain.handle("main-get-settings", () => settingsPayload());
+  ipcMain.handle("main-save-settings", (_event, payload) => saveDesktopSettings(payload || {}));
+  ipcMain.handle("main-set-mode", (_event, mode) => setMainMode(mode));
+  ipcMain.handle("main-open-floating", async (_event, mode = "compact") => {
+    showFloatingWindow();
+    if (mode === "settings") await setFloatingMode("settings");
+    return statusPayload();
+  });
+  ipcMain.handle("main-hide-floating", async () => {
+    if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide();
+    config.floatWindow.visible = false;
+    await saveConfig();
+    broadcastStatus();
+    return statusPayload();
+  });
+  ipcMain.handle("main-toggle-enabled", () => setBotEnabled(!config.bot.enabled));
+  ipcMain.handle("main-reload", () => reloadKfPage());
+  ipcMain.handle("main-check-ai", async () => {
+    await checkAiHealth({ notifyOk: false });
+    return lastAiHealth;
+  });
+  ipcMain.handle("main-test-webhook", (_event, webhookUrl) => testWebhookUrl(webhookUrl));
+  ipcMain.handle("main-capture-structure", () => capturePageStructure());
+  ipcMain.handle("main-run-action", (_event, action) => runPageAction(action || {}));
+  ipcMain.handle("main-choose-image", () => chooseImagePath());
+  ipcMain.handle("main-get-reply-records", (_event, options = {}) => replyRecordsPayload(options || {}));
+  ipcMain.handle("main-test-ai-reply", (_event, payload = {}) => testAiReply(payload || {}));
 }
 
 function sendConfigChanges(changes) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("desktop-config-changed", changes);
+  const wc = getKfWebContents();
+  if (!wc) return;
+  wc.send("desktop-config-changed", changes);
 }
 
 async function setBotEnabled(enabled) {
@@ -755,11 +966,14 @@ async function setBotEnabled(enabled) {
   sendConfigChanges({ enabled: { oldValue, newValue: enabled } });
   updateTrayMenu();
   updateFloatingStatus(enabled ? "接管已开启" : "已暂停");
+  return statusPayload();
 }
 
 function reloadKfPage() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.loadURL(config.kfUrl);
+  const wc = getKfWebContents() || ensureKfView().webContents;
+  showKfView();
+  mainMode = "page";
+  wc.loadURL(config.kfUrl);
   updateFloatingStatus("正在重载客服页");
 }
 
@@ -784,9 +998,13 @@ function broadcastStatus() {
   if (floatWindow && !floatWindow.isDestroyed()) {
     floatWindow.webContents.send("float-status", payload);
   }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("main-status", payload);
+  }
 }
 
 function statusPayload() {
+  const records = replyRecordStats(replyRecords);
   return {
     bot: lastBotStatus,
     ai: lastAiHealth,
@@ -794,7 +1012,54 @@ function statusPayload() {
     notifyEnabled: Boolean(config?.notify?.enabled && config?.notify?.wecomWebhookUrl),
     notifyOutboxCount: notifyOutbox.length,
     kfUrl: config?.kfUrl || "",
+    mode: mainMode,
+    page: pageInfoPayload(),
+    floating: {
+      enabled: Boolean(config?.floatWindow?.enabled),
+      visible: Boolean(floatWindow && !floatWindow.isDestroyed() && floatWindow.isVisible()),
+      alwaysOnTop: Boolean(config?.floatWindow?.alwaysOnTop),
+      bounds: floatWindow && !floatWindow.isDestroyed() ? floatWindow.getBounds() : config?.floatWindow?.bounds || null
+    },
+    notify: {
+      enabled: Boolean(config?.notify?.enabled && config?.notify?.wecomWebhookUrl),
+      configured: Boolean(config?.notify?.wecomWebhookUrl),
+      outboxCount: notifyOutbox.length,
+      cooldownMs: Number(config?.notify?.cooldownMs || 0),
+      hourlySummaryEnabled: Boolean(config?.notify?.hourlySummaryEnabled),
+      hourlySummaryIntervalHours: Number(config?.notify?.hourlySummaryIntervalHours || 1),
+      dailySummaryEnabled: Boolean(config?.notify?.dailySummaryEnabled),
+      dailySummaryTime: String(config?.notify?.dailySummaryTime || `${config?.notify?.dailySummaryHour ?? 10}:00`)
+    },
+    records,
     now: Date.now()
+  };
+}
+
+function replyRecordStats(records) {
+  const items = Array.isArray(records) ? records : [];
+  return {
+    total: items.length,
+    sent: items.filter((item) => item.kind === "sent").length,
+    failed: items.filter((item) => item.kind === "failed").length,
+    timeout: items.filter((item) => item.kind === "timeout").length,
+    bySource: countBy(items.map((item) => item.sourceType || classifyReplySource(item.stage, item).sourceType))
+  };
+}
+
+function replyRecordsPayload(options = {}) {
+  const limit = clampInt(options.limit || 300, 1, 1000);
+  const kind = String(options.kind || "all");
+  const sourceType = String(options.sourceType || "all");
+  const items = replyRecords
+    .filter((item) => kind === "all" || item.kind === kind)
+    .filter((item) => sourceType === "all" || (item.sourceType || classifyReplySource(item.stage, item).sourceType) === sourceType)
+    .slice(-limit)
+    .reverse();
+  return {
+    items,
+    stats: replyRecordStats(replyRecords),
+    total: replyRecords.length,
+    outbox: notifyOutbox.slice(-50).reverse()
   };
 }
 
@@ -817,6 +1082,8 @@ function settingsPayload() {
       deepseekThinking: env.DEEPSEEK_THINKING || process.env.DEEPSEEK_THINKING || "enabled",
       deepseekReasoningEffort: env.DEEPSEEK_REASONING_EFFORT || process.env.DEEPSEEK_REASONING_EFFORT || "medium",
       deepseekReview: env.DEEPSEEK_REVIEW || process.env.DEEPSEEK_REVIEW || "enabled",
+      deepseekTimeoutMs: env.DEEPSEEK_TIMEOUT_MS || process.env.DEEPSEEK_TIMEOUT_MS || "80000",
+      deepseekReviewTimeoutMs: env.DEEPSEEK_REVIEW_TIMEOUT_MS || process.env.DEEPSEEK_REVIEW_TIMEOUT_MS || "25000",
       wecomWebhookUrl: env.WECOM_BOT_WEBHOOK_URL || process.env.WECOM_BOT_WEBHOOK_URL || "",
       port: env.PORT || process.env.PORT || String(PORT)
     },
@@ -838,6 +1105,15 @@ async function saveDesktopSettings(payload) {
       applyLoginItemSetting();
     }
 
+    if ("kfUrl" in payload.config) {
+      const nextUrl = String(payload.config.kfUrl || "").trim() || defaultConfig().kfUrl;
+      const oldUrl = config.kfUrl;
+      config.kfUrl = nextUrl;
+      if (nextUrl !== oldUrl) {
+        getKfWebContents()?.loadURL(nextUrl);
+      }
+    }
+
     if (payload.config.bot && typeof payload.config.bot === "object") {
       for (const [key, value] of Object.entries(payload.config.bot)) {
         if (value === undefined) continue;
@@ -850,7 +1126,11 @@ async function saveDesktopSettings(payload) {
     if (payload.config.notify && typeof payload.config.notify === "object") {
       config.notify = {
         ...config.notify,
-        ...payload.config.notify
+        ...payload.config.notify,
+        eventRules: {
+          ...config.notify.eventRules,
+          ...(payload.config.notify.eventRules || {})
+        }
       };
       config.notify.wecomWebhookUrl = String(config.notify.wecomWebhookUrl || "").trim();
       config.notify.enabled = Boolean(config.notify.enabled && config.notify.wecomWebhookUrl);
@@ -895,6 +1175,8 @@ async function saveDesktopSettings(payload) {
       DEEPSEEK_THINKING: payload.env.deepseekThinking,
       DEEPSEEK_REASONING_EFFORT: payload.env.deepseekReasoningEffort,
       DEEPSEEK_REVIEW: payload.env.deepseekReview,
+      DEEPSEEK_TIMEOUT_MS: payload.env.deepseekTimeoutMs,
+      DEEPSEEK_REVIEW_TIMEOUT_MS: payload.env.deepseekReviewTimeoutMs,
       WECOM_BOT_WEBHOOK_URL: payload.env.wecomWebhookUrl,
       PORT: payload.env.port
     };
@@ -1069,19 +1351,21 @@ async function setFloatingPreset(preset) {
 }
 
 async function capturePageStructure() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  const wc = getKfWebContents();
+  if (!wc) {
     return { ok: false, message: "客服窗口未打开" };
   }
 
-  const snapshot = await mainWindow.webContents.executeJavaScript(`(${pageStructureScript.toString()})()`, true);
+  const snapshot = await wc.executeJavaScript(`(${pageStructureScript.toString()})()`, true);
   return savePageStructureSnapshot(snapshot);
 }
 
 async function inspectLivePage() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  const wc = getKfWebContents();
+  if (!wc) {
     return { ok: false, message: "客服窗口未打开" };
   }
-  const snapshot = await mainWindow.webContents.executeJavaScript(`(${pageStructureScript.toString()})()`, true);
+  const snapshot = await wc.executeJavaScript(`(${pageStructureScript.toString()})()`, true);
   return {
     ok: true,
     url: snapshot.href,
@@ -1103,10 +1387,11 @@ async function savePageStructureSnapshot(snapshot) {
   const dir = resolve(app.getPath("userData"), "page-structures");
   await mkdir(dir, { recursive: true });
   const path = resolve(dir, `page-structure-${Date.now()}.json`);
+  const wc = getKfWebContents();
   await writeFile(path, JSON.stringify({
     capturedAt: new Date().toISOString(),
-    url: snapshot?.href || mainWindow?.webContents?.getURL?.() || "",
-    title: snapshot?.title || mainWindow?.webContents?.getTitle?.() || "",
+    url: snapshot?.href || wc?.getURL?.() || "",
+    title: snapshot?.title || wc?.getTitle?.() || "",
     snapshot
   }, null, 2), "utf8");
   clipboard.writeText(path);
@@ -1242,7 +1527,8 @@ async function runPageAction(action = {}) {
   }
   if (type === "image") return handleImageReply(action);
   if (type === "file") return handleFileReply(action);
-  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, message: "客服窗口未打开" };
+  const wc = getKfWebContents();
+  if (!wc) return { ok: false, message: "客服窗口未打开" };
   if (type === "native_click") return nativeClickPageTarget(action);
 
   if (
@@ -1254,7 +1540,7 @@ async function runPageAction(action = {}) {
     type === "material" ||
     type === "quick_reply"
   ) {
-    const result = await mainWindow.webContents.executeJavaScript(`(${pageActionScript.toString()})(${JSON.stringify(action)})`, true)
+    const result = await wc.executeJavaScript(`(${pageActionScript.toString()})(${JSON.stringify(action)})`, true)
       .catch((error) => ({ ok: false, message: String(error?.message || error) }));
     if (
       (type === "product" || type === "material" || type === "quick_reply") &&
@@ -1266,7 +1552,7 @@ async function runPageAction(action = {}) {
         selector: result.pendingSelector,
         waitMs: Number(action.nativeWaitMs || action.afterConfirmMs || 1600)
       });
-      const stillPending = await mainWindow.webContents.executeJavaScript(`(${visibleTargetScript.toString()})(${JSON.stringify(result.pendingSelector)})`, true)
+      const stillPending = await wc.executeJavaScript(`(${visibleTargetScript.toString()})(${JSON.stringify(result.pendingSelector)})`, true)
         .catch(() => true);
       return {
         ...result,
@@ -1680,19 +1966,21 @@ function pageActionScript(action) {
 }
 
 async function nativeClickPageTarget(action = {}) {
-  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, message: "客服窗口未打开" };
+  const wc = getKfWebContents();
+  if (!wc) return { ok: false, message: "客服窗口未打开" };
   showMainWindow();
-  const point = await mainWindow.webContents.executeJavaScript(`(${nativeClickTargetScript.toString()})(${JSON.stringify(action)})`, true)
+  await setMainMode("page");
+  const point = await wc.executeJavaScript(`(${nativeClickTargetScript.toString()})(${JSON.stringify(action)})`, true)
     .catch((error) => ({ ok: false, message: String(error?.message || error) }));
   if (!point?.ok) return { ok: false, message: point?.message || "native click target not found" };
 
   const x = Math.round(point.x);
   const y = Math.round(point.y);
-  mainWindow.webContents.sendInputEvent({ type: "mouseMove", x, y });
+  wc.sendInputEvent({ type: "mouseMove", x, y });
   await sleep(60);
-  mainWindow.webContents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+  wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
   await sleep(80);
-  mainWindow.webContents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+  wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
   await sleep(Number(action.waitMs || 500));
   return { ok: true, x, y, selector: point.selector || "", text: point.text || "" };
 }
@@ -1794,7 +2082,7 @@ async function handleImageReply(payload = {}) {
   let sent = false;
   let fallbackMessage = "";
 
-  if (config.bot.autoPasteImages && mainWindow && !mainWindow.isDestroyed()) {
+  if (config.bot.autoPasteImages && getKfWebContents()) {
     const uploadResult = await uploadAndSendImageFile(resolvedPath);
     uploaded = Boolean(uploadResult.uploaded);
     sent = Boolean(uploadResult.sent);
@@ -1805,7 +2093,7 @@ async function handleImageReply(payload = {}) {
   if (!sent) {
     clipboard.writeImage(image);
     copied = true;
-    if (config.bot.autoPasteImages && mainWindow && !mainWindow.isDestroyed()) {
+    if (config.bot.autoPasteImages && getKfWebContents()) {
       const result = await pasteAndSendClipboardImage();
       pasted = Boolean(result.pasted);
       sent = Boolean(result.sent);
@@ -1902,10 +2190,12 @@ function preferUnpackedPath(filePath) {
 }
 
 async function uploadAndSendImageFile(imagePath) {
-  if (!mainWindow || mainWindow.isDestroyed()) return { uploaded: false, sent: false, message: "客服窗口未打开" };
+  const wc = getKfWebContents();
+  if (!wc) return { uploaded: false, sent: false, message: "客服窗口未打开" };
   showMainWindow();
+  await setMainMode("page");
 
-  const inputInfo = await mainWindow.webContents.executeJavaScript(`(${findImageUploadInputScript.toString()})()`, true)
+  const inputInfo = await wc.executeJavaScript(`(${findImageUploadInputScript.toString()})()`, true)
     .catch((error) => ({ ok: false, message: String(error?.message || error) }));
   if (!inputInfo?.ok || !inputInfo.selector) {
     return { uploaded: false, sent: false, message: inputInfo?.message || "未找到图片上传入口" };
@@ -1918,19 +2208,21 @@ async function uploadAndSendImageFile(imagePath) {
 }
 
 async function uploadAndSendLocalFile(filePath, options = {}) {
-  if (!mainWindow || mainWindow.isDestroyed()) return { uploaded: false, sent: false, message: "客服窗口未打开" };
+  const wc = getKfWebContents();
+  if (!wc) return { uploaded: false, sent: false, message: "客服窗口未打开" };
   showMainWindow();
+  await setMainMode("page");
 
   const selector = String(options.selector || "").trim();
   const inputInfo = selector
     ? { ok: true, selector }
-    : await mainWindow.webContents.executeJavaScript(`(${findFileUploadInputScript.toString()})()`, true)
+    : await wc.executeJavaScript(`(${findFileUploadInputScript.toString()})()`, true)
       .catch((error) => ({ ok: false, message: String(error?.message || error) }));
   if (!inputInfo?.ok || !inputInfo.selector) {
     return { uploaded: false, sent: false, message: inputInfo?.message || "未找到文件上传入口" };
   }
 
-  const debuggerApi = mainWindow.webContents.debugger;
+  const debuggerApi = wc.debugger;
   const wasAttached = debuggerApi.isAttached();
   let attachedHere = false;
   try {
@@ -1945,13 +2237,13 @@ async function uploadAndSendLocalFile(filePath, options = {}) {
     });
     if (!nodeId) return { uploaded: false, sent: false, message: "上传入口定位失败" };
 
-    const before = await mainWindow.webContents.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
+    const before = await wc.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
       .catch(() => ({ previewCount: 0, sendButtonVisible: false }));
     await debuggerApi.sendCommand("DOM.setFileInputFiles", {
       nodeId,
       files: [filePath]
     });
-    await mainWindow.webContents.executeJavaScript(`(${dispatchFileInputChangeScript.toString()})(${JSON.stringify(inputInfo.selector)})`, true)
+    await wc.executeJavaScript(`(${dispatchFileInputChangeScript.toString()})(${JSON.stringify(inputInfo.selector)})`, true)
       .catch(() => false);
 
     const ready = await waitForUploadReady(before);
@@ -1959,7 +2251,7 @@ async function uploadAndSendLocalFile(filePath, options = {}) {
       return { uploaded: true, sent: false, message: ready.message || `${options.kind || "文件"}上传后未检测到待发送状态` };
     }
 
-    const clicked = await mainWindow.webContents.executeJavaScript(`(${clickSendButtonScript.toString()})()`, true).catch(() => false);
+    const clicked = await wc.executeJavaScript(`(${clickSendButtonScript.toString()})()`, true).catch(() => false);
     if (!clicked) return { uploaded: true, sent: false, message: "已上传，但未找到发送按钮" };
     await sleep(1200);
     return { uploaded: true, sent: true, message: `已通过${options.kind || "文件"}上传入口发送` };
@@ -1977,10 +2269,12 @@ async function uploadAndSendLocalFile(filePath, options = {}) {
 }
 
 async function waitForUploadReady(before = {}) {
+  const wc = getKfWebContents();
+  if (!wc) return { ready: false, message: "客服窗口未打开" };
   const started = Date.now();
   let last = null;
   while (Date.now() - started < 8000) {
-    last = await mainWindow.webContents.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
+    last = await wc.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
       .catch((error) => ({ ready: false, message: String(error?.message || error) }));
     const hasNewPreview = Number(last?.previewCount || 0) > Number(before?.previewCount || 0);
     if (last?.sendButtonVisible || hasNewPreview) {
@@ -2117,15 +2411,17 @@ function uploadStateScript() {
 }
 
 async function pasteAndSendClipboardImage() {
-  if (!mainWindow || mainWindow.isDestroyed()) return { pasted: false, sent: false, message: "客服窗口未打开" };
+  const wc = getKfWebContents();
+  if (!wc) return { pasted: false, sent: false, message: "客服窗口未打开" };
   showMainWindow();
-  const focused = await mainWindow.webContents.executeJavaScript(`(${focusComposerScript.toString()})()`, true).catch(() => false);
+  await setMainMode("page");
+  const focused = await wc.executeJavaScript(`(${focusComposerScript.toString()})()`, true).catch(() => false);
   if (!focused) return { pasted: false, sent: false, message: "客服输入框不可见" };
 
-  mainWindow.webContents.paste();
+  wc.paste();
   await sleep(1200);
 
-  const clicked = await mainWindow.webContents.executeJavaScript(`(${clickSendButtonScript.toString()})()`, true).catch(() => false);
+  const clicked = await wc.executeJavaScript(`(${clickSendButtonScript.toString()})()`, true).catch(() => false);
   if (!clicked) return { pasted: true, sent: false, message: "未找到发送按钮" };
   await sleep(1200);
   return { pasted: true, sent: true, message: "已点击发送按钮" };
@@ -2183,7 +2479,8 @@ async function handleBotEvent(event = {}) {
   const stage = payload.stage ? `阶段：${payload.stage}` : "";
 
   if (type === "reply_sent") {
-    await recordReplyEvent("sent", payload);
+    const record = await recordReplyEvent("sent", payload);
+    await maybeSendReplySuccessNotification(record);
     return;
   }
 
@@ -2268,21 +2565,136 @@ async function saveReplySummaryState() {
   await writeFile(replySummaryStatePath(), JSON.stringify(replySummaryState, null, 2), "utf8");
 }
 
+async function maybeSendReplySuccessNotification(record) {
+  const mode = String(config?.notify?.successReplyMode || "log_only");
+  if (mode === "log_only" || mode === "errors_only") return;
+  if (mode === "ai_only" && !record?.usedAi) return;
+  await sendNotification(
+    `reply_success:${record?.sourceType || "unknown"}:${record?.customer || ""}:${record?.at || Date.now()}`,
+    "客服消息已自动回复",
+    summaryRecordLine(record || {}),
+    { severity: "info", cooldownMs: 0, eventType: "reply_success" }
+  );
+}
+
 async function recordReplyEvent(kind, payload = {}) {
+  const source = classifyReplySource(payload.sourceType || payload.stage, payload);
   const record = {
     id: `${Date.now()}:${Math.random().toString(36).slice(2)}`,
     at: Date.now(),
     kind,
     stage: String(payload.stage || ""),
+    sourceType: source.sourceType,
+    sourceLabel: source.sourceLabel,
+    usedRuleLibrary: source.usedRuleLibrary,
+    usedDirectReply: source.usedDirectReply,
+    usedAi: source.usedAi,
     rule: String(payload.rule || payload.ruleName || ""),
     status: String(payload.status || payload.error || payload.reason || ""),
     customer: clip(String(payload.customer || payload.message || ""), 180),
     reply: clip(String(payload.reply || ""), 240),
-    actions: Array.isArray(payload.actions) ? payload.actions.slice(0, 8) : []
+    actions: Array.isArray(payload.actions) ? payload.actions.slice(0, 8) : [],
+    latencyMs: Number.isFinite(Number(payload.latencyMs)) ? Number(payload.latencyMs) : null
   };
   replyRecords.push(record);
   replyRecords = replyRecords.slice(-REPLY_RECORD_LIMIT);
   await saveReplyRecords().catch((error) => console.error("[summary] save reply record failed", error));
+  broadcastStatus();
+  return record;
+}
+
+function classifyReplySource(stageValue, payload = {}) {
+  const stage = String(stageValue || payload.stage || "").trim();
+  const actions = Array.isArray(payload.actions) ? payload.actions : [];
+  const hasProductAction = actions.some((action) => ["product", "material", "quick_reply", "file", "image"].includes(String(action?.type || "")));
+
+  if (payload.usedAi === true || /^ai/.test(stage)) {
+    return {
+      sourceType: "ai_followup",
+      sourceLabel: "AI 接管",
+      usedRuleLibrary: false,
+      usedDirectReply: false,
+      usedAi: true
+    };
+  }
+
+  if (stage === "action_rule" || hasProductAction) {
+    return {
+      sourceType: "action_rule",
+      sourceLabel: "动作规则库",
+      usedRuleLibrary: true,
+      usedDirectReply: false,
+      usedAi: false
+    };
+  }
+
+  if (stage === "image_reply") {
+    return {
+      sourceType: "image_rule",
+      sourceLabel: "图片规则库",
+      usedRuleLibrary: true,
+      usedDirectReply: false,
+      usedAi: false
+    };
+  }
+
+  if (stage === "panel_action") {
+    return {
+      sourceType: "panel_action",
+      sourceLabel: "页面动作",
+      usedRuleLibrary: true,
+      usedDirectReply: false,
+      usedAi: false
+    };
+  }
+
+  if (stage === "rule") {
+    return {
+      sourceType: "text_rule",
+      sourceLabel: "文本规则库",
+      usedRuleLibrary: true,
+      usedDirectReply: false,
+      usedAi: false
+    };
+  }
+
+  if (stage === "quick_ack") {
+    return {
+      sourceType: "quick_ack",
+      sourceLabel: "直接承接",
+      usedRuleLibrary: false,
+      usedDirectReply: true,
+      usedAi: false
+    };
+  }
+
+  if (stage === "waiting_reply") {
+    return {
+      sourceType: "waiting_reply",
+      sourceLabel: "等待补偿",
+      usedRuleLibrary: false,
+      usedDirectReply: true,
+      usedAi: false
+    };
+  }
+
+  if (stage === "ignore") {
+    return {
+      sourceType: "ignore",
+      sourceLabel: "忽略",
+      usedRuleLibrary: false,
+      usedDirectReply: false,
+      usedAi: false
+    };
+  }
+
+  return {
+    sourceType: stage || "unknown",
+    sourceLabel: stage ? "其他来源" : "未分类",
+    usedRuleLibrary: false,
+    usedDirectReply: false,
+    usedAi: false
+  };
 }
 
 function startReplySummaryScheduler() {
@@ -2299,14 +2711,16 @@ async function runReplySummaryScheduler() {
 
 async function maybeSendHourlyReplySummary() {
   if (!config?.notify?.hourlySummaryEnabled) return;
+  const intervalHours = clampInt(config?.notify?.hourlySummaryIntervalHours || 1, 1, 24);
   const now = new Date();
   const slotStart = new Date(now);
   slotStart.setMinutes(0, 0, 0);
-  const currentSlot = localDateHour(slotStart);
+  slotStart.setHours(Math.floor(slotStart.getHours() / intervalHours) * intervalHours);
+  const currentSlot = `${localDateHour(slotStart)}/${intervalHours}h`;
   if (replySummaryState.lastHourlySlot === currentSlot) return;
 
-  const previousStart = new Date(slotStart.getTime() - 60 * 60_000);
-  const previousSlot = localDateHour(previousStart);
+  const previousStart = new Date(slotStart.getTime() - intervalHours * 60 * 60_000);
+  const previousSlot = `${localDateHour(previousStart)}/${intervalHours}h`;
   if (replySummaryState.lastHourlySlot === previousSlot) {
     replySummaryState.lastHourlySlot = currentSlot;
     await saveReplySummaryState();
@@ -2320,7 +2734,7 @@ async function maybeSendHourlyReplySummary() {
 
   await sendNotification(
     `reply_hourly_summary:${previousSlot}`,
-    "客服自动回复小时总结",
+    intervalHours === 1 ? "客服自动回复小时总结" : `客服自动回复 ${intervalHours} 小时总结`,
     buildReplySummaryBody(records, `${formatLocalTime(previousStart)} - ${formatLocalTime(slotStart)}`),
     { severity: "info", cooldownMs: 0 }
   );
@@ -2329,8 +2743,8 @@ async function maybeSendHourlyReplySummary() {
 async function maybeSendDailyReplySummary() {
   if (!config?.notify?.dailySummaryEnabled) return;
   const now = new Date();
-  const hour = Number(config.notify.dailySummaryHour ?? 10);
-  if (now.getHours() !== hour) return;
+  const daily = parseDailySummaryTime(config.notify.dailySummaryTime, config.notify.dailySummaryHour);
+  if (now.getHours() !== daily.hour || now.getMinutes() < daily.minute) return;
   const today = localDate(now);
   if (replySummaryState.lastDailyDate === today) return;
 
@@ -2351,6 +2765,21 @@ async function maybeSendDailyReplySummary() {
     buildReplySummaryBody(records, `${localDate(yesterdayStart)} 00:00 - 24:00`),
     { severity: "info", cooldownMs: 0 }
   );
+}
+
+function parseDailySummaryTime(timeValue, fallbackHour = 10) {
+  const text = String(timeValue || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (match) {
+    return {
+      hour: clampInt(match[1], 0, 23),
+      minute: clampInt(match[2], 0, 59)
+    };
+  }
+  return {
+    hour: clampInt(fallbackHour, 0, 23),
+    minute: 0
+  };
 }
 
 function recordsBetween(startAt, endAt) {
@@ -2376,10 +2805,11 @@ function buildReplySummaryBody(records, label) {
   if (actionLine) lines.push(`动作：${actionLine}`);
   lines.push("");
   lines.push("明细：");
-  for (const item of records.slice(-12)) {
+  const detailLimit = clampInt(config?.notify?.summaryDetailLimit || 12, 3, 80);
+  for (const item of records.slice(-detailLimit)) {
     lines.push(`- ${formatLocalTime(new Date(item.at))} ${summaryRecordLine(item)}`);
   }
-  if (records.length > 12) lines.push(`其余 ${records.length - 12} 条已省略`);
+  if (records.length > detailLimit) lines.push(`其余 ${records.length - detailLimit} 条已省略`);
   return lines.join("\n");
 }
 
@@ -2392,6 +2822,7 @@ function summaryRecordLine(item) {
   }).filter(Boolean).join(",");
   return [
     status,
+    item.sourceLabel ? `来源:${item.sourceLabel}` : "",
     item.stage ? `阶段:${item.stage}` : "",
     item.rule ? `规则:${clip(item.rule, 30)}` : "",
     actionText ? `动作:${actionText}` : "",
@@ -2478,21 +2909,57 @@ async function checkAiHealth({ notifyOk = false } = {}) {
   }
 }
 
+async function testAiReply(payload = {}) {
+  const message = String(payload.message || "客户问：这个会员怎么买？").trim();
+  const context = Array.isArray(payload.context) ? payload.context.slice(-8) : [];
+  const sideContext = String(payload.sideContext || "").trim();
+  if (!message) return { ok: false, message: "测试消息不能为空" };
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${PORT}/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message,
+        context,
+        sideContext,
+        mode: payload.mode || "test"
+      }),
+      signal: AbortSignal.timeout(clampInt(payload.timeoutMs || 60_000, 5_000, 120_000))
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: data.message || data.error || `HTTP ${response.status}`
+      };
+    }
+    return {
+      ok: true,
+      reply: String(data.reply || ""),
+      message: "AI 测试回复成功"
+    };
+  } catch (error) {
+    return { ok: false, message: String(error?.message || error) };
+  }
+}
+
 async function inspectLoginState() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const url = mainWindow.webContents.getURL();
+  const wc = getKfWebContents();
+  if (!wc) return;
+  const url = wc.getURL();
   if (!url) return;
 
   if (!url.includes("store.weixin.qq.com")) {
     await sendNotification("wrong_page", "客服窗口不在微信小店页面", `当前地址：${url}\n已尝试切回客服页`, {
       severity: "warning"
     });
-    mainWindow.loadURL(config.kfUrl);
+    wc.loadURL(config.kfUrl);
     return;
   }
 
   try {
-    const pageState = await mainWindow.webContents.executeJavaScript(`({
+    const pageState = await wc.executeJavaScript(`({
       text: document.body ? document.body.innerText.slice(0, 3000) : "",
       hasInput: Boolean(document.querySelector("#input-textarea")),
       hasQr: (${detectQrReadyScript.toString()})()
@@ -2509,8 +2976,9 @@ async function inspectLoginState() {
 
 async function inspectBotHeartbeat() {
   if (!config.bot.enabled) return;
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const url = mainWindow.webContents.getURL();
+  const wc = getKfWebContents();
+  if (!wc) return;
+  const url = wc.getURL();
   if (!url.includes("/shop/kf")) return;
 
   const age = Date.now() - Number(lastBotStatus.at || 0);
@@ -2536,7 +3004,7 @@ async function sendNotification(key, title, body, options = {}) {
     new Notification({ title, body }).show();
   }
 
-  if (config?.notify?.enabled && config.notify.wecomWebhookUrl) {
+  if (config?.notify?.enabled && config.notify.wecomWebhookUrl && shouldSendWebhookNotification(key, options)) {
     try {
       await postWecomWithRetry(title, body, options.severity || "info");
     } catch (error) {
@@ -2558,6 +3026,26 @@ async function sendNotification(key, title, body, options = {}) {
   }
 
   return true;
+}
+
+function shouldSendWebhookNotification(key, options = {}) {
+  const rules = config?.notify?.eventRules || {};
+  const eventType = String(options.eventType || webhookEventTypeFromKey(key));
+  if (!eventType) return true;
+  if (eventType in rules) return rules[eventType] !== false;
+  return true;
+}
+
+function webhookEventTypeFromKey(key) {
+  const text = String(key || "");
+  if (/^reply_hourly_summary|^reply_daily_summary/.test(text)) return "summaries";
+  if (/reply_success/.test(text)) return "replySuccess";
+  if (/reply_failed|ai_followup_failed/.test(text)) return "replyFailed";
+  if (/reply_timeout/.test(text)) return "replyTimeout";
+  if (/needs_login|login|扫码/.test(text)) return "login";
+  if (/ai_|bot_stale|page_|shell_|wrong_page/.test(text)) return "health";
+  if (/app_started|webhook_missing/.test(text)) return "app";
+  return "";
 }
 
 async function sendLoginScreenshotNotification() {
@@ -2623,6 +3111,8 @@ async function sendLoginScreenshotNotificationNow() {
     return true;
   }
 
+  await removeNotifyOutbox((item) => item.key === `${cooldownKey}:screenshot_failed`);
+
   try {
     await postWecomImageWithRetry(screenshotPath);
     await unlink(screenshotPath).catch(() => {});
@@ -2645,8 +3135,9 @@ async function sendLoginScreenshotNotificationNow() {
 async function waitForLoginQr(timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!mainWindow || mainWindow.isDestroyed()) return false;
-    const ready = await mainWindow.webContents.executeJavaScript(`(${detectQrReadyScript.toString()})()`, true).catch(() => false);
+    const wc = getKfWebContents();
+    if (!wc) return false;
+    const ready = await wc.executeJavaScript(`(${detectQrReadyScript.toString()})()`, true).catch(() => false);
     if (ready) return true;
     await sleep(1000);
   }
@@ -2675,8 +3166,7 @@ function detectQrReadyScript() {
 }
 
 async function captureLoginScreenshot() {
-  if (!mainWindow || mainWindow.isDestroyed()) return "";
-  const image = await mainWindow.webContents.capturePage();
+  const image = await captureKfPageImage();
   let current = image;
   let buffer = current.toJPEG(72);
   const maxBytes = 1900 * 1024;
@@ -2700,6 +3190,30 @@ async function captureLoginScreenshot() {
   const path = resolve(dir, `login-${Date.now()}.jpg`);
   await writeFile(path, buffer);
   return path;
+}
+
+async function captureKfPageImage() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      if (kfView && kfViewAttached) {
+        return await mainWindow.capturePage(kfView.getBounds());
+      }
+      return await mainWindow.capturePage();
+    } catch (error) {
+      console.error("[notify] main window capture failed", error);
+    }
+  }
+
+  const wc = getKfWebContents();
+  if (wc) {
+    try {
+      return await wc.capturePage();
+    } catch (error) {
+      console.error("[notify] kf view capture failed", error);
+    }
+  }
+
+  throw new Error("客服页面截图不可用");
 }
 
 async function postWecomWithRetry(title, body, severity) {
@@ -2776,6 +3290,15 @@ async function enqueueNotifyOutbox({ key, title, body, severity, error, messageT
   });
   notifyOutbox = notifyOutbox.slice(-NOTIFY_OUTBOX_LIMIT);
   await saveNotifyOutbox();
+}
+
+async function removeNotifyOutbox(predicate) {
+  if (typeof predicate !== "function" || !notifyOutbox.length) return;
+  const before = notifyOutbox.length;
+  notifyOutbox = notifyOutbox.filter((item) => !predicate(item));
+  if (notifyOutbox.length !== before) {
+    await saveNotifyOutbox();
+  }
 }
 
 function startNotifyOutboxPump() {
@@ -2864,8 +3387,9 @@ async function postWecomImage(imagePath) {
 
 function postJsonWithCurl(url, payload, timeoutMs = 10_000) {
   return new Promise((resolvePost, rejectPost) => {
-    const child = spawn("curl", [
+    const args = [
       "-sS",
+      "--fail",
       "--max-time",
       String(Math.ceil(timeoutMs / 1000)),
       "-H",
@@ -2874,7 +3398,10 @@ function postJsonWithCurl(url, payload, timeoutMs = 10_000) {
       JSON.stringify(payload),
       "--config",
       "-"
-    ], {
+    ];
+    if (isLocalHttpUrl(url)) args.push("--noproxy", "*");
+
+    const child = spawn("curl", args, {
       stdio: ["pipe", "pipe", "pipe"]
     });
 
@@ -2903,6 +3430,15 @@ function postJsonWithCurl(url, payload, timeoutMs = 10_000) {
     });
     child.stdin.end(`url = "${escapeCurlConfigValue(url)}"\n`);
   });
+}
+
+function isLocalHttpUrl(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    return ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function escapeCurlConfigValue(value) {

@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>微信小店客服控制台</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #faf9f5;
+        --ink: #141413;
+        --body: #3d3d3a;
+        --muted: #6c6a64;
+        --hairline: #e6dfd8;
+        --card: #efe9de;
+        --panel: #ffffff;
+        --dark: #181715;
+        --dark-elevated: #252320;
+        --primary: #cc785c;
+        --primary-active: #a9583e;
+        --success: #5db872;
+        --warning: #d4a017;
+        --error: #c64545;
+        --radius: 12px;
+        --control-radius: 8px;
+        --sidebar: 236px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        overflow: hidden;
+        background: var(--canvas);
+        color: var(--ink);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      button {
+        min-height: 36px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        background: #fff;
+        color: var(--ink);
+        cursor: pointer;
+      }
+
+      button:hover {
+        border-color: #d6cbc0;
+      }
+
+      button.primary {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: #fff;
+      }
+
+      button.primary:hover {
+        background: var(--primary-active);
+      }
+
+      button.dark {
+        border-color: var(--dark);
+        background: var(--dark);
+        color: #fff;
+      }
+
+      button.danger {
+        border-color: #e5b5ad;
+        color: var(--error);
+      }
+
+      button:disabled,
+      input:disabled,
+      textarea:disabled,
+      select:disabled {
+        opacity: .58;
+        cursor: default;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        background: #fff;
+        color: var(--ink);
+        outline: none;
+      }
+
+      input,
+      select {
+        min-height: 38px;
+        padding: 0 10px;
+      }
+
+      textarea {
+        min-height: 88px;
+        padding: 10px;
+        resize: vertical;
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(204, 120, 92, .15);
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: var(--sidebar) minmax(0, 1fr);
+        width: 100vw;
+        height: 100vh;
+      }
+
+      .sidebar {
+        height: 100vh;
+        background: var(--dark);
+        color: #f8f1e7;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #2f2c28;
+        z-index: 5;
+      }
+
+      .brand {
+        padding: 18px 16px 14px;
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+      }
+
+      .brand img {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        object-fit: cover;
+        background: var(--card);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.25;
+        font-weight: 720;
+      }
+
+      .brand p {
+        margin: 4px 0 0;
+        color: #b7afa4;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .status-strip {
+        padding: 0 14px 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .mini-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 30px;
+        padding: 0 9px;
+        border: 1px solid #38342f;
+        border-radius: var(--control-radius);
+        background: var(--dark-elevated);
+        color: #e7dfd2;
+        font-size: 12px;
+      }
+
+      .signal {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--success);
+        flex: none;
+      }
+
+      .dot.warn {
+        background: var(--warning);
+      }
+
+      .dot.bad {
+        background: var(--error);
+      }
+
+      .nav {
+        padding: 6px 10px 10px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .nav button {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 38px;
+        padding: 0 10px;
+        border-color: transparent;
+        background: transparent;
+        color: #d9d0c3;
+        text-align: left;
+      }
+
+      .nav button.active {
+        background: #f8f1e7;
+        color: var(--ink);
+      }
+
+      .nav small {
+        color: inherit;
+        opacity: .65;
+      }
+
+      .side-actions {
+        margin-top: auto;
+        padding: 12px;
+        border-top: 1px solid #2f2c28;
+        display: grid;
+        gap: 8px;
+      }
+
+      .side-actions .two {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .side-actions button {
+        border-color: #403b35;
+        background: var(--dark-elevated);
+        color: #f8f1e7;
+      }
+
+      .side-actions button.primary {
+        border-color: var(--primary);
+        background: var(--primary);
+      }
+
+      .workspace {
+        position: relative;
+        min-width: 0;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .content {
+        height: 100%;
+        overflow: auto;
+        padding: 22px 28px 32px;
+      }
+
+      .page-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .page-head h2 {
+        margin: 0;
+        font-size: 25px;
+        line-height: 1.2;
+      }
+
+      .page-head p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        max-width: 760px;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .grid.cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .card {
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, .74);
+        padding: 16px;
+      }
+
+      .card.cream {
+        background: var(--card);
+      }
+
+      .card.dark {
+        border-color: #302d29;
+        background: var(--dark);
+        color: #f8f1e7;
+      }
+
+      .card h3 {
+        margin: 0 0 10px;
+        font-size: 15px;
+      }
+
+      .metric {
+        display: grid;
+        gap: 8px;
+      }
+
+      .metric strong {
+        font-size: 30px;
+        line-height: 1;
+      }
+
+      .metric span,
+      .muted,
+      .hint {
+        color: var(--muted);
+      }
+
+      .dark .muted,
+      .dark .hint {
+        color: #b7afa4;
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+      }
+
+      .field label {
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .hint {
+        font-size: 12px;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .form-grid .span-2 {
+        grid-column: 1 / -1;
+      }
+
+      .switch-row,
+      .log-row,
+      .rule-card {
+        display: grid;
+        gap: 8px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: #fff;
+        padding: 12px;
+      }
+
+      .switch-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+      }
+
+      .switch-row strong {
+        display: block;
+      }
+
+      .toggle {
+        width: 46px;
+        height: 26px;
+        border: 1px solid #d6cbc0;
+        border-radius: 999px;
+        background: #e9e0d4;
+        padding: 2px;
+        transition: .18s;
+      }
+
+      .toggle::before {
+        content: "";
+        display: block;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 4px rgba(20, 20, 19, .2);
+        transition: .18s;
+      }
+
+      .toggle.on {
+        border-color: var(--primary);
+        background: var(--primary);
+      }
+
+      .toggle.on::before {
+        transform: translateX(20px);
+      }
+
+      input[type="checkbox"] {
+        appearance: none;
+        width: 46px;
+        height: 26px;
+        border: 1px solid #d6cbc0;
+        border-radius: 999px;
+        background: #e9e0d4;
+        padding: 2px;
+        position: relative;
+        cursor: pointer;
+        transition: .18s;
+      }
+
+      input[type="checkbox"]::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 4px rgba(20, 20, 19, .2);
+        transition: .18s;
+      }
+
+      input[type="checkbox"]:checked {
+        border-color: var(--primary);
+        background: var(--primary);
+      }
+
+      input[type="checkbox"]:checked::before {
+        transform: translateX(20px);
+      }
+
+      .badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        border: 1px solid var(--hairline);
+        background: #fff;
+        color: var(--body);
+        font-size: 12px;
+      }
+
+      .badge.rule {
+        border-color: #dec0af;
+        background: #fff1ea;
+        color: #8f4e38;
+      }
+
+      .badge.direct {
+        border-color: #c9d8b7;
+        background: #f0f7e8;
+        color: #46642b;
+      }
+
+      .badge.ai {
+        border-color: #c7c3da;
+        background: #f1eef8;
+        color: #514477;
+      }
+
+      .badge.fail {
+        border-color: #efc3bd;
+        background: #fff0ee;
+        color: var(--error);
+      }
+
+      .rule-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .rule-title {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .rule-title strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rule-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .rule-editor {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .rule-editor .span-2 {
+        grid-column: 1 / -1;
+      }
+
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .tabs button {
+        min-height: 34px;
+        padding: 0 12px;
+      }
+
+      .tabs button.active {
+        border-color: var(--dark);
+        background: var(--dark);
+        color: #fff;
+      }
+
+      .log-row {
+        grid-template-columns: 160px minmax(0, 1fr) minmax(0, 1.2fr);
+        align-items: start;
+      }
+
+      .log-time {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .empty {
+        border: 1px dashed #d9cfc3;
+        border-radius: var(--radius);
+        padding: 24px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .flash {
+        position: fixed;
+        right: 20px;
+        bottom: 18px;
+        z-index: 20;
+        max-width: 420px;
+        padding: 11px 13px;
+        border-radius: var(--control-radius);
+        background: var(--dark);
+        color: #fff;
+        box-shadow: 0 12px 36px rgba(20, 20, 19, .2);
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;
+        transition: .18s;
+      }
+
+      .flash.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .flash.ok {
+        background: #245f36;
+      }
+
+      .flash.error {
+        background: var(--error);
+      }
+
+      .page-placeholder {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--canvas);
+      }
+
+      .page-placeholder .card {
+        max-width: 520px;
+      }
+
+      details {
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: #fff;
+        padding: 10px 12px;
+      }
+
+      details summary {
+        cursor: pointer;
+        font-weight: 650;
+      }
+
+      code {
+        border-radius: 6px;
+        background: #f4eee5;
+        padding: 1px 5px;
+      }
+
+      @media (max-width: 1180px) {
+        .grid.cols-3,
+        .grid.cols-2,
+        .form-grid,
+        .rule-editor,
+        .log-row {
+          grid-template-columns: 1fr;
+        }
+
+        .form-grid .span-2,
+        .rule-editor .span-2 {
+          grid-column: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="../wechat-shop-ai-reply-logo.png" alt="">
+          <div>
+            <h1>微信小店客服控制台</h1>
+            <p id="pageMini">客服页映射</p>
+          </div>
+        </div>
+
+        <div class="status-strip">
+          <div class="mini-status">
+            <span class="signal"><i id="botDot" class="dot"></i><span id="botMini">Bot</span></span>
+            <span id="botModeMini">开启</span>
+          </div>
+          <div class="mini-status">
+            <span class="signal"><i id="aiDot" class="dot warn"></i><span id="aiMini">AI</span></span>
+            <span id="notifyMini">通知</span>
+          </div>
+        </div>
+
+        <nav id="nav" class="nav" aria-label="控制台导航"></nav>
+
+        <div class="side-actions">
+          <button id="openFloat" class="primary">打开悬浮窗</button>
+          <div class="two">
+            <button id="toggleBot">暂停 Bot</button>
+            <button id="reloadPage">重载客服页</button>
+          </div>
+          <button id="captureStructure">捕捉页面结构</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <main id="content" class="content" aria-live="polite"></main>
+      </section>
+    </div>
+
+    <div id="flash" class="flash"></div>
+    <script src="./main-shell.js"></script>
+  </body>
+</html>
