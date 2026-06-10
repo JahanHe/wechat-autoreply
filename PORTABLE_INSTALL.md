@@ -130,10 +130,10 @@ chrome://extensions
 ~/Desktop/WeChat-chat/dist/wechat-kf-extension
 ```
 
-插件弹窗顶部应显示：
+插件弹窗顶部应显示当前扩展版本。版本号以 `extension/manifest.json` 为准，例如：
 
 ```text
-v0.2.5 · Windows/Mac 安装版
+v0.1.0 · Windows/Mac 安装版
 ```
 
 ## 使用

@@ -8,7 +8,7 @@
 
 | 来源 | 内容 |
 | --- | --- |
-| Git 历史 | 从 `e111c49` 到 `8ad9c46` 的 8 次主线提交 |
+| Git 历史 | 从初始提交到 `v0.1.0` 发布、再到 `d3d989c` 文档化提交的关键节点 |
 | 本地文档 | `README.md`、`docs/customer-reply-rule-library.md`、`docs/wechat-kf-page-structure.md` |
 | 规则资产 | `config/replies.json`、`config/reply-images/`、`config/assistant-profile.json` |
 | 页面探索 | 微信小店客服页结构捕捉、商品面板、素材库、快捷语、上传弹窗 |
@@ -18,13 +18,13 @@
 
 ```mermaid
 flowchart LR
-  A["浏览器脚本阶段<br/>依赖页面不被关掉"] --> B["桌面程序阶段<br/>Electron 内置客服页"]
-  B --> C["悬浮窗阶段<br/>开关、状态、API、Webhook 可配置"]
-  C --> D["页面结构阶段<br/>识别商品、素材库、快捷语、上传弹窗"]
-  D --> E["动作规则阶段<br/>文字、图片、文件、商品、邀请下单"]
-  E --> F["规则初始化阶段<br/>安装包首次运行自动写入默认规则"]
-  F --> G["发布阶段<br/>GitHub Actions 构建 macOS 和 Windows 安装包"]
-  G --> H["稳定化阶段<br/>Electron 版本固定、Release 工作流修复"]
+  A["浏览器脚本阶段"] --> B["桌面程序阶段"]
+  B --> C["悬浮窗阶段"]
+  C --> D["页面结构阶段"]
+  D --> E["动作规则阶段"]
+  E --> F["规则初始化阶段"]
+  F --> G["发布阶段"]
+  G --> H["稳定化和文档化阶段"]
 ```
 
 ## 第一幕：普通世界
@@ -230,6 +230,7 @@ flowchart TD
 | 默认规则 | `438f14a` | 安装包首次运行自动初始化规则和图片 |
 | Release | `6bb9920` | 标签触发正式 Release 上传 |
 | 语法修复 | `8ad9c46` | 修复 Release Notes 工作流语法 |
+| 文档化 | `d3d989c` | 增加富文本使用说明和项目历程 |
 
 ## 项目现在的运行逻辑
 

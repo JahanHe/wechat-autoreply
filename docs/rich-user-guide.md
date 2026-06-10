@@ -18,8 +18,8 @@
 
 | 步骤 | 位置 | 用途 |
 | --- | --- | --- |
-| 1 | 悬浮窗 -> API | 填 `DEEPSEEK_API_KEY` |
-| 2 | 悬浮窗 -> 通知 | 填企业微信机器人 Webhook |
+| 1 | 悬浮窗 > API | 填 `DEEPSEEK_API_KEY` |
+| 2 | 悬浮窗 > 通知 | 填企业微信机器人 Webhook |
 | 3 | 桌面客服页 | 微信扫码登录小店客服 |
 
 ## 自动初始化内容
@@ -92,19 +92,19 @@ flowchart TD
 
 ## 规则图片预览
 
-这些图片会被打进安装包，并在首次启动时复制到运行目录。
+这些图片会被打进安装包，并在首次启动时复制到运行目录。为避免 GitHub 表格里图片过大，下面只做缩略预览。
 
 | 图片 | 用途 |
 | --- | --- |
-| ![image1](../config/reply-images/image1.png) | 会员专区使用说明 |
-| ![image2](../config/reply-images/image2.png) | 进群/小程序路径补充 |
-| ![image3](../config/reply-images/image3.jpg) | 会员权益和目录说明 |
-| ![image4](../config/reply-images/image4.png) | 月度会员取消自动续费 |
-| ![image5](../config/reply-images/image5.png) | 咨询俱乐部详情 |
+| <img src="../config/reply-images/image1.png" alt="会员专区使用说明" width="180"> | 会员专区使用说明 |
+| <img src="../config/reply-images/image2.png" alt="进群和小程序路径补充" width="180"> | 进群/小程序路径补充 |
+| <img src="../config/reply-images/image3.jpg" alt="会员权益和目录说明" width="180"> | 会员权益和目录说明 |
+| <img src="../config/reply-images/image4.png" alt="月度会员取消自动续费" width="180"> | 月度会员取消自动续费 |
+| <img src="../config/reply-images/image5.png" alt="咨询俱乐部详情" width="180"> | 咨询俱乐部详情 |
 
 ## 页面动作规格
 
-规则写在悬浮窗 -> 回复 -> 页面动作规则 JSON。
+规则写在悬浮窗 > 回复 > 页面动作规则 JSON。
 
 ```json
 {
@@ -168,8 +168,8 @@ flowchart TD
 | 现象 | 最可能原因 | 处理 |
 | --- | --- | --- |
 | 发图片/发商品都失败 | 还停在扫码页，没进 `/shop/kf` 客服工作台 | 扫码登录并选中测试会话 |
-| AI 不回复 | 未填 DeepSeek API Key | 悬浮窗 -> API 填写后保存 |
-| Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 悬浮窗 -> 通知，保存后点测试 |
+| AI 不回复 | 未填 DeepSeek API Key | 悬浮窗 > API 填写后保存 |
+| Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 悬浮窗 > 通知，保存后点测试 |
 | 规则看起来没加载 | 旧运行配置覆盖过新版规则 | 新版会自动补齐；也可在悬浮窗规则页检查 |
 | macOS 提示无法打开 | 未签名本地应用的系统提示 | 右键打开，或在系统设置安全性里允许 |
 | Windows 提示未知发布者 | 当前安装包未代码签名 | 选择仍要运行，后续可接入证书签名 |
@@ -189,7 +189,8 @@ flowchart TD
 
 ## 维护入口
 
-- 规则标准：`docs/customer-reply-rule-library.md`
-- 页面结构：`docs/wechat-kf-page-structure.md`
-- 部署结构：`docs/desktop-app-structure-deployment.md`
-- 项目历程：`docs/project-journey.md`
+- 主入口：[README.md](../README.md)
+- 规则标准：[docs/customer-reply-rule-library.md](customer-reply-rule-library.md)
+- 页面结构：[docs/wechat-kf-page-structure.md](wechat-kf-page-structure.md)
+- 部署结构：[docs/desktop-app-structure-deployment.md](desktop-app-structure-deployment.md)
+- 项目历程：[docs/project-journey.md](project-journey.md)

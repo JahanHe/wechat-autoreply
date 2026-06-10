@@ -1,6 +1,6 @@
 # 微信小店客服规则库标准
 
-规则在桌面悬浮窗里编辑：设置 -> 回复。
+规则在桌面悬浮窗里编辑：设置 > 回复。
 
 ## 当前业务主商品
 
@@ -139,7 +139,7 @@
 
 ## 当前已写入的默认规则
 
-默认规则来自 `/Users/mrhe/Documents/Codex/2026-06-09/files-mentioned-by-the-user-docx/outputs/客服常见问题.md`，已经转换到：
+默认规则来自用户提供的客服 FAQ 文档和配套图片，已经转换到：
 
 - `config/replies.json`
 - `knowledge-base/customer-service.md`
