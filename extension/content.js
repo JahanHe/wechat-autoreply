@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.3.4";
+  const VERSION = "0.3.5";
 
   const CONFIG = {
     enabled: true,
@@ -116,7 +116,8 @@
     lastHref: location.href,
     routeTimer: null,
     startedOnKf: false,
-    lastStatus: "启动中"
+    lastStatus: "启动中",
+    lastStatusMeta: { code: "starting", label: "启动中", detail: "正在启动自动回复脚本" }
   };
 
   boot();
@@ -150,7 +151,7 @@
   function maybeStartForCurrentRoute(reason) {
     if (!location.href.includes("/shop/kf")) {
       if (state.startedOnKf) {
-        updateToolbar("非客服页");
+        setStep("page_loading", "页面加载", "当前页面不是微信小店客服页");
       }
       return;
     }
@@ -162,7 +163,7 @@
 
     state.startedOnKf = true;
     installToolbar();
-    updateToolbar(`已加载 v${VERSION}`);
+    setStep("script_ready", "脚本就绪", `自动回复脚本 v${VERSION} 已加载`);
     loadSettings();
     watchSettings();
     syncObserver();
@@ -178,7 +179,7 @@
       }
 
       Object.assign(CONFIG, items);
-      updateToolbar(CONFIG.enabled ? "监听中" : "已暂停");
+      setStep(CONFIG.enabled ? "monitoring" : "paused", CONFIG.enabled ? "检测中" : "暂停中", CONFIG.enabled ? "正在监听客户新消息" : "Bot已暂停，不会自动发送回复");
       syncObserver();
     });
   }
@@ -190,7 +191,7 @@
       for (const [key, change] of Object.entries(changes)) {
         if (key in CONFIG) CONFIG[key] = change.newValue;
       }
-      updateToolbar(CONFIG.enabled ? "监听中" : "已暂停");
+      setStep(CONFIG.enabled ? "monitoring" : "paused", CONFIG.enabled ? "检测中" : "暂停中", CONFIG.enabled ? "正在监听客户新消息" : "Bot已暂停，不会自动发送回复");
       syncObserver();
       if (CONFIG.enabled) scheduleCheck("settings");
     });
@@ -224,7 +225,7 @@
 
   function scheduleCheck(reason) {
     if (!CONFIG.enabled) {
-      updateToolbar("已暂停");
+      setStep("paused", "暂停中", "Bot已暂停，不会自动发送回复");
       return;
     }
     window.clearTimeout(state.debounceTimer);
@@ -236,43 +237,44 @@
     if (state.busy) return;
 
     state.busy = true;
-    updateToolbar("Bot接管中", { takeover: true });
+    setStep("detecting", "检测消息", "正在检查当前会话的最新消息", { takeover: true });
     try {
       await checkAndReplyOnce(reason);
     } finally {
       state.busy = false;
-      reportStatus(state.lastStatus || "监听中");
+      reportStatus(state.lastStatus || "检测中", state.lastStatusMeta || {});
     }
   }
 
   async function checkAndReplyOnce(reason) {
     const opened = await ensureConversationOpen();
     if (!opened) {
-      updateToolbar("等待新会话");
+      setStep("waiting_message", "等待消息", "当前没有可处理的客服会话");
       return;
     }
 
     const latest = latestMessage();
     if (!latest) {
-      updateToolbar("无客户消息");
+      setStep("no_message", "暂无消息", "当前会话还没有客户消息");
       state.pendingCustomerMessages.clear();
       return;
     }
 
     if (latest.from !== "customer") {
-      updateToolbar("最后一条是客服");
+      setStep("last_kf", "客服最后", "当前会话最后一条消息来自客服");
       state.pendingCustomerMessages.clear();
       return;
     }
 
     const sessionKey = currentSessionKey();
     const key = messageReplyKey(latest, sessionKey);
+    setStep("message_found", "已检测消息", "已检测到客户最新消息", { customer: latest.text });
     if (state.replied.has(key)) {
-      updateToolbar("已发送");
+      setStep("reply_done", "回复完成", "该条客户消息已经完成回复", { customer: latest.text });
       return;
     }
     if (state.inFlight.has(key)) {
-      updateToolbar("处理中");
+      setStep("sending_reply", "正在回复", "该条客户消息正在处理", { customer: latest.text });
       return;
     }
 
@@ -285,10 +287,10 @@
     try {
       const actionRule = matchActionRule(latest.text);
       if (actionRule) {
-        updateToolbar("执行动作规则");
+        setStep("matching_rule", "匹配规则", `已匹配动作规则：${actionRule.name || "未命名"}`, { customer: latest.text });
         const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "", sessionKey);
         if (!result.ok) {
-          updateToolbar("动作规则失败");
+          setStep("reply_failed", "回复失败", result.message || "动作规则执行失败", { customer: latest.text });
           reportEvent("reply_failed", { stage: "action_rule", sourceType: "action_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: actionRule.name || "", error: result.message });
           return;
         }
@@ -296,7 +298,8 @@
         responseSent = true;
         markReplied(key);
         state.lastReplyAt = Date.now();
-        updateToolbar(actionResultStatus(result));
+        const actionStatus = runtimeStatusForActionResult(result, actionRule.actions || []);
+        setStep(actionStatus.code, actionStatus.label, actionStatus.detail, { customer: latest.text, actionType: actionStatus.actionType });
         reportReplySent({
           stage: "action_rule",
           sourceType: "action_rule",
@@ -316,12 +319,15 @@
 
       const imageReply = matchImageReply(latest.text);
       if (imageReply) {
+        setStep("matching_image", "匹配图片", `已匹配图片规则：${imageReply.name || "未命名"}`, { customer: latest.text });
         const caption = String(imageReply.caption || "我发你图片看下").trim();
+        if (caption) setStep("sending_text", "发送文字", "正在发送图片说明文字", { customer: latest.text });
         const captionSent = caption ? await sendReplyParts(caption) : false;
+        setStep("sending_image", "发送图片", "正在上传并发送匹配图片", { customer: latest.text, actionType: "image" });
         const imageResult = await requestImageReply(imageReply, latest.text);
 
         if (!captionSent && !imageResult.ok) {
-          updateToolbar("图片回复失败");
+          setStep("reply_failed", "回复失败", imageResult.message || "图片回复发送失败", { customer: latest.text, actionType: "image" });
           reportEvent("reply_failed", { stage: "image_reply", sourceType: "image_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: caption, error: imageResult.message });
           return;
         }
@@ -329,7 +335,7 @@
         responseSent = captionSent || Boolean(imageResult.ok);
         markReplied(key);
         state.lastReplyAt = Date.now();
-        updateToolbar(imageResult.sent ? "图片已发送" : imageResult.pasted ? "图片已粘贴" : imageResult.ok ? "图片待发送" : "图片已承接");
+        setStep(imageResult.sent ? "image_sent" : imageResult.pasted ? "monitoring" : "reply_failed", imageResult.sent ? "图片已发" : imageResult.pasted ? "待确认" : "回复失败", imageResult.message || "图片回复处理完成", { customer: latest.text, actionType: "image" });
         reportReplySent({
           stage: "image_reply",
           sourceType: "image_rule",
@@ -349,12 +355,15 @@
 
       const panelAction = matchPanelAction(latest.text);
       if (panelAction) {
+        const panelRuntime = runtimeStatusForPanelAction(panelAction);
+        setStep(panelRuntime.matchCode, panelRuntime.matchLabel, panelRuntime.matchDetail, { customer: latest.text, actionType: panelRuntime.actionType });
+        setStep(panelRuntime.sendCode, panelRuntime.sendLabel, panelRuntime.sendDetail, { customer: latest.text, actionType: panelRuntime.actionType });
         const acted = await performPanelActionWithDesktopFallback(panelAction);
         if (acted) {
           responseSent = true;
           markReplied(key);
           state.lastReplyAt = now;
-          updateToolbar(panelAction.successStatus);
+          setStep(panelRuntime.doneCode, panelRuntime.doneLabel, panelRuntime.doneDetail, { customer: latest.text, actionType: panelRuntime.actionType });
           reportReplySent({
             stage: "panel_action",
             sourceType: "panel_action",
@@ -374,36 +383,38 @@
 
       const ruleReply = matchRuleReply(latest.text);
       if (ruleReply) {
+        setStep("matching_rule", "匹配规则", "已匹配文字回复规则", { customer: latest.text });
         if (hasSessionReply(sessionKey, ruleReply)) {
-          updateToolbar("跳过重复话术");
+          setStep("duplicate", "跳过重复", "本会话已经发送过相同话术", { customer: latest.text });
           reportEvent("reply_skipped_duplicate", { stage: "rule_duplicate", sourceType: "text_rule", reason, customer: latest.text, reply: ruleReply });
         } else {
-        const sent = await sendReplyParts(ruleReply);
-        if (!sent) {
-          updateToolbar("发送失败");
-          reportEvent("reply_failed", { stage: "rule", sourceType: "text_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: ruleReply });
-          warn("send failed", { reason, latest, reply: ruleReply });
-          return;
-        }
+          setStep("sending_text", "发送文字", "正在发送规则库文字回复", { customer: latest.text, actionType: "text" });
+          const sent = await sendReplyParts(ruleReply);
+          if (!sent) {
+            setStep("reply_failed", "回复失败", "规则库文字未能成功发送", { customer: latest.text, actionType: "text" });
+            reportEvent("reply_failed", { stage: "rule", sourceType: "text_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: ruleReply });
+            warn("send failed", { reason, latest, reply: ruleReply });
+            return;
+          }
 
-        responseSent = true;
-        markReplied(key);
-        rememberSessionReply(sessionKey, ruleReply);
-        state.lastReplyAt = now;
-        updateToolbar("文字已发送");
-        reportReplySent({
-          stage: "rule",
-          sourceType: "text_rule",
-          usedRuleLibrary: true,
-          usedDirectReply: false,
-          usedAi: false,
-          reason,
-          customer: latest.text,
-          status: "文字已发送",
-          reply: ruleReply
-        });
-        log("rule replied", { reason, customer: latest.text, reply: ruleReply });
-        return;
+          responseSent = true;
+          markReplied(key);
+          rememberSessionReply(sessionKey, ruleReply);
+          state.lastReplyAt = now;
+          setStep("text_sent", "文字已发", "规则库文字回复已发送", { customer: latest.text, actionType: "text" });
+          reportReplySent({
+            stage: "rule",
+            sourceType: "text_rule",
+            usedRuleLibrary: true,
+            usedDirectReply: false,
+            usedAi: false,
+            reason,
+            customer: latest.text,
+            status: "文字已发送",
+            reply: ruleReply
+          });
+          log("rule replied", { reason, customer: latest.text, reply: ruleReply });
+          return;
         }
       }
 
@@ -425,6 +436,7 @@
       const sendSlowReply = async () => {
         if (!CONFIG.enabled || aiCompleted || fallbackStarted || slowStarted) return false;
         slowStarted = true;
+        setStep("sending_ack", "发送承接", "AI仍在思考，正在生成承接语", { customer: latest.text });
         slowReply = await askQuickReply(latest.text);
         if (!slowReply || aiCompleted || fallbackStarted) return false;
         const sent = await sendReplyParts(slowReply);
@@ -436,7 +448,7 @@
           state.quickAckedSessions.add(sessionKey);
           persistQuickAckedSessions();
           state.lastReplyAt = Date.now();
-          updateToolbar("继续等 AI");
+          setStep("waiting_ai", "等待AI", "承接语已发送，继续等待AI详细回复", { customer: latest.text });
           reportReplySent({
             stage: "quick_ack",
             sourceType: "quick_ack",
@@ -452,7 +464,7 @@
           return true;
         }
 
-        updateToolbar("承接语发送失败");
+        setStep("reply_failed", "回复失败", "承接语未能成功发送", { customer: latest.text });
         reportEvent("reply_failed", { stage: "quick_ack", sourceType: "quick_ack", usedDirectReply: true, reason, customer: latest.text, reply: slowReply });
         return false;
       };
@@ -460,6 +472,7 @@
         if (!CONFIG.enabled || fallbackStarted || fallbackSent) return false;
         if (aiCompleted && !allowAfterAi) return false;
         fallbackStarted = true;
+        setStep("sending_fallback", "发送兜底", "AI尚无可用结果，正在生成兜底回复", { customer: latest.text });
         fallbackReplyText = await askFallbackReply(latest.text);
         if (!fallbackReplyText) {
           fallbackStarted = false;
@@ -472,7 +485,7 @@
           markReplied(key);
           rememberSessionReply(sessionKey, fallbackReplyText);
           state.lastReplyAt = Date.now();
-          updateToolbar("兜底已发送");
+          setStep("text_sent", "文字已发", "兜底文字已发送给当前客户", { customer: latest.text });
           reportReplySent({
             stage: "fallback_reply",
             sourceType: "fallback_reply",
@@ -488,13 +501,13 @@
           return true;
         }
 
-        updateToolbar("兜底发送失败");
+        setStep("reply_failed", "回复失败", "兜底回复未能成功发送", { customer: latest.text });
         reportEvent("reply_failed", { stage: "fallback_reply", sourceType: "fallback_reply", usedDirectReply: true, reason, customer: latest.text, reply: fallbackReplyText });
         fallbackStarted = false;
         return false;
       };
 
-      updateToolbar("AI 请求中");
+      setStep("querying_judgment", "查询判断库", "正在检索外部判断库和本地缓存", { customer: latest.text });
       if (shouldSendQuickAck(sessionKey)) {
         waitingTimer = window.setTimeout(() => {
           sendSlowReply().catch((error) => warn("slow reply failed", error));
@@ -514,7 +527,7 @@
       const usedJudgmentLibrary = Boolean(aiResult?.judgments?.used);
       const followupStage = usedJudgmentLibrary ? "judgment_ai" : "ai_followup";
       if (fallbackStarted || fallbackSent) {
-        updateToolbar("兜底已发送");
+        setStep("text_sent", "文字已发", "兜底回复已经发送，不再追加AI回复", { customer: latest.text });
         reportEvent("ai_followup_skipped", {
           stage: followupStage,
           sourceType: followupStage,
@@ -531,7 +544,7 @@
       if (!aiReply || (slowReply && normalize(aiReply) === normalize(slowReply))) {
         const fallbackOk = await sendFallbackReply("ai_empty", true);
         if (!fallbackOk) {
-          updateToolbar(responseSent ? "承接语已发送" : "未能回复");
+          setStep(responseSent ? "waiting_ai" : "reply_failed", responseSent ? "等待AI" : "回复失败", responseSent ? "承接语已发送，但AI没有可用结果" : "AI和兜底均未产生可用回复", { customer: latest.text });
           reportEvent("reply_failed", { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, usedJudgmentLibrary, reason, customer: latest.text });
         }
         return;
@@ -540,7 +553,7 @@
       if (hasSessionReply(sessionKey, aiReply)) {
         const fallbackOk = await sendFallbackReply("ai_duplicate", true);
         if (!fallbackOk) {
-          updateToolbar("跳过重复 AI");
+          setStep("duplicate", "跳过重复", "AI回复与本会话已有回复重复", { customer: latest.text });
           reportEvent("ai_followup_skipped", {
             stage: followupStage,
             sourceType: followupStage,
@@ -555,6 +568,7 @@
         return;
       }
 
+      setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送判断库和AI生成的回复" : "正在发送AI生成的文字回复", { customer: latest.text, actionType: "text" });
       const followupSent = await sendReplyParts(aiReply);
       if (followupSent) {
         responseSent = true;
@@ -580,7 +594,7 @@
           reportEvent(responseSent ? "ai_followup_failed" : "reply_failed", { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary, reason, customer: latest.text, reply: aiReply });
         }
       }
-      updateToolbar(followupSent ? (usedJudgmentLibrary ? "判断库已发送" : "AI 已发送") : "AI 补充失败");
+      setStep(followupSent ? "text_sent" : "reply_failed", followupSent ? "文字已发" : "回复失败", followupSent ? (usedJudgmentLibrary ? "判断库和AI生成的回复已发送" : "AI文字回复已发送") : "AI补充回复未能发送", { customer: latest.text, actionType: "text" });
       log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply, judgments: aiResult?.judgments || null });
     } finally {
       state.inFlight.delete(key);
@@ -632,7 +646,7 @@
     if (age < CONFIG.noResponseAlertMs || sinceLastAlert < CONFIG.noResponseAlertMs) return;
 
     pending.lastAlertAt = now;
-    updateToolbar("客户消息超时未回复");
+    setStep("reply_timeout", "回复超时", "客户消息超过提醒时间仍未完成回复", { customer: latest.text });
     reportEvent("reply_timeout", {
       stage: state.inFlight.has(key) ? "in_flight_timeout" : "unhandled_timeout",
       customer: latest.text,
@@ -813,6 +827,7 @@
           result.skippedDuplicateText = true;
           continue;
         }
+        setStep("sending_text", "发送文字", "正在执行动作规则中的文字回复", { customer: customerText, actionType: type });
         const sent = await sendReplyParts(text);
         result.sentText = result.sentText || sent;
         if (sent) rememberSessionReply(sessionKey, text);
@@ -820,6 +835,7 @@
       } else if (type === "ignore" || type === "noop") {
         result.ignored = true;
       } else if (type === "image") {
+        setStep("sending_image", "发送图片", "正在执行动作规则中的图片回复", { customer: customerText, actionType: type });
         const imageResult = await requestImageReply({
           name: action.name || ruleName,
           path: action.path || action.imagePath || "",
@@ -830,6 +846,7 @@
         if (!imageResult.sent) return { ...result, message: imageResult.message || "image not sent" };
         result.sentImage = true;
       } else if (type === "file") {
+        setStep("sending_file", "发送文件", "正在执行动作规则中的文件回复", { customer: customerText, actionType: type });
         const fileResult = await requestPageAction({
           ...action,
           type: "file",
@@ -839,6 +856,8 @@
         result.sentFile = result.sentFile || Boolean(fileResult.ok || fileResult.sent);
         if (!fileResult.ok && !fileResult.sent) return { ...result, message: fileResult.message || "file action failed" };
       } else if (type === "product") {
+        const inviteOrder = /邀请下单/.test(String(action.button || ""));
+        setStep(inviteOrder ? "sending_order" : "sending_product", inviteOrder ? "邀请下单" : "发送商品", inviteOrder ? "正在选择商品并邀请客户下单" : "正在选择并发送商品卡片", { customer: customerText, actionType: type });
         const acted = await performPanelActionWithDesktopFallback({
           ...action,
           tab: action.tab || "商品",
@@ -849,6 +868,7 @@
         result.sentProduct = result.sentProduct || acted;
         if (!acted) return { ...result, message: "product action failed" };
       } else if (type === "material") {
+        setStep("sending_material", "发送素材", "正在从素材库选择并发送内容", { customer: customerText, actionType: type });
         const acted = await performPanelActionWithDesktopFallback({
           ...action,
           tab: action.tab || "素材库",
@@ -859,6 +879,7 @@
         result.sentMaterial = result.sentMaterial || acted;
         if (!acted) return { ...result, message: "material action failed" };
       } else if (type === "quick_reply") {
+        setStep("sending_text", "发送文字", "正在选择并发送快捷语", { customer: customerText, actionType: type });
         const acted = await performPanelActionWithDesktopFallback({
           ...action,
           tab: action.tab || "快捷语",
@@ -901,6 +922,23 @@
     if (result.skippedDuplicateText) return "重复话术已跳过";
     if (result.ignored) return "已忽略";
     return "动作已发送";
+  }
+
+  function runtimeStatusForActionResult(result, actions = []) {
+    const product = (Array.isArray(actions) ? actions : []).find((action) => String(action?.type || "") === "product");
+    if (product && /邀请下单/.test(String(product.button || ""))) {
+      return { code: "order_sent", label: "已邀下单", detail: "邀请下单已发送", actionType: "product" };
+    }
+    if (result.sentImage && result.sentText) return { code: "reply_done", label: "回复完成", detail: "文字和图片均已发送", actionType: "image" };
+    if (result.sentImage) return { code: "image_sent", label: "图片已发", detail: "图片回复已发送", actionType: "image" };
+    if (result.sentFile) return { code: "file_sent", label: "文件已发", detail: "文件回复已发送", actionType: "file" };
+    if (result.sentProduct) return { code: "product_sent", label: "商品已发", detail: "商品卡片已发送", actionType: "product" };
+    if (result.sentMaterial) return { code: "material_sent", label: "素材已发", detail: "素材内容已发送", actionType: "material" };
+    if (result.sentQuickReply) return { code: "quick_sent", label: "快捷已发", detail: "快捷语已发送", actionType: "quick_reply" };
+    if (result.sentText) return { code: "text_sent", label: "文字已发", detail: "文字回复已发送", actionType: "text" };
+    if (result.skippedDuplicateText) return { code: "duplicate", label: "跳过重复", detail: "相同话术在当前会话已发送", actionType: "text" };
+    if (result.ignored) return { code: "ignored", label: "已忽略", detail: "规则要求忽略本条消息", actionType: "ignore" };
+    return { code: "reply_done", label: "回复完成", detail: actionResultStatus(result), actionType: "action" };
   }
 
   async function clickByAction(action) {
@@ -997,6 +1035,49 @@
     }
 
     return null;
+  }
+
+  function runtimeStatusForPanelAction(action = {}) {
+    if (action.tab === "商品" && /邀请下单/.test(String(action.button || ""))) {
+      return {
+        matchCode: "matching_product",
+        matchLabel: "匹配商品",
+        matchDetail: "已识别客户下单意图",
+        sendCode: "sending_order",
+        sendLabel: "邀请下单",
+        sendDetail: "正在选择商品并邀请客户下单",
+        doneCode: "order_sent",
+        doneLabel: "已邀下单",
+        doneDetail: "邀请下单已发送",
+        actionType: "product"
+      };
+    }
+    if (action.tab === "商品") {
+      return {
+        matchCode: "matching_product",
+        matchLabel: "匹配商品",
+        matchDetail: "已识别客户商品咨询意图",
+        sendCode: "sending_product",
+        sendLabel: "发送商品",
+        sendDetail: "正在选择并发送商品卡片",
+        doneCode: "product_sent",
+        doneLabel: "商品已发",
+        doneDetail: "商品卡片已发送",
+        actionType: "product"
+      };
+    }
+    return {
+      matchCode: "matching_rule",
+      matchLabel: "匹配规则",
+      matchDetail: "已识别素材发送意图",
+      sendCode: "sending_material",
+      sendLabel: "发送素材",
+      sendDetail: "正在从素材库选择并发送内容",
+      doneCode: "material_sent",
+      doneLabel: "素材已发",
+      doneDetail: "素材内容已发送",
+      actionType: "material"
+    };
   }
 
   async function performPanelActionWithDesktopFallback(action) {
@@ -1218,7 +1299,9 @@
     if (!CONFIG.aiFallback) return "";
     const startedAt = Date.now();
     try {
-      updateToolbar("AI 请求中");
+      setStep("collecting", "收集上下文", "正在读取最近消息和客服页上下文", { customer: message });
+      const sideContext = await collectSidebarContext(message);
+      setStep("ai_thinking", "AI思考中", "AI正在结合判断库和会话上下文生成回复", { customer: message });
       const response = await fetch(CONFIG.aiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1226,13 +1309,13 @@
           message,
           mode,
           context: recentMessages(),
-          sideContext: await collectSidebarContext(message)
+          sideContext
         })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       const reply = String(data.reply || "").trim();
-      updateToolbar(reply ? "AI 已返回" : "AI 空回复");
+      setStep(reply ? "ai_returned" : "reply_failed", reply ? "AI已返回" : "回复失败", reply ? "AI已经生成可发送的回复" : "AI返回了空回复", { customer: message });
       return {
         reply,
         judgments: data.judgments || null,
@@ -1240,7 +1323,7 @@
       };
     } catch (error) {
       warn("ai fallback failed", error);
-      updateToolbar("AI 请求失败");
+      setStep("reply_failed", "回复失败", `AI请求失败：${String(error?.message || error)}`, { customer: message });
       reportEvent("ai_failed", { message, error: String(error?.message || error) });
       return "";
     }
@@ -1251,7 +1334,7 @@
     if (configured) return configured;
 
     try {
-      updateToolbar("快速回复请求中");
+      setStep("sending_ack", "发送承接", "正在生成AI慢回复承接语", { customer: message });
       const response = await fetch(endpointFor("/quick-reply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1267,12 +1350,12 @@
       if (data.id) state.quickRepliesUsed.add(data.id);
       persistQuickRepliesUsed();
       const text = String(data.text || "").trim();
-      updateToolbar(text ? `快速回复 ${data.id || ""}`.trim() : "快速回复空");
+      setStep(text ? "sending_ack" : "reply_failed", text ? "发送承接" : "回复失败", text ? "承接语已经生成，准备发送" : "没有生成可用承接语", { customer: message });
       return text || pickConfiguredReply("quick", [], CONFIG.quickAck, CONFIG.localQuickReplies);
     } catch (error) {
       warn("quick reply failed", error);
       const local = pickLocalQuickReply();
-      updateToolbar("快速回复本地兜底");
+      setStep("sending_ack", "发送承接", "远端承接语不可用，改用本地承接语", { customer: message });
       return local;
     }
   }
@@ -1282,7 +1365,7 @@
     if (configured) return configured;
 
     try {
-      updateToolbar("等待语请求中");
+      setStep("sending_fallback", "发送兜底", "正在生成兜底回复", {});
       const response = await fetch(endpointFor("/waiting-reply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1298,7 +1381,7 @@
       if (data.id) state.waitingRepliesUsed.add(data.id);
       persistWaitingRepliesUsed();
       const text = String(data.text || "").trim();
-      updateToolbar(text ? `等待语 ${data.id || ""}`.trim() : "等待语空");
+      setStep(text ? "sending_fallback" : "reply_failed", text ? "发送兜底" : "回复失败", text ? "兜底回复已经生成，准备发送" : "没有生成可用兜底回复");
       return text || pickLocalWaitingReply();
     } catch (error) {
       warn("waiting reply failed", error);
@@ -1565,8 +1648,18 @@
 
   function updateToolbar(status, extra = {}) {
     state.lastStatus = status;
+    state.lastStatusMeta = { ...extra };
     document.querySelector("#wechat-kf-bot-status")?.remove();
     reportStatus(status, extra);
+  }
+
+  function setStep(code, label, detail, extra = {}) {
+    updateToolbar(label, {
+      ...extra,
+      code,
+      label,
+      detail
+    });
   }
 
   async function captureAndSavePageStructure() {
@@ -1712,6 +1805,13 @@
     try {
       window.wechatKfDesktop?.reportStatus?.({
         status,
+        code: String(extra.code || ""),
+        label: String(extra.label || status || ""),
+        detail: String(extra.detail || status || ""),
+        tone: String(extra.tone || ""),
+        category: String(extra.category || ""),
+        customer: clip(String(extra.customer || ""), 80),
+        actionType: String(extra.actionType || ""),
         enabled: CONFIG.enabled,
         busy: Boolean(state.busy),
         takeover: Boolean(extra.takeover || (CONFIG.enabled && state.busy)),

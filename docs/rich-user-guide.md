@@ -10,9 +10,9 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.4/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.4/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.4/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 
@@ -25,6 +25,8 @@
 如果三项配置已经齐全，程序会直接进入客服页映射；如果换电脑后缺任意一项，会再次打开初始化页。
 
 外部判断库默认通过应用内网页登录自动接入。每台电脑第一次使用时点击“登录并自动接入”，程序会使用独立持久会话保存登录状态、自动读取 `session_token` 并执行真实查询验证。重启应用会自动恢复；状态显示“登录已过期”时点击“重新登录”。手工粘贴 Cookie 只作为备用，Base URL 保持 `https://runyuai.zhiduoke.com.cn`。
+
+主控制台和悬浮窗会同步显示检测、规则匹配、判断库、AI 思考、文字、图片、商品、文件和异常步骤。短状态统一控制在 6 个字符以内，完整含义见 [运行状态说明](runtime-statuses.md)。
 
 ## 自动初始化内容
 

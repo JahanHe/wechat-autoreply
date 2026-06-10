@@ -5,6 +5,7 @@ const lamps = {
   local: $("#localLamp"),
   script: $("#scriptLamp"),
   login: $("#loginLamp"),
+  runtime: $("#runtimeLamp"),
   mini: $("#miniLamp")
 };
 
@@ -14,6 +15,10 @@ const texts = {
   local: $("#localText"),
   script: $("#scriptText"),
   login: $("#loginText"),
+  runtimeLabel: $("#runtimeLabel"),
+  runtimeCategory: $("#runtimeCategory"),
+  runtimeDetail: $("#runtimeDetail"),
+  statusTrail: $("#statusTrail"),
   botMode: $("#botMode"),
   updatedAt: $("#updatedAt"),
   miniTitle: $("#miniTitle"),
@@ -48,6 +53,7 @@ function render(payload) {
   setLamp(lamps.local, states.local.tone);
   setLamp(lamps.script, states.script.tone);
   setLamp(lamps.login, states.login.tone);
+  setLamp(lamps.runtime, states.runtime.tone);
   setLamp(lamps.mini, states.overall.tone);
 
   texts.summary.textContent = states.overall.summary;
@@ -55,10 +61,14 @@ function render(payload) {
   texts.local.textContent = states.local.text;
   texts.script.textContent = states.script.text;
   texts.login.textContent = states.login.text;
-  texts.botMode.textContent = payload.enabled ? "Bot 接管开启" : "Bot 已暂停";
-  texts.updatedAt.textContent = formatTime(payload.now || Date.now());
+  texts.runtimeLabel.textContent = states.runtime.label;
+  texts.runtimeCategory.textContent = states.runtime.category;
+  texts.runtimeDetail.textContent = states.runtime.detail;
+  texts.botMode.textContent = payload.enabled ? "Bot开启" : "暂停中";
+  texts.updatedAt.textContent = formatTime(states.runtime.at || payload.now || Date.now());
   texts.miniTitle.textContent = states.overall.title;
   texts.miniSubtitle.textContent = states.overall.summary;
+  renderTrail(payload.botHistory || []);
 
   const mode = payload.floating?.mode || "";
   if (mode === "mini") {
@@ -71,30 +81,37 @@ function render(payload) {
 }
 
 function buildStates(payload) {
-  const botStatus = String(payload.bot?.status || "等待状态");
+  const bot = payload.bot || {};
+  const botStatus = String(bot.label || bot.status || "检测中");
   const page = payload.page || {};
   const ai = payload.ai || {};
   const pageUrl = String(page.url || "");
-  const pageTitle = String(page.title || "");
-  const needsLogin = /需要登录|登录|扫码/.test(botStatus) || /redirect_url=%2Fkf/.test(pageUrl);
-  const loggedIn = !needsLogin && /store\.weixin\.qq\.com\/shop\/kf/.test(pageUrl) && pageTitle && pageTitle !== "微信小店";
-  const scriptReady = /脚本已注入|接管|窗口已隐藏/.test(botStatus);
-  const scriptBad = /失败|异常|未能|无状态/.test(botStatus);
+  const needsLogin = ["need_login", "waiting_qr"].includes(String(bot.code || "")) || /redirect_url=%2Fkf/.test(pageUrl);
+  const loggedIn = Boolean(page.authenticated) && !needsLogin;
+  const scriptReady = Boolean(page.scriptHealthy);
+  const scriptWaiting = Boolean(page.loading || (page.ready && !page.authenticated));
 
   const states = {
+    runtime: {
+      tone: normalizeTone(bot.tone),
+      label: shortStatus(botStatus),
+      category: shortStatus(bot.category || "运行"),
+      detail: String(bot.detail || botStatus || "等待状态"),
+      at: Number(bot.at || payload.now || Date.now())
+    },
     ai: ai.ok
       ? { tone: "ok", text: "正常" }
       : ai.hasKey
         ? { tone: "warn", text: "待检查" }
-        : { tone: "bad", text: "Key 未配置" },
+        : { tone: "bad", text: "缺Key" },
     local: payload.now
       ? { tone: "ok", text: "已接入" }
       : { tone: "bad", text: "未连接" },
     script: scriptReady
-      ? { tone: "ok", text: shortText(botStatus) }
-      : scriptBad
-        ? { tone: "bad", text: shortText(botStatus) }
-        : { tone: "warn", text: shortText(botStatus) },
+      ? { tone: "ok", text: "已就绪" }
+      : scriptWaiting
+        ? { tone: "warn", text: "待注入" }
+        : { tone: "bad", text: "已失联" },
     login: loggedIn
       ? { tone: "ok", text: "已登录" }
       : needsLogin
@@ -103,25 +120,44 @@ function buildStates(payload) {
   };
 
   const tones = Object.values(states).map((item) => item.tone);
-  const overallTone = tones.includes("bad") ? "bad" : tones.includes("warn") || !payload.enabled ? "warn" : "ok";
+  const overallTone = states.runtime.tone === "bad" || tones.includes("bad") ? "bad" : states.runtime.tone === "active" ? "active" : tones.includes("warn") || !payload.enabled ? "warn" : "ok";
   states.overall = {
     tone: overallTone,
-    title: overallTone === "ok" ? "客服正常" : overallTone === "warn" ? "等待确认" : "需要处理",
-    summary: overallTone === "ok"
-      ? "AI、本地、脚本、登录均正常"
-      : !payload.enabled
-        ? "Bot 已暂停"
-        : needsLogin
-          ? "客服页需要扫码"
-          : scriptBad
-            ? "脚本状态异常"
-            : "有状态待确认"
+    title: states.runtime.label,
+    summary: states.runtime.detail
   };
   return states;
 }
 
+function renderTrail(history) {
+  const items = (Array.isArray(history) ? history : []).slice(-3).reverse();
+  texts.statusTrail.replaceChildren(...items.map((item) => {
+    const row = document.createElement("div");
+    row.className = "trail-item";
+    const lamp = document.createElement("i");
+    lamp.className = `lamp ${normalizeTone(item.tone)}`;
+    const copy = document.createElement("div");
+    copy.className = "trail-copy";
+    const label = document.createElement("strong");
+    label.textContent = shortStatus(item.label || item.status || "检测中");
+    const time = document.createElement("span");
+    time.textContent = formatTime(item.at || Date.now());
+    copy.append(label, time);
+    row.append(lamp, copy);
+    return row;
+  }));
+}
+
 function setLamp(node, tone) {
   node.className = `lamp ${tone || ""}`.trim();
+}
+
+function normalizeTone(value) {
+  return ["ok", "warn", "bad", "active"].includes(String(value || "")) ? String(value) : "warn";
+}
+
+function shortStatus(value) {
+  return Array.from(String(value || "检测中").replace(/\s+/g, "")).slice(0, 6).join("");
 }
 
 function shortText(value) {

@@ -144,10 +144,11 @@ function renderChrome() {
   const aiHasKey = Boolean(status.ai?.hasKey);
   const notifyConfigured = Boolean(status.notify?.configured || status.notifyEnabled);
   const page = status.page || {};
+  const botTone = runtimeTone(status.bot?.tone);
 
-  $("#botDot").className = `dot ${botEnabled ? "" : "warn"}`;
+  $("#botDot").className = `dot ${botEnabled ? botTone : "warn"}`;
   $("#aiDot").className = `dot ${aiOk ? "" : aiHasKey ? "warn" : "bad"}`;
-  $("#botMini").textContent = status.bot?.status || "Bot";
+  $("#botMini").textContent = shortStatus(status.bot?.label || status.bot?.status || "检测中");
   $("#botModeMini").textContent = botEnabled ? "开启" : "暂停";
   $("#aiMini").textContent = aiOk ? "AI 正常" : aiHasKey ? "AI 待测" : "缺 Key";
   $("#notifyMini").textContent = notifyConfigured ? `通知 ${status.notify?.outboxCount || 0}` : "未配置";
@@ -323,13 +324,15 @@ function renderDashboard() {
   const page = status.page || {};
   const judgments = state.judgments || {};
   const watchdog = status.watchdog || {};
+  const runtime = status.bot || {};
   content.innerHTML = `
     ${pageHead("总览状态", "查看客服页、Bot、AI、Webhook、悬浮窗和回复日志的真实运行状态。", `
       <button id="dashRefresh">刷新</button>
       <button id="dashCheckAi" class="primary">检查 AI</button>
     `)}
     <div class="grid cols-3">
-      ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", status.bot?.status || "等待状态", status.enabled ? "ok" : "warn")}
+      ${metricCard("当前步骤", shortStatus(runtime.label || runtime.status || "检测中"), runtime.detail || "等待运行状态", runtimeTone(runtime.tone))}
+      ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", `${runtime.category || "运行"} / ${formatFullTime(runtime.at || Date.now())}`, status.enabled ? "ok" : "warn")}
       ${metricCard("AI 服务", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
       ${metricCard("Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn")}
       ${metricCard("判断库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺 Cookie") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
@@ -339,6 +342,11 @@ function renderDashboard() {
       ${metricCard("回复记录", String(records.total || 0), `成功 ${records.sent || 0} / 失败 ${records.failed || 0} / 超时 ${records.timeout || 0}`, records.failed || records.timeout ? "warn" : "ok")}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
+      <div class="card">
+        <h3>最近步骤</h3>
+        <div class="runtime-trail">${runtimeTrailHtml(status.botHistory || [])}</div>
+        <p class="hint">悬浮窗与这里使用同一状态源，检测、AI、发送和完成会实时同步。</p>
+      </div>
       <div class="card cream">
         <h3>快捷操作</h3>
         <div class="toolbar" style="justify-content:flex-start">
@@ -349,7 +357,7 @@ function renderDashboard() {
           <button id="dashJudgments">判断库设置</button>
         </div>
       </div>
-      <div class="card">
+      <div class="card span-2">
         <h3>当前回复来源</h3>
         <div class="badge-row">
           ${sourceStatsBadges(records.bySource || {})}
@@ -1681,7 +1689,7 @@ function pageHead(title, description, actions = "") {
 }
 
 function metricCard(title, value, hint, level = "ok") {
-  const dotClass = level === "bad" ? "bad" : level === "warn" ? "warn" : "";
+  const dotClass = runtimeTone(level) === "ok" ? "" : runtimeTone(level);
   return `
     <div class="card metric">
       <span class="signal"><i class="dot ${dotClass}"></i>${escapeHtml(title)}</span>
@@ -1689,6 +1697,29 @@ function metricCard(title, value, hint, level = "ok") {
       <span>${escapeHtml(hint || "")}</span>
     </div>
   `;
+}
+
+function runtimeTone(value) {
+  const tone = String(value || "").trim();
+  return ["ok", "warn", "bad", "active"].includes(tone) ? tone : "warn";
+}
+
+function shortStatus(value) {
+  return Array.from(String(value || "检测中").replace(/\s+/g, "")).slice(0, 6).join("");
+}
+
+function runtimeTrailHtml(history) {
+  const items = (Array.isArray(history) ? history : []).slice(-6).reverse();
+  if (!items.length) return `<div class="empty">暂无步骤</div>`;
+  return items.map((item) => `
+    <div class="runtime-step" title="${escapeHtml(item.detail || "")}">
+      <i class="dot ${runtimeTone(item.tone) === "ok" ? "" : runtimeTone(item.tone)}"></i>
+      <div>
+        <strong>${escapeHtml(shortStatus(item.label || item.status || "检测中"))}</strong>
+        <span>${escapeHtml(formatFullTime(item.at || Date.now()))}</span>
+      </div>
+    </div>
+  `).join("");
 }
 
 function sourceStatsBadges(bySource) {

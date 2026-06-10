@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "小店AI客服",
-  "version": "0.1.0",
+  "version": "0.3.5",
   "description": "在微信小店客服页本地监听新会话，并按规则自动回复。",
   "permissions": ["storage"],
   "host_permissions": [

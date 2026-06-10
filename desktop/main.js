@@ -24,6 +24,51 @@ const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
+const BOT_STATUS_HISTORY_LIMIT = 6;
+const BOT_RUNTIME_STATUSES = {
+  starting: { label: "启动中", tone: "active", category: "系统" },
+  monitoring: { label: "检测中", tone: "ok", category: "检测" },
+  detecting: { label: "检测消息", tone: "active", category: "检测" },
+  message_found: { label: "已检测消息", tone: "active", category: "检测" },
+  last_kf: { label: "客服最后", tone: "ok", category: "等待" },
+  waiting_message: { label: "等待消息", tone: "ok", category: "等待" },
+  no_message: { label: "暂无消息", tone: "ok", category: "等待" },
+  paused: { label: "暂停中", tone: "warn", category: "控制" },
+  matching_rule: { label: "匹配规则", tone: "active", category: "匹配" },
+  matching_image: { label: "匹配图片", tone: "active", category: "匹配" },
+  matching_product: { label: "匹配商品", tone: "active", category: "匹配" },
+  collecting: { label: "收集上下文", tone: "active", category: "AI" },
+  querying_judgment: { label: "查询判断库", tone: "active", category: "AI" },
+  ai_thinking: { label: "AI思考中", tone: "active", category: "AI" },
+  ai_returned: { label: "AI已返回", tone: "active", category: "AI" },
+  waiting_ai: { label: "等待AI", tone: "warn", category: "AI" },
+  sending_reply: { label: "正在回复", tone: "active", category: "发送" },
+  sending_text: { label: "发送文字", tone: "active", category: "发送" },
+  sending_image: { label: "发送图片", tone: "active", category: "发送" },
+  sending_product: { label: "发送商品", tone: "active", category: "发送" },
+  sending_order: { label: "邀请下单", tone: "active", category: "发送" },
+  sending_file: { label: "发送文件", tone: "active", category: "发送" },
+  sending_material: { label: "发送素材", tone: "active", category: "发送" },
+  sending_ack: { label: "发送承接", tone: "active", category: "发送" },
+  sending_fallback: { label: "发送兜底", tone: "active", category: "发送" },
+  text_sent: { label: "文字已发", tone: "ok", category: "完成" },
+  image_sent: { label: "图片已发", tone: "ok", category: "完成" },
+  product_sent: { label: "商品已发", tone: "ok", category: "完成" },
+  order_sent: { label: "已邀下单", tone: "ok", category: "完成" },
+  file_sent: { label: "文件已发", tone: "ok", category: "完成" },
+  material_sent: { label: "素材已发", tone: "ok", category: "完成" },
+  quick_sent: { label: "快捷已发", tone: "ok", category: "完成" },
+  reply_done: { label: "回复完成", tone: "ok", category: "完成" },
+  duplicate: { label: "跳过重复", tone: "warn", category: "控制" },
+  ignored: { label: "已忽略", tone: "warn", category: "控制" },
+  reply_timeout: { label: "回复超时", tone: "bad", category: "异常" },
+  reply_failed: { label: "回复失败", tone: "bad", category: "异常" },
+  need_login: { label: "待扫码", tone: "warn", category: "登录" },
+  waiting_qr: { label: "等二维码", tone: "warn", category: "登录" },
+  page_loading: { label: "页面加载", tone: "active", category: "页面" },
+  script_ready: { label: "脚本就绪", tone: "ok", category: "系统" },
+  background: { label: "后台运行", tone: "ok", category: "系统" }
+};
 
 app.setName(APP_DISPLAY_NAME);
 
@@ -46,13 +91,20 @@ let controlServer = null;
 let aiRestarting = false;
 let isQuitting = false;
 let blockerId = null;
+let lastBotHeartbeatAt = 0;
 let lastBotStatus = {
+  code: "starting",
+  label: "启动中",
   status: "启动中",
+  detail: "正在启动客服自动回复服务",
+  tone: "active",
+  category: "系统",
   enabled: true,
   href: "",
   title: "",
   at: Date.now()
 };
+let botStatusHistory = [{ ...lastBotStatus }];
 let lastAiHealth = {
   ok: false,
   hasKey: false,
@@ -229,15 +281,15 @@ function defaultConfig() {
       actionRules: replyDefaults.actionRules || []
     },
     floatWindow: {
-      uiVersion: 2,
+      uiVersion: 3,
       enabled: true,
       visible: true,
       alwaysOnTop: true,
       mode: "compact",
       bounds: null,
-      compactSize: { width: 276, height: 166 },
-      miniSize: { width: 188, height: 44 },
-      settingsSize: { width: 276, height: 166 }
+      compactSize: { width: 320, height: 252 },
+      miniSize: { width: 210, height: 44 },
+      settingsSize: { width: 320, height: 252 }
     },
     notify: {
       enabled: Boolean(process.env.WECOM_BOT_WEBHOOK_URL),
@@ -698,7 +750,7 @@ function createMainWindow() {
     if (isQuitting) return;
     event.preventDefault();
     mainWindow.hide();
-    updateFloatingStatus("窗口已隐藏，后台运行中");
+    updateFloatingStatus("后台运行", { code: "background", detail: "主窗口已隐藏，程序继续在后台运行" });
   });
 
   mainWindow.on("unresponsive", () => {
@@ -874,16 +926,25 @@ function pageInfoPayload() {
       visible: false,
       url: "",
       title: "",
-      loading: false
+      loading: false,
+      authenticated: false,
+      scriptHealthy: false,
+      scriptUpdatedAt: lastBotHeartbeatAt
     };
   }
+
+  const url = wc.getURL();
+  const heartbeatLimit = Number(config?.watchdog?.botHeartbeatMs || 60_000);
 
   return {
     ready: true,
     visible: Boolean(kfViewAttached && mainMode === "page"),
-    url: wc.getURL(),
+    url,
     title: wc.getTitle(),
-    loading: wc.isLoading()
+    loading: wc.isLoading(),
+    authenticated: isAuthenticatedKfUrl(url),
+    scriptHealthy: Boolean(lastBotHeartbeatAt && Date.now() - lastBotHeartbeatAt < heartbeatLimit),
+    scriptUpdatedAt: lastBotHeartbeatAt
   };
 }
 
@@ -1105,11 +1166,11 @@ function floatingSizeForMode(mode) {
 function normalizeFloatingSize(mode, size = {}) {
   const normalized = normalizeFloatingMode(mode);
   const defaults = normalized === "mini"
-    ? { width: 188, height: 44 }
-    : { width: 276, height: 166 };
+    ? { width: 210, height: 44 }
+    : { width: 320, height: 252 };
   return {
-    width: clampInt(size?.width || defaults.width, normalized === "mini" ? 180 : 260, normalized === "mini" ? 320 : 420),
-    height: clampInt(size?.height || defaults.height, normalized === "mini" ? 44 : 160, normalized === "mini" ? 72 : 260)
+    width: clampInt(size?.width || defaults.width, normalized === "mini" ? 200 : 300, normalized === "mini" ? 340 : 420),
+    height: clampInt(size?.height || defaults.height, normalized === "mini" ? 44 : 236, normalized === "mini" ? 72 : 320)
   };
 }
 
@@ -1140,15 +1201,14 @@ async function injectBotScript() {
 
     const content = await readFile(CONTENT_SCRIPT_PATH, "utf8");
     await wc.executeJavaScript(content, true);
-    lastBotStatus = {
-      ...lastBotStatus,
-      status: "脚本已注入",
+    lastBotHeartbeatAt = Date.now();
+    updateFloatingStatus("脚本已注入", {
+      code: "script_ready",
+      detail: "自动回复脚本已注入，正在监听客户消息",
       href: url,
-      title: wc.getTitle(),
-      at: Date.now()
-    };
+      title: wc.getTitle()
+    });
     await notifyHealthRecovered("bot", "自动回复脚本已恢复", "客服页自动回复脚本已重新注入。");
-    broadcastStatus();
   } catch (error) {
     await sendNotification("bot_inject_failed", "自动回复脚本注入失败", String(error?.message || error), {
       severity: "critical",
@@ -1178,12 +1238,8 @@ function registerIpc() {
   });
 
   ipcMain.on("bot-status", (_event, status) => {
-    lastBotStatus = {
-      ...lastBotStatus,
-      ...status,
-      at: Date.now()
-    };
-    broadcastStatus();
+    lastBotHeartbeatAt = Date.now();
+    updateFloatingStatus(status?.status || status?.label || "检测中", status || {});
   });
 
   ipcMain.on("bot-event", (_event, event) => {
@@ -1280,7 +1336,10 @@ async function setBotEnabled(enabled) {
   await saveConfig();
   sendConfigChanges({ enabled: { oldValue, newValue: enabled } });
   updateTrayMenu();
-  updateFloatingStatus(enabled ? "接管已开启" : "已暂停");
+  updateFloatingStatus(enabled ? "检测中" : "暂停中", {
+    code: enabled ? "monitoring" : "paused",
+    detail: enabled ? "Bot已开启，正在检测客户消息" : "Bot已暂停，不会自动发送回复"
+  });
   return statusPayload();
 }
 
@@ -1289,7 +1348,7 @@ function reloadKfPage() {
   showKfView();
   mainMode = "page";
   wc.loadURL(config.kfUrl);
-  updateFloatingStatus("正在重载客服页");
+  updateFloatingStatus("页面加载", { code: "page_loading", detail: "正在重新加载微信小店客服页" });
 }
 
 function showMainWindow() {
@@ -1299,13 +1358,88 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
-function updateFloatingStatus(status) {
-  lastBotStatus = {
+function updateFloatingStatus(status, extra = {}) {
+  const raw = String(status || extra.status || "检测中").trim() || "检测中";
+  const code = String(extra.code || inferBotStatusCode(raw, extra)).trim() || "monitoring";
+  const definition = BOT_RUNTIME_STATUSES[code] || BOT_RUNTIME_STATUSES.monitoring;
+  const label = clipStatusLabel(extra.label || definition.label || raw);
+  const next = {
     ...lastBotStatus,
-    status,
+    ...extra,
+    code,
+    label,
+    status: label,
+    detail: String(extra.detail || raw || definition.label).trim(),
+    tone: String(extra.tone || definition.tone || "active"),
+    category: String(extra.category || definition.category || "运行"),
+    customer: clip(String(extra.customer || lastBotStatus.customer || ""), 80),
+    actionType: String(extra.actionType || ""),
     at: Date.now()
   };
+  lastBotStatus = next;
+  const previous = botStatusHistory.at(-1);
+  if (!previous || previous.code !== next.code || previous.detail !== next.detail || previous.customer !== next.customer) {
+    botStatusHistory.push({
+      code: next.code,
+      label: next.label,
+      status: next.status,
+      detail: next.detail,
+      tone: next.tone,
+      category: next.category,
+      customer: next.customer,
+      actionType: next.actionType,
+      at: next.at
+    });
+    botStatusHistory = botStatusHistory.slice(-BOT_STATUS_HISTORY_LIMIT);
+  }
   broadcastStatus();
+}
+
+function clipStatusLabel(value) {
+  const text = String(value || "").replace(/\s+/g, "").trim();
+  return Array.from(text || "检测中").slice(0, 6).join("");
+}
+
+function inferBotStatusCode(raw, extra = {}) {
+  const text = `${raw} ${extra.detail || ""}`;
+  if (!config?.bot?.enabled || /暂停/.test(text)) return "paused";
+  if (/等待二维码/.test(text)) return "waiting_qr";
+  if (/扫码|需要登录/.test(text)) return "need_login";
+  if (/脚本已注入|脚本就绪/.test(text)) return "script_ready";
+  if (/窗口已隐藏|后台运行/.test(text)) return "background";
+  if (/页面.*载|重载/.test(text)) return "page_loading";
+  if (/最后一条.*客服|客服最后/.test(text)) return "last_kf";
+  if (/无客户消息|暂无消息/.test(text)) return "no_message";
+  if (/等待新会话|等待消息|监听中/.test(text)) return "waiting_message";
+  if (/检测|接管中/.test(text)) return "detecting";
+  if (/匹配.*图片/.test(text)) return "matching_image";
+  if (/匹配.*商品/.test(text)) return "matching_product";
+  if (/规则/.test(text) && /匹配|执行/.test(text)) return "matching_rule";
+  if (/上下文/.test(text)) return "collecting";
+  if (/判断库.*查询|查询判断/.test(text)) return "querying_judgment";
+  if (/AI.*请求|AI.*思考/.test(text)) return "ai_thinking";
+  if (/AI.*返回/.test(text)) return "ai_returned";
+  if (/继续等.*AI|等待AI/.test(text)) return "waiting_ai";
+  if (/邀请下单/.test(text) && !/已/.test(text)) return "sending_order";
+  if (/发送.*商品|商品.*发送中/.test(text)) return "sending_product";
+  if (/发送.*图片|图片.*发送中/.test(text)) return "sending_image";
+  if (/发送.*文件|文件.*发送中/.test(text)) return "sending_file";
+  if (/发送.*素材|素材.*发送中/.test(text)) return "sending_material";
+  if (/发送.*承接|承接.*发送中/.test(text)) return "sending_ack";
+  if (/发送.*兜底|兜底.*发送中/.test(text)) return "sending_fallback";
+  if (/发送.*文字|正在回复/.test(text)) return "sending_text";
+  if (/图片.*已发送|图片已发/.test(text)) return "image_sent";
+  if (/商品.*已发送|商品已发/.test(text)) return "product_sent";
+  if (/下单.*已|已邀下单/.test(text)) return "order_sent";
+  if (/文件.*已发送|文件已发/.test(text)) return "file_sent";
+  if (/素材.*已发送|素材已发/.test(text)) return "material_sent";
+  if (/快捷语.*已发送|快捷已发/.test(text)) return "quick_sent";
+  if (/文字.*已发送|AI.*已发送|判断库.*已发送|已发送$/.test(text)) return "text_sent";
+  if (/重复|跳过/.test(text)) return "duplicate";
+  if (/忽略/.test(text)) return "ignored";
+  if (/超时/.test(text)) return "reply_timeout";
+  if (/失败|异常|未能/.test(text)) return "reply_failed";
+  return "monitoring";
 }
 
 function broadcastStatus() {
@@ -1323,6 +1457,7 @@ function statusPayload() {
   return {
     appName: APP_DISPLAY_NAME,
     bot: lastBotStatus,
+    botHistory: botStatusHistory,
     ai: lastAiHealth,
     enabled: Boolean(config?.bot?.enabled),
     notifyEnabled: Boolean(config?.notify?.enabled && config?.notify?.wecomWebhookUrl),
@@ -1560,7 +1695,12 @@ async function saveDesktopSettings(payload) {
 
   await saveConfig();
   if (Object.keys(botChanges).length > 0) sendConfigChanges(botChanges);
-  if (botChanges.enabled) updateFloatingStatus(config.bot.enabled ? "接管已开启" : "已暂停");
+  if (botChanges.enabled) {
+    updateFloatingStatus(config.bot.enabled ? "检测中" : "暂停中", {
+      code: config.bot.enabled ? "monitoring" : "paused",
+      detail: config.bot.enabled ? "Bot已开启，正在检测客户消息" : "Bot已暂停，不会自动发送回复"
+    });
+  }
   updateTrayMenu();
   broadcastStatus();
   flushNotifyOutbox().catch((error) => console.error("[notify] flush after settings failed", error));
@@ -1991,6 +2131,8 @@ async function runPageAction(action = {}) {
     type === "material" ||
     type === "quick_reply"
   ) {
+    const runtime = runtimeStatusForPageAction(action);
+    updateFloatingStatus(runtime.label, runtime);
     const result = await wc.executeJavaScript(`(${pageActionScript.toString()})(${JSON.stringify(action)})`, true)
       .catch((error) => ({ ok: false, message: String(error?.message || error) }));
     if (
@@ -2013,9 +2155,11 @@ async function runPageAction(action = {}) {
         sent: Boolean(nativeResult.ok && !stillPending),
         message: nativeResult.ok && !stillPending ? "panel action sent by native fallback" : result.message
       };
+      updateFloatingStatusForPageActionResult(action, fallbackResult);
       await maybeRecordManualAction(action, fallbackResult);
       return fallbackResult;
     }
+    updateFloatingStatusForPageActionResult(action, result);
     await maybeRecordManualAction(action, result);
     return result;
   }
@@ -2036,6 +2180,50 @@ async function maybeRecordManualAction(action = {}, result = {}) {
     status: sent ? "" : result?.message || "动作未完成",
     actions: [{ ...action, type }]
   });
+}
+
+function runtimeStatusForPageAction(action = {}) {
+  const type = String(action.type || "").trim();
+  const button = String(action.button || action.confirmButton || "").trim();
+  const customer = clip(String(action.customer || action.message || ""), 80);
+  if (type === "product" && /邀请下单/.test(button)) {
+    return { code: "sending_order", label: "邀请下单", detail: "正在选择商品并邀请客户下单", customer, actionType: type };
+  }
+  if (type === "product") {
+    return { code: "sending_product", label: "发送商品", detail: "正在匹配并发送商品卡片", customer, actionType: type };
+  }
+  if (type === "material") {
+    return { code: "sending_material", label: "发送素材", detail: "正在从素材库选择并发送内容", customer, actionType: type };
+  }
+  if (type === "quick_reply" || type === "send_text" || type === "set_text") {
+    return { code: "sending_text", label: "发送文字", detail: "正在填写并发送文字回复", customer, actionType: type };
+  }
+  return { code: "sending_reply", label: "正在回复", detail: "正在执行客服页面回复动作", customer, actionType: type };
+}
+
+function updateFloatingStatusForPageActionResult(action = {}, result = {}) {
+  const type = String(action.type || "").trim();
+  const button = String(action.button || action.confirmButton || "").trim();
+  const customer = clip(String(action.customer || action.message || ""), 80);
+  const ok = Boolean(result?.ok || result?.sent);
+  if (!ok) {
+    updateFloatingStatus("回复失败", {
+      code: "reply_failed",
+      detail: String(result?.message || "页面回复动作未完成"),
+      customer,
+      actionType: type
+    });
+    return;
+  }
+  if (type === "product" && /邀请下单/.test(button)) {
+    updateFloatingStatus("已邀下单", { code: "order_sent", detail: "邀请下单已发送给当前客户", customer, actionType: type });
+  } else if (type === "product") {
+    updateFloatingStatus("商品已发", { code: "product_sent", detail: "商品卡片已发送给当前客户", customer, actionType: type });
+  } else if (type === "material") {
+    updateFloatingStatus("素材已发", { code: "material_sent", detail: "素材内容已发送给当前客户", customer, actionType: type });
+  } else if (type === "quick_reply" || type === "send_text") {
+    updateFloatingStatus("文字已发", { code: "text_sent", detail: "文字回复已发送给当前客户", customer, actionType: type });
+  }
 }
 
 function pageActionScript(action) {
@@ -2687,6 +2875,12 @@ function visibleTargetScript(selector) {
 async function handleImageReply(payload = {}) {
   const imagePath = String(payload.path || payload.imagePath || "").trim();
   const customer = clip(String(payload.customer || ""), 100);
+  updateFloatingStatus("发送图片", {
+    code: "sending_image",
+    detail: payload.name ? `正在按规则“${payload.name}”发送图片` : "正在上传并发送图片",
+    customer,
+    actionType: "image"
+  });
   if (!config.bot.imageRepliesEnabled && !payload.fromAction) {
     return { ok: false, copied: false, pasted: false, message: "图片回复未开启" };
   }
@@ -2751,7 +2945,7 @@ async function handleImageReply(payload = {}) {
     );
   }
 
-  return {
+  const output = {
     ok: true,
     copied,
     uploaded,
@@ -2760,11 +2954,24 @@ async function handleImageReply(payload = {}) {
     path: resolvedPath,
     message: sent ? (uploaded ? "图片已通过上传控件发送" : "图片已自动发送") : pasted ? "图片已粘贴待确认" : "图片已复制到剪贴板"
   };
+  updateFloatingStatus(sent ? "图片已发" : pasted ? "待确认" : "回复失败", {
+    code: sent ? "image_sent" : pasted ? "monitoring" : "reply_failed",
+    detail: output.message,
+    customer,
+    actionType: "image"
+  });
+  return output;
 }
 
 async function handleFileReply(payload = {}) {
   const filePath = String(payload.path || payload.filePath || "").trim();
   const customer = clip(String(payload.customer || ""), 100);
+  updateFloatingStatus("发送文件", {
+    code: "sending_file",
+    detail: payload.name ? `正在按规则“${payload.name}”发送文件` : "正在上传并发送文件",
+    customer,
+    actionType: "file"
+  });
   if (!filePath) {
     return { ok: false, uploaded: false, sent: false, message: "文件路径为空" };
   }
@@ -2797,13 +3004,20 @@ async function handleFileReply(payload = {}) {
     );
   }
 
-  return {
+  const output = {
     ok: Boolean(result.sent),
     uploaded: Boolean(result.uploaded),
     sent: Boolean(result.sent),
     path: resolvedPath,
     message: result.message || (result.sent ? "文件已发送" : "文件未发送")
   };
+  updateFloatingStatus(result.sent ? "文件已发" : "回复失败", {
+    code: result.sent ? "file_sent" : "reply_failed",
+    detail: output.message,
+    customer,
+    actionType: "file"
+  });
+  return output;
 }
 
 function resolveConfiguredFilePath(inputPath) {
@@ -3114,12 +3328,20 @@ async function handleBotEvent(event = {}) {
   const stage = payload.stage ? `阶段：${payload.stage}` : "";
 
   if (type === "reply_sent") {
+    const runtime = runtimeStatusForReplyEvent(payload);
+    updateFloatingStatus(runtime.label, runtime);
     const record = await recordReplyEvent("sent", payload);
     await maybeSendReplySuccessNotification(record);
     return;
   }
 
   if (type === "reply_failed") {
+    updateFloatingStatus("回复失败", {
+      code: "reply_failed",
+      detail: payload.error || payload.status || "自动回复未能成功发送",
+      customer,
+      actionType: payload.stage || ""
+    });
     await recordReplyEvent("failed", payload);
     await sendNotification(
       `reply_failed:${payload.stage || "unknown"}:${customer}`,
@@ -3131,6 +3353,12 @@ async function handleBotEvent(event = {}) {
   }
 
   if (type === "reply_timeout") {
+    updateFloatingStatus("回复超时", {
+      code: "reply_timeout",
+      detail: payload.busy ? "自动回复仍在处理，但已超过提醒时间" : "客户消息尚未完成处理",
+      customer,
+      actionType: payload.stage || ""
+    });
     await recordReplyEvent("timeout", payload);
     await sendNotification(
       `reply_timeout:${payload.stage || "unknown"}:${customer}`,
@@ -3147,6 +3375,12 @@ async function handleBotEvent(event = {}) {
   }
 
   if (type === "ai_failed") {
+    updateFloatingStatus("回复失败", {
+      code: "reply_failed",
+      detail: payload.error || "AI没有返回可用回复",
+      customer,
+      actionType: "ai"
+    });
     await recordReplyEvent("failed", { ...payload, stage: "ai_failed" });
     await sendNotification("ai_failed", "AI 回复请求失败", payload.error || "本地 AI 服务没有返回可用回复", {
       severity: "warning"
@@ -3160,6 +3394,41 @@ async function handleBotEvent(event = {}) {
       severity: "warning"
     });
   }
+}
+
+function runtimeStatusForReplyEvent(payload = {}) {
+  const stage = String(payload.stage || "").trim();
+  const actions = Array.isArray(payload.actions) ? payload.actions : [];
+  const customer = clip(String(payload.customer || payload.message || ""), 80);
+  const productAction = actions.find((action) => String(action?.type || "") === "product");
+  if (productAction && /邀请下单/.test(String(productAction.button || ""))) {
+    return { code: "order_sent", label: "已邀下单", detail: "邀请下单已发送给当前客户", customer, actionType: "product" };
+  }
+  if (productAction) {
+    return { code: "product_sent", label: "商品已发", detail: "商品卡片已发送给当前客户", customer, actionType: "product" };
+  }
+  if (actions.some((action) => String(action?.type || "") === "image") || stage === "image_reply") {
+    return { code: "image_sent", label: "图片已发", detail: "图片回复已发送给当前客户", customer, actionType: "image" };
+  }
+  if (actions.some((action) => String(action?.type || "") === "file")) {
+    return { code: "file_sent", label: "文件已发", detail: "文件已发送给当前客户", customer, actionType: "file" };
+  }
+  if (actions.some((action) => String(action?.type || "") === "material")) {
+    return { code: "material_sent", label: "素材已发", detail: "素材已发送给当前客户", customer, actionType: "material" };
+  }
+  if (actions.some((action) => String(action?.type || "") === "quick_reply")) {
+    return { code: "quick_sent", label: "快捷已发", detail: "快捷语已发送给当前客户", customer, actionType: "quick_reply" };
+  }
+  if (stage === "quick_ack") {
+    return { code: "waiting_ai", label: "等待AI", detail: "承接语已发送，继续等待AI详细回复", customer, actionType: stage };
+  }
+  if (stage === "fallback_reply") {
+    return { code: "text_sent", label: "文字已发", detail: "兜底回复已发送给当前客户", customer, actionType: stage };
+  }
+  if (stage === "judgment_ai") {
+    return { code: "text_sent", label: "文字已发", detail: "判断库和AI生成的回复已发送", customer, actionType: stage };
+  }
+  return { code: "text_sent", label: "文字已发", detail: "文字回复已发送给当前客户", customer, actionType: stage || "text" };
 }
 
 async function loadReplyRecords() {
@@ -4158,7 +4427,7 @@ async function inspectBotHeartbeat() {
   const url = wc.getURL();
   if (!url.includes("/shop/kf")) return;
 
-  const age = Date.now() - Number(lastBotStatus.at || 0);
+  const age = Date.now() - Number(lastBotHeartbeatAt || 0);
   if (age < config.watchdog.botHeartbeatMs) return;
 
   await sendNotification("bot_stale", "自动回复脚本长时间无状态", "程序将重新注入脚本并刷新客服页，避免静默失效", {

@@ -62,7 +62,7 @@
       .full {
         height: 100%;
         display: grid;
-        grid-template-rows: auto 1fr auto;
+        grid-template-rows: auto auto auto 1fr auto;
       }
 
       .top,
@@ -136,15 +136,17 @@
 
       .status-list {
         display: grid;
-        gap: 5px;
-        padding: 8px 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 10px;
+        padding: 7px 10px;
+        border-bottom: 1px solid rgba(230, 223, 216, .7);
       }
 
       .status-row {
         min-width: 0;
         display: grid;
-        grid-template-columns: 12px 54px minmax(0, 1fr);
-        gap: 7px;
+        grid-template-columns: 12px 34px minmax(0, 1fr);
+        gap: 6px;
         align-items: center;
         min-height: 15px;
       }
@@ -167,6 +169,11 @@
         box-shadow: 0 0 0 3px rgba(212, 160, 23, .18);
       }
 
+      .lamp.active {
+        background: #3b82c4;
+        box-shadow: 0 0 0 3px rgba(59, 130, 196, .18);
+      }
+
       .lamp.bad {
         background: var(--error);
         box-shadow: 0 0 0 3px rgba(198, 69, 69, .18);
@@ -183,6 +190,107 @@
         color: var(--muted);
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .process {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 12px 68px minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        gap: 2px 7px;
+        align-items: center;
+        padding: 9px 10px 8px;
+        background: rgba(255, 255, 255, .62);
+        border-bottom: 1px solid rgba(230, 223, 216, .7);
+      }
+
+      .process .lamp {
+        grid-row: 1 / 3;
+      }
+
+      .process-label {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 750;
+        white-space: nowrap;
+      }
+
+      .process-category {
+        justify-self: start;
+        border: 1px solid #dfd4ca;
+        border-radius: 999px;
+        padding: 1px 6px;
+        color: var(--primary-active);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+
+      .process-detail {
+        grid-column: 3;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .trail {
+        min-height: 0;
+        display: grid;
+        align-content: start;
+        gap: 5px;
+        padding: 7px 10px;
+      }
+
+      .trail-title {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .trail-list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 5px;
+      }
+
+      .trail-item {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 7px minmax(0, 1fr);
+        gap: 5px;
+        align-items: center;
+        border: 1px solid var(--hairline);
+        border-radius: 7px;
+        padding: 4px 5px;
+        background: rgba(255, 255, 255, .72);
+      }
+
+      .trail-item .lamp {
+        width: 6px;
+        height: 6px;
+        box-shadow: none;
+      }
+
+      .trail-copy {
+        min-width: 0;
+        display: grid;
+      }
+
+      .trail-copy strong,
+      .trail-copy span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .trail-copy strong {
+        font-size: 10px;
+      }
+
+      .trail-copy span {
+        color: var(--muted);
+        font-size: 9px;
       }
 
       .footer {
@@ -256,6 +364,13 @@
           </div>
         </header>
 
+        <div class="process">
+          <i id="runtimeLamp" class="lamp active"></i>
+          <strong id="runtimeLabel" class="process-label">启动中</strong>
+          <span id="runtimeCategory" class="process-category">系统</span>
+          <span id="runtimeDetail" class="process-detail">正在启动客服自动回复服务</span>
+        </div>
+
         <div class="status-list">
           <div class="status-row">
             <i id="aiLamp" class="lamp"></i>
@@ -279,8 +394,13 @@
           </div>
         </div>
 
+        <div class="trail">
+          <span class="trail-title">最近步骤</span>
+          <div id="statusTrail" class="trail-list"></div>
+        </div>
+
         <footer class="footer">
-          <span id="botMode" class="mode-pill">Bot 接管开启</span>
+          <span id="botMode" class="mode-pill">Bot开启</span>
           <span id="updatedAt" class="meta">--:--:--</span>
         </footer>
       </section>
