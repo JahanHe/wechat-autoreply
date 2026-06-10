@@ -1,4 +1,4 @@
-# 微信小店客服自动回复桌面版结构和部署说明
+# 小店AI客服桌面版结构和部署说明
 
 ## 目录结构
 
@@ -137,23 +137,23 @@ DEEPSEEK_REVIEW=enabled
 打包后 `.env` 和运行配置在当前用户目录：
 
 ```text
-~/Library/Application Support/wechat-shop-kf-bot/
+~/Library/Application Support/小店AI客服/
 ```
 
 Windows 对应目录：
 
 ```text
-%APPDATA%/wechat-shop-kf-bot/
+%APPDATA%/小店AI客服/
 ```
 
 ## 新电脑部署
 
 macOS：
 
-1. 安装 `微信小店客服自动回复.dmg`。
+1. 安装 `小店AI客服.dmg`。
 2. 把 App 拖到 Applications。
-3. 第一次打开后，在主控制台 > API 接入 填 DeepSeek API Key。
-4. 在主控制台 > Webhook 填企业微信机器人 Webhook。
+3. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook、外部判断库 Session Cookie。
+4. 点“保存并自检”，确认 AI、Webhook、判断库、规则库和长期运行状态通过。
 5. 登录微信小店客服页。
 6. 确认主控制台 > 规则库里已有默认文字规则和页面动作规则。
 7. 悬浮窗显示“接管开启”后即可运行。
@@ -161,8 +161,8 @@ macOS：
 Windows：
 
 1. 运行 Windows 安装包或 portable 版本。
-2. 第一次打开后，在主控制台 > API 接入 填 DeepSeek API Key。
-3. 在主控制台 > Webhook 填企业微信机器人 Webhook。
+2. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook、外部判断库 Session Cookie。
+3. 点“保存并自检”，确认 AI、Webhook、判断库、规则库和长期运行状态通过。
 4. 登录微信小店客服页。
 5. 确认主控制台 > 规则库里已有默认文字规则和页面动作规则。
 6. 悬浮窗显示“接管开启”后即可运行。
@@ -205,13 +205,13 @@ notify-outbox.json      可选，未补发通知队列
 macOS 运行目录：
 
 ```text
-~/Library/Application Support/wechat-shop-kf-bot/
+~/Library/Application Support/小店AI客服/
 ```
 
 Windows 运行目录：
 
 ```text
-%APPDATA%/wechat-shop-kf-bot/
+%APPDATA%/小店AI客服/
 ```
 
 ## 关闭规则

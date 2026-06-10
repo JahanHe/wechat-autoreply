@@ -121,7 +121,7 @@ jobs:
             cp "${RELEASE_NOTES_SOURCE}" release-notes.md
           else
             cat > release-notes.md <<'EOF'
-          # 微信小店客服自动回复
+          # 小店AI客服
 
           > 正式桌面安装包。下载后只需要配置 DeepSeek API Key、企业微信机器人 Webhook，并完成微信小店客服扫码登录。
 
@@ -147,5 +147,5 @@ jobs:
           EOF
           fi
           gh release create "${GITHUB_REF_NAME}" release-assets/* \
-            --title "微信小店客服自动回复 ${GITHUB_REF_NAME}" \
+            --title "小店AI客服 ${GITHUB_REF_NAME}" \
             --notes-file release-notes.md

@@ -17,8 +17,13 @@ const APP_ICON_PATH = resolve(__dirname, "assets/logo.png");
 const BUNDLED_ASSISTANT_PROFILE_PATH = resolve(APP_ROOT, "config/assistant-profile.json");
 const BUNDLED_REPLIES_PATH = resolve(APP_ROOT, "config/replies.json");
 const BUNDLED_REPLY_IMAGES_DIR = resolve(APP_ROOT, "config/reply-images");
+const APP_DISPLAY_NAME = "小店AI客服";
+const APP_USER_DATA_DIR_NAME = "小店AI客服";
+const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
+
+app.setName(APP_DISPLAY_NAME);
 
 process.env.WECHAT_KF_ROOT = APP_ROOT;
 process.env.WECHAT_KF_CONFIG_ROOT = APP_ROOT;
@@ -68,6 +73,7 @@ let loginScreenshotInProgress = false;
 let loginNotificationTimer = null;
 let judgmentRefreshTimer = null;
 let judgmentDownloadJob = null;
+let watchdogTimers = [];
 
 const gotLock = process.env.WECHAT_KF_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -82,6 +88,8 @@ if (!gotLock) {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  stopWatchdogs();
+  stopPowerBlocker();
   flushKfSession().catch((error) => console.error("[desktop] flush session before quit failed", error));
 });
 
@@ -89,6 +97,7 @@ app.on("window-all-closed", () => {});
 
 async function startDesktopApp() {
   applyUserDataOverride();
+  await migrateLegacyUserData();
   await ensureRuntimeConfigFiles();
   process.env.WECHAT_KF_CONFIG_ROOT = runtimeConfigRoot();
   loadDotEnv(runtimeConfigRoot(), { override: true });
@@ -99,7 +108,7 @@ async function startDesktopApp() {
   await loadReplyRecords();
   await loadReplySummaryState();
   applyLoginItemSetting();
-  startPowerBlocker();
+  syncPowerBlocker();
   registerIpc();
   await startAiServerWithNotify();
   await startDesktopControlServer();
@@ -110,7 +119,7 @@ async function startDesktopApp() {
   startJudgmentRefreshScheduler();
   startNotifyOutboxPump();
   startReplySummaryScheduler();
-  await sendNotification("app_started", "客服桌面程序已启动", "程序、悬浮窗和本地 AI 服务已开始运行", {
+  await sendNotification("app_started", `${APP_DISPLAY_NAME}已启动`, "程序、悬浮窗和本地 AI 服务已开始运行", {
     cooldownMs: 60_000
   });
   await notifyMissingWebhookIfNeeded();
@@ -136,8 +145,31 @@ function applyEnvBackedConfig() {
 }
 
 function applyUserDataOverride() {
-  if (!process.env.WECHAT_KF_DESKTOP_USER_DATA) return;
-  app.setPath("userData", resolve(process.env.WECHAT_KF_DESKTOP_USER_DATA));
+  if (process.env.WECHAT_KF_DESKTOP_USER_DATA) {
+    app.setPath("userData", resolve(process.env.WECHAT_KF_DESKTOP_USER_DATA));
+    return;
+  }
+  if (!app.isPackaged) return;
+  app.setPath("userData", resolve(app.getPath("appData"), APP_USER_DATA_DIR_NAME));
+}
+
+async function migrateLegacyUserData() {
+  if (process.env.WECHAT_KF_DESKTOP_USER_DATA || !app.isPackaged) return;
+  const currentDir = app.getPath("userData");
+  const legacyDir = resolve(app.getPath("appData"), LEGACY_USER_DATA_DIR_NAME);
+  if (currentDir === legacyDir || !existsSync(legacyDir)) return;
+  if (existsSync(resolve(currentDir, "desktop-config.json"))) return;
+  try {
+    await mkdir(currentDir, { recursive: true });
+    await cp(legacyDir, currentDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false
+    });
+    console.log(`[desktop] migrated legacy user data from ${legacyDir} to ${currentDir}`);
+  } catch (error) {
+    console.error("[desktop] migrate legacy user data failed", error);
+  }
 }
 
 function defaultConfig() {
@@ -228,10 +260,12 @@ function defaultConfig() {
       lastAutoRefreshAt: 0
     },
     watchdog: {
+      enabled: true,
       aiHealthMs: 60_000,
       pageHealthMs: 60_000,
       botHeartbeatMs: 60_000,
-      reloadOnBotStale: true
+      reloadOnBotStale: true,
+      preventAppSuspension: true
     }
   };
 }
@@ -350,7 +384,18 @@ function mergeConfig(base, saved) {
       ...base.judgmentLibrary,
       ...(saved?.judgmentLibrary || {})
     }),
-    watchdog: { ...base.watchdog, ...(saved?.watchdog || {}) }
+    watchdog: normalizeWatchdogConfig({ ...base.watchdog, ...(saved?.watchdog || {}) })
+  };
+}
+
+function normalizeWatchdogConfig(value = {}) {
+  return {
+    enabled: value.enabled !== false,
+    aiHealthMs: clampInt(value.aiHealthMs ?? 60_000, 15_000, 3_600_000),
+    pageHealthMs: clampInt(value.pageHealthMs ?? 60_000, 15_000, 3_600_000),
+    botHeartbeatMs: clampInt(value.botHeartbeatMs ?? 60_000, 15_000, 3_600_000),
+    reloadOnBotStale: value.reloadOnBotStale !== false,
+    preventAppSuspension: value.preventAppSuspension !== false
   };
 }
 
@@ -497,7 +542,7 @@ async function startDesktopControlServer() {
         controlJson(res, 200, {
           ok: true,
           port: CONTROL_PORT,
-          app: "微信小店客服自动回复",
+          app: APP_DISPLAY_NAME,
           page: pageInfoPayload(),
           status: statusPayload()
         });
@@ -617,7 +662,7 @@ function createMainWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 720,
-    title: "微信小店客服自动回复",
+    title: APP_DISPLAY_NAME,
     icon: APP_ICON_PATH,
     show: true,
     webPreferences: {
@@ -879,7 +924,7 @@ function createFloatingWindow() {
     icon: APP_ICON_PATH,
     alwaysOnTop: Boolean(config.floatWindow.alwaysOnTop),
     skipTaskbar: true,
-    title: "客服状态",
+    title: `${APP_DISPLAY_NAME}状态`,
     webPreferences: {
       preload: resolve(__dirname, "floating-preload.cjs"),
       contextIsolation: true,
@@ -903,7 +948,7 @@ function createFloatingWindow() {
 
 function createTray() {
   tray = new Tray(createTrayImage());
-  tray.setToolTip("微信小店客服自动回复");
+  tray.setToolTip(APP_DISPLAY_NAME);
   tray.on("click", () => showMainWindow());
   updateTrayMenu();
 }
@@ -912,7 +957,7 @@ function updateTrayMenu() {
   if (!tray) return;
   const enabled = Boolean(config.bot.enabled);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "打开客服窗口", click: showMainWindow },
+    { label: `打开${APP_DISPLAY_NAME}`, click: showMainWindow },
     { label: "显示悬浮窗", click: showFloatingWindow },
     { label: enabled ? "暂停 Bot 接管" : "开启 Bot 接管", click: () => setBotEnabled(!enabled) },
     { label: "重载客服页", click: reloadKfPage },
@@ -1242,6 +1287,7 @@ function broadcastStatus() {
 function statusPayload() {
   const records = replyRecordStats(replyRecords);
   return {
+    appName: APP_DISPLAY_NAME,
     bot: lastBotStatus,
     ai: lastAiHealth,
     enabled: Boolean(config?.bot?.enabled),
@@ -1256,6 +1302,12 @@ function statusPayload() {
       alwaysOnTop: Boolean(config?.floatWindow?.alwaysOnTop),
       mode: normalizeFloatingMode(config?.floatWindow?.mode),
       bounds: floatWindow && !floatWindow.isDestroyed() ? floatWindow.getBounds() : config?.floatWindow?.bounds || null
+    },
+    watchdog: {
+      ...normalizeWatchdogConfig(config?.watchdog || {}),
+      autoStart: Boolean(config?.autoStart),
+      powerSaveBlockerActive: Boolean(blockerId != null && powerSaveBlocker.isStarted(blockerId)),
+      timerCount: watchdogTimers.length
     },
     notify: {
       enabled: Boolean(config?.notify?.enabled && config?.notify?.wecomWebhookUrl),
@@ -1428,10 +1480,12 @@ async function saveDesktopSettings(payload) {
     }
 
     if (payload.config.watchdog && typeof payload.config.watchdog === "object") {
-      config.watchdog = {
+      config.watchdog = normalizeWatchdogConfig({
         ...config.watchdog,
         ...payload.config.watchdog
-      };
+      });
+      syncPowerBlocker();
+      startWatchdogs();
     }
   }
 
@@ -1615,7 +1669,7 @@ async function testWebhookUrl(webhookUrl) {
       enabled: true,
       wecomWebhookUrl: url
     };
-    await postWecomWithRetry("微信小店客服通知测试", "悬浮窗配置里的 Webhook 测试消息", "info");
+    await postWecomWithRetry(`${APP_DISPLAY_NAME}通知测试`, "控制台配置里的 Webhook 测试消息", "info");
     return { ok: true, message: "Webhook 测试成功" };
   } catch (error) {
     return { ok: false, message: String(error?.message || error) };
@@ -3299,7 +3353,7 @@ async function maybeSendHourlyReplySummary() {
 
   await sendNotification(
     `reply_hourly_summary:${previousSlot}`,
-    intervalHours === 1 ? "客服自动回复小时总结" : `客服自动回复 ${intervalHours} 小时总结`,
+    intervalHours === 1 ? `${APP_DISPLAY_NAME}小时总结` : `${APP_DISPLAY_NAME} ${intervalHours} 小时总结`,
     buildReplySummaryBody(records, `${formatLocalTime(previousStart)} - ${formatLocalTime(slotStart)}`),
     { severity: "info", cooldownMs: 0 }
   );
@@ -3326,7 +3380,7 @@ async function maybeSendDailyReplySummary() {
 
   await sendNotification(
     `reply_daily_summary:${localDate(yesterdayStart)}`,
-    "客服自动回复昨日总览",
+    `${APP_DISPLAY_NAME}昨日总览`,
     buildReplySummaryBody(records, `${localDate(yesterdayStart)} 00:00 - 24:00`),
     { severity: "info", cooldownMs: 0 }
   );
@@ -3433,9 +3487,25 @@ async function notifyMissingWebhookIfNeeded() {
 }
 
 function startWatchdogs() {
-  setInterval(() => checkAiHealth({ notifyOk: false }), config.watchdog.aiHealthMs);
-  setInterval(() => inspectLoginState(), config.watchdog.pageHealthMs);
-  setInterval(() => inspectBotHeartbeat(), Math.min(config.watchdog.botHeartbeatMs, 60_000));
+  stopWatchdogs();
+  const watchdog = normalizeWatchdogConfig(config?.watchdog || {});
+  config.watchdog = watchdog;
+  if (!watchdog.enabled) {
+    broadcastStatus();
+    return;
+  }
+
+  watchdogTimers = [
+    setInterval(() => checkAiHealth({ notifyOk: false }), watchdog.aiHealthMs),
+    setInterval(() => inspectLoginState(), watchdog.pageHealthMs),
+    setInterval(() => inspectBotHeartbeat(), Math.min(watchdog.botHeartbeatMs, 60_000))
+  ];
+  broadcastStatus();
+}
+
+function stopWatchdogs() {
+  for (const timer of watchdogTimers) clearInterval(timer);
+  watchdogTimers = [];
 }
 
 async function checkAiHealth({ notifyOk = false } = {}) {
@@ -4286,11 +4356,28 @@ function applyLoginItemSetting() {
   }
 }
 
-function startPowerBlocker() {
+function syncPowerBlocker() {
+  const shouldRun = config?.watchdog?.preventAppSuspension !== false;
+  if (!shouldRun) {
+    stopPowerBlocker();
+    return;
+  }
+  if (blockerId != null && powerSaveBlocker.isStarted(blockerId)) return;
   try {
     blockerId = powerSaveBlocker.start("prevent-app-suspension");
   } catch (error) {
     console.error("[desktop] power blocker failed", error);
+  }
+}
+
+function stopPowerBlocker() {
+  if (blockerId == null) return;
+  try {
+    if (powerSaveBlocker.isStarted(blockerId)) powerSaveBlocker.stop(blockerId);
+  } catch (error) {
+    console.error("[desktop] stop power blocker failed", error);
+  } finally {
+    blockerId = null;
   }
 }
 

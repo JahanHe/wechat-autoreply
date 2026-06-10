@@ -45,8 +45,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-on-windows.ps1
 - 执行 `npm install`
 - 构建 Chrome 插件目录
 - 配置企业微信群机器人 Webhook（必填，用于通知到人）
-- 创建 Windows 任务计划：`WeChatKfAiServer`
-- 创建 Windows 任务计划：`WeChatKfDesktop`
+- 创建 Windows 任务计划：`XiaodianAIKefuAiServer`
+- 创建 Windows 任务计划：`XiaodianAIKefuDesktop`
 - 启动本地 AI 服务
 - 检查 `http://127.0.0.1:8787/health`
 
@@ -59,7 +59,7 @@ npm run desktop
 ```
 
 桌面程序会打开独立客服窗口，并显示悬浮窗。关闭主窗口不会退出程序，会隐藏到后台继续运行。
-一键安装后还会注册 `WeChatKfDesktop` 任务，登录后自动运行，异常退出后由任务计划程序重启。
+一键安装后还会注册 `XiaodianAIKefuDesktop` 任务，登录后自动运行，异常退出后由任务计划程序重启。
 
 以下情况会通过企业微信群机器人 Webhook 通知：
 

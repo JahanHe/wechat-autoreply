@@ -1,7 +1,7 @@
 {
-  "name": "wechat-shop-kf-bot",
-  "version": "0.3.1",
-  "description": "微信小店客服自动回复桌面程序",
+  "name": "xiaodian-ai-kefu",
+  "version": "0.3.2",
+  "description": "小店AI客服桌面程序",
   "author": "local",
   "private": true,
   "type": "module",
@@ -33,8 +33,8 @@
     "playwright": "^1.52.0"
   },
   "build": {
-    "appId": "com.wechat-kf-bot.desktop",
-    "productName": "微信小店客服自动回复",
+    "appId": "com.xiaodian-ai-kefu.desktop",
+    "productName": "小店AI客服",
     "icon": "build/icon",
     "files": [
       "desktop/**/*",

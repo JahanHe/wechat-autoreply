@@ -1,4 +1,4 @@
-# 微信小店客服自动回复富文本使用说明
+# 小店AI客服富文本使用说明
 
 > 这份文档面向安装者、店铺运营者和后续维护者。目标很简单：下载安装包后，只补充 DeepSeek API Key、企业微信 Webhook，再扫码登录微信小店客服页，其它规则、图片、商品动作和悬浮窗能力都应该自动准备好。
 
@@ -10,17 +10,19 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.1/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.1/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.1/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.2/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.2/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.2/wechat-autoreply-windows-portable.exe)
 
-首次打开后只需要补三件事：
+首次打开后会先进入初始化页：
 
 | 步骤 | 位置 | 用途 |
 | --- | --- | --- |
-| 1 | 主控制台 > API 接入 | 填 `DEEPSEEK_API_KEY`，并点真实回复测试 |
-| 2 | 主控制台 > Webhook | 填企业微信机器人 Webhook，并点测试 |
+| 1 | 主控制台 > 初始化 | 填 `DEEPSEEK_API_KEY`、企业微信 Webhook、外部判断库 Session Cookie |
+| 2 | 主控制台 > 初始化 | 点“保存并自检”，自动检查 AI、Webhook、判断库、规则库和长期运行状态 |
 | 3 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
+
+如果三项配置已经齐全，程序会直接进入客服页映射；如果换电脑后缺任意一项，会再次打开初始化页。
 
 ## 自动初始化内容
 

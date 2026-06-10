@@ -3,8 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LABEL="${WECHAT_KF_DESKTOP_LABEL:-com.wechat-kf-desktop}"
+LABEL="${WECHAT_KF_DESKTOP_LABEL:-com.xiaodian-ai-kefu.desktop}"
+LEGACY_LABEL="com.wechat-kf-desktop"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LEGACY_PLIST="$HOME/Library/LaunchAgents/$LEGACY_LABEL.plist"
 UID_VALUE="$(id -u)"
 RUNNER="$ROOT/scripts/run-desktop-mac.sh"
 
@@ -47,17 +49,19 @@ cat > "$PLIST" <<PLIST
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/wechat-kf-desktop.log</string>
+  <string>/tmp/xiaodian-ai-kefu-desktop.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/wechat-kf-desktop.err.log</string>
+  <string>/tmp/xiaodian-ai-kefu-desktop.err.log</string>
 </dict>
 </plist>
 PLIST
 
 launchctl bootout "gui/$UID_VALUE" "$PLIST" >/dev/null 2>&1 || true
+launchctl bootout "gui/$UID_VALUE" "$LEGACY_PLIST" >/dev/null 2>&1 || true
+rm -f "$LEGACY_PLIST"
 launchctl bootstrap "gui/$UID_VALUE" "$PLIST"
 launchctl kickstart -k "gui/$UID_VALUE/$LABEL"
 
-echo "桌面程序守护已安装：$LABEL"
-echo "日志：/tmp/wechat-kf-desktop.log"
-echo "错误日志：/tmp/wechat-kf-desktop.err.log"
+echo "小店AI客服桌面程序守护已安装：$LABEL"
+echo "日志：/tmp/xiaodian-ai-kefu-desktop.log"
+echo "错误日志：/tmp/xiaodian-ai-kefu-desktop.err.log"

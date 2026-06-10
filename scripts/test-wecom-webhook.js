@@ -11,7 +11,7 @@ if (!webhookUrl) {
 }
 
 const content = [
-  "**微信小店客服通知测试**",
+  "**小店AI客服通知测试**",
   "<font color=\"warning\">如果你看到这条消息，Webhook 已可用</font>",
   `时间：${new Date().toLocaleString()}`
 ].join("\n\n");

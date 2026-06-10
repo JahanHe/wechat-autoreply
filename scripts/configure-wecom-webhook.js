@@ -59,7 +59,7 @@ async function sendTestMessage(url) {
     msgtype: "markdown",
     markdown: {
       content: [
-        "**微信小店客服通知配置成功**",
+        "**小店AI客服通知配置成功**",
         "<font color=\"warning\">如果你看到这条消息，说明 Webhook 已经能通知到人</font>",
         `时间：${new Date().toLocaleString()}`
       ].join("\n\n")

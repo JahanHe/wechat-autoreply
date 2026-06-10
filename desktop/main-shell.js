@@ -2,6 +2,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 const navItems = [
+  { id: "setup", title: "初始化", hint: "首次" },
   { id: "page", title: "客服页映射", hint: "聊天" },
   { id: "dashboard", title: "总览状态", hint: "监控" },
   { id: "bot", title: "Bot 接管", hint: "开关" },
@@ -37,6 +38,8 @@ const state = {
   judgments: null,
   judgmentDownload: null,
   judgmentPollTimer: null,
+  setupChecks: [],
+  setupRunning: false,
   apiKeyShown: false,
   runyuCookieShown: false,
   loading: false
@@ -71,7 +74,7 @@ async function init() {
   state.judgments = judgments;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
-  await switchView("page");
+  await switchView(needsInitialSetup() ? "setup" : "page");
 }
 
 function renderNav() {
@@ -149,6 +152,7 @@ function renderView() {
   }
 
   if (state.view === "page") return renderPageView();
+  if (state.view === "setup") return renderSetup();
   if (state.view === "dashboard") return renderDashboard();
   if (state.view === "bot") return renderBot();
   if (state.view === "api") return renderApi();
@@ -171,11 +175,103 @@ function renderPageView() {
   `;
 }
 
+function needsInitialSetup() {
+  const env = state.settings?.env || {};
+  const notify = state.settings?.config?.notify || {};
+  return !String(env.deepseekApiKey || "").trim()
+    || !String(env.wecomWebhookUrl || notify.wecomWebhookUrl || "").trim()
+    || !String(env.runyuWebCookie || "").trim();
+}
+
+function renderSetup() {
+  const env = state.settings.env || {};
+  const notify = state.settings.config?.notify || {};
+  const missing = setupMissingItems();
+  content.innerHTML = `
+    ${pageHead("初始化配置", "首次运行先配置 DeepSeek Key、企业微信 Webhook 和外部判断库 Session Cookie；保存后会自动做功能安全自检。", `
+      <button id="runSetupSelfCheck" class="primary">${state.setupRunning ? "自检中..." : "保存并自检"}</button>
+      <button id="skipToKfPage" class="dark">去扫码登录</button>
+    `)}
+    <div class="grid cols-3">
+      ${metricCard("DeepSeek Key", missing.apiKey ? "待配置" : "已填写", "用于 AI 精准回复和审核。", missing.apiKey ? "warn" : "ok")}
+      ${metricCard("Webhook", missing.webhook ? "待配置" : "已填写", "用于扫码、异常、总结通知。", missing.webhook ? "warn" : "ok")}
+      ${metricCard("判断库 Cookie", missing.cookie ? "待配置" : "已填写", "用于复杂问题先查外部判断库。", missing.cookie ? "warn" : "ok")}
+    </div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card">
+        <h3>必填配置</h3>
+        <div class="form-grid">
+          ${passwordField("setupDeepseekApiKey", "DeepSeek API Key", env.deepseekApiKey || "", "只保存到本机 .env，不会提交到 GitHub。", "span-2")}
+          ${field("setupWebhookUrl", "企业微信 Webhook", env.wecomWebhookUrl || notify.wecomWebhookUrl || "", "用于发送扫码截图、异常告警、小时总结和每日总览。", "span-2")}
+          ${passwordField("setupRunyuWebCookie", "外部判断库 Session Cookie", env.runyuWebCookie || "", "可以填完整 session_token=...，也可以只填 token 值。", "span-2")}
+          ${field("setupDeepseekModel", "模型", env.deepseekModel || "deepseek-v4-flash", "默认不用改。")}
+          ${field("setupRunyuBaseUrl", "判断库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "默认不用改。")}
+        </div>
+      </div>
+      <div class="card">
+        <h3>初始化流程</h3>
+        <div class="grid">
+          ${setupStep("1", "保存本机配置", "写入 .env，并开启 Bot、Webhook、判断库、守护检查。", !missing.apiKey && !missing.webhook && !missing.cookie)}
+          ${setupStep("2", "功能安全自检", "检查 AI Key、Webhook、判断库测试查询、规则库和守护状态。", state.setupChecks.length > 0 && state.setupChecks.every((item) => item.ok))}
+          ${setupStep("3", "扫码小店客服", "自检完成后进入客服页映射，扫码登录并选择会话。", Boolean(state.status?.page?.ready))}
+        </div>
+        <div id="setupCheckResult" class="download-panel" style="margin-top:12px">
+          ${renderSetupChecks()}
+        </div>
+        <p class="hint">判断库会默认启用本地缓存和远端查询；后续可以在“判断库”页调整来源、类型、刷新周期和全量下载。</p>
+      </div>
+    </div>
+  `;
+  $("#runSetupSelfCheck").disabled = state.setupRunning;
+  $("#runSetupSelfCheck").addEventListener("click", runSetupSelfCheck);
+  $("#skipToKfPage").addEventListener("click", () => switchView("page"));
+}
+
+function setupMissingItems() {
+  const env = state.settings?.env || {};
+  const notify = state.settings?.config?.notify || {};
+  return {
+    apiKey: !String(env.deepseekApiKey || "").trim(),
+    webhook: !String(env.wecomWebhookUrl || notify.wecomWebhookUrl || "").trim(),
+    cookie: !String(env.runyuWebCookie || "").trim()
+  };
+}
+
+function setupStep(number, title, hint, done) {
+  return `
+    <div class="switch-row">
+      <div>
+        <strong>${number}. ${escapeHtml(title)}</strong>
+        <div class="hint">${escapeHtml(hint)}</div>
+      </div>
+      <span class="badge ${done ? "rule" : "direct"}">${done ? "完成" : "待处理"}</span>
+    </div>
+  `;
+}
+
+function renderSetupChecks() {
+  if (!state.setupChecks.length) {
+    return `<div class="hint">点击“保存并自检”后，会在这里显示每一步结果。</div>`;
+  }
+  return `
+    <div class="grid">
+      ${state.setupChecks.map((item) => `
+        <div class="download-head">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="badge ${item.ok ? "rule" : "fail"}">${item.ok ? "通过" : "失败"}</span>
+        </div>
+        <div class="hint">${escapeHtml(item.message || "")}</div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderDashboard() {
   const status = state.status || {};
   const records = status.records || {};
   const page = status.page || {};
   const judgments = state.judgments || {};
+  const watchdog = status.watchdog || {};
   content.innerHTML = `
     ${pageHead("总览状态", "查看客服页、Bot、AI、Webhook、悬浮窗和回复日志的真实运行状态。", `
       <button id="dashRefresh">刷新</button>
@@ -188,6 +284,7 @@ function renderDashboard() {
       ${metricCard("判断库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺 Cookie") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
       ${metricCard("客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad")}
       ${metricCard("悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn")}
+      ${metricCard("长期运行", watchdog.enabled ? "守护中" : "已关闭", `${watchdog.autoStart ? "开机自启" : "未自启"} / ${watchdog.powerSaveBlockerActive ? "防休眠" : "未防休眠"}`, watchdog.enabled && watchdog.powerSaveBlockerActive ? "ok" : "warn")}
       ${metricCard("回复记录", String(records.total || 0), `成功 ${records.sent || 0} / 失败 ${records.failed || 0} / 超时 ${records.timeout || 0}`, records.failed || records.timeout ? "warn" : "ok")}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
@@ -222,21 +319,35 @@ function renderDashboard() {
 function renderBot() {
   const cfg = state.settings.config || {};
   const bot = cfg.bot || {};
+  const watchdog = cfg.watchdog || {};
   content.innerHTML = `
     ${pageHead("Bot 接管", "控制是否自动回复、是否调用 AI、回复节奏和图片/页面动作能力。", `
       <button id="saveBot" class="primary">保存 Bot 设置</button>
     `)}
-    <div class="grid cols-2">
+    <div class="grid cols-3">
       <div class="card">
         <h3>接管状态</h3>
         <div class="grid">
           ${toggleRow("botEnabled", "默认开启 Bot 接管", "关闭后只监控页面，不自动回复客户。", bot.enabled !== false)}
           ${toggleRow("aiFallback", "无命中规则时调用 AI", "规则库没有匹配时，会请求本地 AI 服务生成补充回复。", bot.aiFallback !== false)}
           ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI/判断库时，先等 AI；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
-          ${toggleRow("autoStart", "开机自动启动桌面程序", "启动后会自动运行本地 AI 服务、客服页监控和悬浮窗。", cfg.autoStart !== false)}
           ${toggleRow("imageRepliesEnabled", "允许图片回复", "动作规则和图片规则可以上传并发送本地图片。", Boolean(bot.imageRepliesEnabled))}
           ${toggleRow("autoPasteImages", "图片自动上传/粘贴发送", "优先使用页面上传控件，失败时复制到剪贴板再粘贴发送。", Boolean(bot.autoPasteImages))}
           ${toggleRow("panelAutoActionsEnabled", "允许内置页面动作兜底", "当没有命中动作规则时，可按常见购买意图自动点商品、素材库等页面入口。", Boolean(bot.panelAutoActionsEnabled))}
+        </div>
+      </div>
+      <div class="card">
+        <h3>长期运行</h3>
+        <div class="grid">
+          ${toggleRow("autoStart", "开机自动启动", "登录系统后自动打开小店AI客服。", cfg.autoStart !== false)}
+          ${toggleRow("watchdogEnabled", "启用守护检查", "定期检查 AI、客服页、脚本心跳，异常时记录并通知。", watchdog.enabled !== false)}
+          ${toggleRow("reloadOnBotStale", "脚本无心跳时重载", "Bot 长时间无状态时重新注入脚本，并按需刷新客服页。", watchdog.reloadOnBotStale !== false)}
+          ${toggleRow("preventAppSuspension", "防后台清退/防休眠", "阻止系统把桌面程序挂起，适合值守电脑长期运行。", watchdog.preventAppSuspension !== false)}
+        </div>
+        <div class="form-grid" style="margin-top:14px">
+          ${numberField("watchdogAiHealthMs", "AI 健康检查 ms", watchdog.aiHealthMs || 60000, "建议 60000，过低会增加本机请求。")}
+          ${numberField("watchdogPageHealthMs", "页面健康检查 ms", watchdog.pageHealthMs || 60000, "检查是否仍在客服页、是否需要扫码。")}
+          ${numberField("watchdogBotHeartbeatMs", "脚本心跳阈值 ms", watchdog.botHeartbeatMs || 60000, "超过阈值认为脚本可能失效。", "span-2")}
         </div>
       </div>
       <div class="card">
@@ -804,10 +915,138 @@ function renderHelp() {
   `;
 }
 
+async function runSetupSelfCheck() {
+  const deepseekApiKey = value("setupDeepseekApiKey");
+  const webhookUrl = value("setupWebhookUrl");
+  const runyuWebCookie = value("setupRunyuWebCookie");
+  if (!deepseekApiKey || !webhookUrl || !runyuWebCookie) {
+    showFlash("请先填写 DeepSeek Key、Webhook 和判断库 Session Cookie", "error");
+    return;
+  }
+
+  state.setupRunning = true;
+  state.setupChecks = [{ name: "保存本机配置", ok: false, message: "正在保存..." }];
+  renderSetup();
+  try {
+    const env = state.settings.env || {};
+    const library = state.settings.config?.judgmentLibrary || {};
+    await saveSettings({
+      config: {
+        autoStart: true,
+        bot: {
+          enabled: true,
+          aiFallback: true,
+          imageRepliesEnabled: true,
+          autoPasteImages: true
+        },
+        notify: {
+          ...(state.settings.config?.notify || {}),
+          enabled: true,
+          wecomWebhookUrl: webhookUrl
+        },
+        judgmentLibrary: {
+          ...library,
+          enabled: true,
+          useCache: true,
+          useRemote: true,
+          autoRefreshEnabled: library.autoRefreshEnabled !== false
+        },
+        watchdog: {
+          ...(state.settings.config?.watchdog || {}),
+          enabled: true,
+          reloadOnBotStale: true,
+          preventAppSuspension: true
+        }
+      },
+      env: {
+        ...env,
+        deepseekApiKey,
+        deepseekModel: value("setupDeepseekModel") || env.deepseekModel || "deepseek-v4-flash",
+        deepseekBaseUrl: env.deepseekBaseUrl || "https://api.deepseek.com",
+        deepseekThinking: env.deepseekThinking || "enabled",
+        deepseekReasoningEffort: env.deepseekReasoningEffort || "medium",
+        deepseekReview: env.deepseekReview || "enabled",
+        deepseekTimeoutMs: env.deepseekTimeoutMs || "80000",
+        deepseekReviewTimeoutMs: env.deepseekReviewTimeoutMs || "25000",
+        wecomWebhookUrl: webhookUrl,
+        runyuWebCookie,
+        runyuWebBaseUrl: value("setupRunyuBaseUrl") || env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn",
+        runyuJudgmentsEnabled: "enabled",
+        runyuJudgmentsUseCache: "enabled",
+        runyuJudgmentsUseRemote: "enabled",
+        runyuJudgmentsSources: env.runyuJudgmentsSources || "runyu,liurun,xiangshui,xingxing,book,dedao",
+        runyuJudgmentsSearchTypes: env.runyuJudgmentsSearchTypes || "judgments,quotes,cases",
+        runyuJudgmentsMaxResults: env.runyuJudgmentsMaxResults || "4",
+        runyuJudgmentsLimitPerQuery: env.runyuJudgmentsLimitPerQuery || "8",
+        runyuJudgmentsRefreshLimit: env.runyuJudgmentsRefreshLimit || "80",
+        runyuJudgmentsTimeoutMs: env.runyuJudgmentsTimeoutMs || "12000",
+        runyuJudgmentsRefreshKeywords: env.runyuJudgmentsRefreshKeywords || "会员,退款,课程,订单,发票,社群,视频号,直播,线下课,小店"
+      }
+    }, "初始化配置已保存");
+
+    const checks = [
+      { name: "保存本机配置", ok: true, message: "已写入本机 .env 和桌面配置。" }
+    ];
+
+    const ai = await window.mainShell.checkAi().catch((error) => ({ ok: false, message: String(error?.message || error) }));
+    checks.push({
+      name: "AI Key 健康检查",
+      ok: Boolean(ai.ok && ai.hasKey),
+      message: ai.hasKey ? (ai.message || "AI 服务可用") : (ai.message || "DeepSeek Key 未生效")
+    });
+
+    const webhook = await window.mainShell.testWebhook(webhookUrl).catch((error) => ({ ok: false, message: String(error?.message || error) }));
+    checks.push({
+      name: "Webhook 测试",
+      ok: Boolean(webhook.ok),
+      message: webhook.message || (webhook.ok ? "Webhook 可用" : "Webhook 不可用")
+    });
+
+    const judgments = await window.mainShell.testJudgments({ query: "会员", limit: 10 }).catch((error) => ({ ok: false, message: String(error?.message || error), results: [] }));
+    checks.push({
+      name: "判断库测试 10 条",
+      ok: Boolean(judgments.ok),
+      message: judgments.ok ? `测试完成，返回 ${judgments.results?.length || 0} 条。` : (judgments.message || "判断库不可用")
+    });
+
+    try {
+      validateRuleLibrary(state.settings.config?.bot || {});
+      checks.push({ name: "规则库校验", ok: true, message: "默认文字、图片、商品和邀请下单规则结构正常。" });
+    } catch (error) {
+      checks.push({ name: "规则库校验", ok: false, message: String(error?.message || error) });
+    }
+
+    state.status = await window.mainShell.getStatus();
+    checks.push({
+      name: "长期运行检查",
+      ok: Boolean(state.status.watchdog?.enabled && state.status.watchdog?.powerSaveBlockerActive),
+      message: state.status.watchdog?.enabled
+        ? `守护定时器 ${state.status.watchdog.timerCount || 0} 个，防休眠${state.status.watchdog.powerSaveBlockerActive ? "已开启" : "未开启"}。`
+        : "守护检查未开启"
+    });
+
+    state.setupChecks = checks;
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    showFlash(checks.every((item) => item.ok) ? "初始化自检通过，可以扫码登录" : "初始化自检有未通过项，请查看结果", checks.every((item) => item.ok) ? "ok" : "error");
+  } finally {
+    state.setupRunning = false;
+    renderChrome();
+    renderSetup();
+  }
+}
+
 async function saveBotSettings() {
   const payload = {
     config: {
       autoStart: checked("autoStart"),
+      watchdog: {
+        enabled: checked("watchdogEnabled"),
+        reloadOnBotStale: checked("reloadOnBotStale"),
+        preventAppSuspension: checked("preventAppSuspension"),
+        aiHealthMs: numberValue("watchdogAiHealthMs", 60000),
+        pageHealthMs: numberValue("watchdogPageHealthMs", 60000),
+        botHeartbeatMs: numberValue("watchdogBotHeartbeatMs", 60000)
+      },
       bot: {
         enabled: checked("botEnabled"),
         aiFallback: checked("aiFallback"),
@@ -1406,6 +1645,17 @@ function field(id, label, currentValue, hint, extraClass = "", extraAttrs = "") 
     <div class="field ${extraClass}">
       <label ${id ? `for="${id}"` : ""}>${escapeHtml(label)}</label>
       <input ${idAttr} value="${attr(currentValue)}" ${extraAttrs}>
+      ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
+    </div>
+  `;
+}
+
+function passwordField(id, label, currentValue, hint, extraClass = "", extraAttrs = "") {
+  const idAttr = id ? `id="${id}"` : "";
+  return `
+    <div class="field ${extraClass}">
+      <label ${id ? `for="${id}"` : ""}>${escapeHtml(label)}</label>
+      <input ${idAttr} type="password" value="${attr(currentValue)}" ${extraAttrs}>
       ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
     </div>
   `;

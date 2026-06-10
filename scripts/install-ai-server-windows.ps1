@@ -12,14 +12,17 @@ if (-not (Test-Path ".env")) {
   Write-Error "缺少 .env，请先配置 DEEPSEEK_API_KEY"
 }
 
-$taskName = "WeChatKfAiServer"
+$taskName = "XiaodianAIKefuAiServer"
+$legacyTaskName = "WeChatKfAiServer"
 $runner = Join-Path $Root "scripts\run-ai-server-windows.ps1"
 $powershell = (Get-Command powershell.exe).Source
 
-$old = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($old) {
-  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+foreach ($name in @($taskName, $legacyTaskName)) {
+  $old = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  if ($old) {
+    Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $name -Confirm:$false
+  }
 }
 
 $action = New-ScheduledTaskAction `
@@ -41,7 +44,7 @@ Register-ScheduledTask `
   -Trigger $trigger `
   -Principal $principal `
   -Settings $settings `
-  -Description "WeChat Shop customer service local AI server" | Out-Null
+  -Description "小店AI客服本地 AI 服务" | Out-Null
 
 Start-ScheduledTask -TaskName $taskName
 

@@ -5,7 +5,7 @@
 ## 正常安装
 
 1. 打开 `wechat-autoreply-macos-arm64.dmg`。
-2. 把“微信小店客服自动回复”拖到 `Applications`。
+2. 把“小店AI客服”拖到 `Applications`。
 3. 第一次打开建议右键 App，选择“打开”，再点“打开”确认。
 4. 打开后在主控制台配置 DeepSeek API Key、企业微信 Webhook，并扫码登录微信小店客服页。
 
@@ -17,15 +17,15 @@
 
 1. 打开 Finder。
 2. 进入 `Applications`。
-3. 右键“微信小店客服自动回复”。
+3. 右键“小店AI客服”。
 4. 选择“打开”。
 5. 在弹窗里再次点“打开”。
 
 如果仍然打不开，在终端执行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/微信小店客服自动回复.app"
-open "/Applications/微信小店客服自动回复.app"
+xattr -dr com.apple.quarantine "/Applications/小店AI客服.app"
+open "/Applications/小店AI客服.app"
 ```
 
 ## 出现 JavaScript error occurred in the main process
@@ -40,8 +40,8 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 
 处理步骤：
 
-1. 退出正在运行的“微信小店客服自动回复”。
-2. 删除 `/Applications/微信小店客服自动回复.app`。
+1. 退出正在运行的“小店AI客服”。
+2. 删除 `/Applications/小店AI客服.app`。
 3. 下载最新 Release 的 DMG。
 4. 重新拖到 `Applications`。
 5. 第一次打开如被拦截，按上一节执行 `xattr` 命令。
@@ -67,7 +67,7 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 在终端执行下面命令，把输出截图或复制给维护者：
 
 ```bash
-ls -la "/Applications/微信小店客服自动回复.app/Contents/Resources"
-plutil -p "/Applications/微信小店客服自动回复.app/Contents/Info.plist" | grep -E "CFBundleIconFile|CFBundleShortVersionString|CFBundleIdentifier"
-open "/Applications/微信小店客服自动回复.app"
+ls -la "/Applications/小店AI客服.app/Contents/Resources"
+plutil -p "/Applications/小店AI客服.app/Contents/Info.plist" | grep -E "CFBundleIconFile|CFBundleShortVersionString|CFBundleIdentifier"
+open "/Applications/小店AI客服.app"
 ```

@@ -8,4 +8,4 @@ UID_VALUE="$(id -u)"
 launchctl bootout "gui/$UID_VALUE" "$PLIST" >/dev/null 2>&1 || true
 rm -f "$PLIST"
 
-echo "已卸载微信小店客服 AI 后台服务"
+echo "已卸载小店AI客服 AI 后台服务"

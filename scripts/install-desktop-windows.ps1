@@ -12,14 +12,17 @@ if (-not (Test-Path $electron)) {
   Write-Error "缺少 Electron 可执行文件，请先执行 npm install"
 }
 
-$taskName = "WeChatKfDesktop"
+$taskName = "XiaodianAIKefuDesktop"
+$legacyTaskName = "WeChatKfDesktop"
 $runner = Join-Path $Root "scripts\run-desktop-windows.ps1"
 $powershell = (Get-Command powershell.exe).Source
 
-$old = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($old) {
-  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+foreach ($name in @($taskName, $legacyTaskName)) {
+  $old = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  if ($old) {
+    Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $name -Confirm:$false
+  }
 }
 
 $action = New-ScheduledTaskAction `
@@ -41,10 +44,10 @@ Register-ScheduledTask `
   -Trigger $trigger `
   -Principal $principal `
   -Settings $settings `
-  -Description "WeChat Shop customer service desktop app" | Out-Null
+  -Description "小店AI客服桌面程序" | Out-Null
 
 Start-ScheduledTask -TaskName $taskName
 
 Write-Host "桌面程序守护已安装：$taskName"
-Write-Host "日志：$env:TEMP\wechat-kf-desktop.log"
-Write-Host "错误日志：$env:TEMP\wechat-kf-desktop.err.log"
+Write-Host "日志：$env:TEMP\xiaodian-ai-kefu-desktop.log"
+Write-Host "错误日志：$env:TEMP\xiaodian-ai-kefu-desktop.err.log"
