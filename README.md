@@ -37,6 +37,18 @@
 docs/customer-reply-rule-library.md
 ```
 
+富文本使用说明：
+
+```text
+docs/rich-user-guide.md
+```
+
+项目开发历程：
+
+```text
+docs/project-journey.md
+```
+
 结构和部署说明：
 
 ```text
