@@ -113,18 +113,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cat > release-notes.md <<'EOF'
+          正式桌面安装包。
+
+          下载：
+          - macOS Apple Silicon：wechat-autoreply-macos-arm64.dmg
+          - Windows 安装版：wechat-autoreply-windows-setup.exe
+          - Windows 便携版：wechat-autoreply-windows-portable.exe
+
+          首次运行只需要配置：
+          1. DeepSeek API Key
+          2. 企业微信机器人 Webhook
+          3. 微信小店客服扫码登录
+
+          规则、图片、发商品、邀请下单、悬浮窗和 Webhook 汇总能力会自动初始化。
+          EOF
           gh release create "${GITHUB_REF_NAME}" release-assets/* \
             --title "微信小店客服自动回复 ${GITHUB_REF_NAME}" \
-            --notes "正式桌面安装包。
-
-下载：
-- macOS Apple Silicon：wechat-autoreply-macos-arm64.dmg
-- Windows 安装版：wechat-autoreply-windows-setup.exe
-- Windows 便携版：wechat-autoreply-windows-portable.exe
-
-首次运行只需要配置：
-1. DeepSeek API Key
-2. 企业微信机器人 Webhook
-3. 微信小店客服扫码登录
-
-规则、图片、发商品、邀请下单、悬浮窗和 Webhook 汇总能力会自动初始化。"
+            --notes-file release-notes.md
