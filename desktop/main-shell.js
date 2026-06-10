@@ -203,9 +203,9 @@ function renderSetup() {
         <div class="form-grid">
           ${passwordField("setupDeepseekApiKey", "DeepSeek API Key", env.deepseekApiKey || "", "只保存到本机 .env，不会提交到 GitHub。", "span-2")}
           ${field("setupWebhookUrl", "企业微信 Webhook", env.wecomWebhookUrl || notify.wecomWebhookUrl || "", "用于发送扫码截图、异常告警、小时总结和每日总览。", "span-2")}
-          ${passwordField("setupRunyuWebCookie", "外部判断库 Session Cookie", env.runyuWebCookie || "", "可以填完整 session_token=...，也可以只填 token 值。", "span-2")}
+          ${passwordField("setupRunyuWebCookie", "外部判断库 Session Cookie", env.runyuWebCookie || "", "从 Chrome > Application > Cookies 复制 session_token，不要用 Session Storage；也可以粘完整 Cookie。", "span-2")}
           ${field("setupDeepseekModel", "模型", env.deepseekModel || "deepseek-v4-flash", "默认不用改。")}
-          ${field("setupRunyuBaseUrl", "判断库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "默认不用改。")}
+          ${field("setupRunyuBaseUrl", "判断库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填域名，不要带 /api/sync/judgments/query。")}
         </div>
       </div>
       <div class="card">
@@ -497,9 +497,9 @@ function renderJudgments() {
               <input id="runyuWebCookie" type="${cookieType}" value="${attr(env.runyuWebCookie || "")}" placeholder="session_token=...">
               <button id="toggleRunyuCookie" type="button">${state.runyuCookieShown ? "隐藏" : "显示"}</button>
             </div>
-            <div class="hint">只保存到本机 .env。可以填完整 session_token=...，也可以只填 token 值。</div>
+            <div class="hint">只保存到本机 .env。从 Chrome > Application > Cookies 复制 session_token，不要用 Session Storage；也可以粘完整 Cookie，程序会自动抽取。</div>
           </div>
-          ${field("runyuWebBaseUrl", "Runyu Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "默认不用改。")}
+          ${field("runyuWebBaseUrl", "Runyu Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填域名，不要带 /api/sync/judgments/query。")}
           ${selectField("judgmentRefreshInterval", "自动刷新周期", String(library.refreshIntervalHours || 168), [["24", "每 24 小时"], ["72", "每 3 天"], ["168", "每 7 天"], ["336", "每 14 天"], ["720", "每 30 天"]], "到期后自动刷新缓存。")}
         </div>
       </div>

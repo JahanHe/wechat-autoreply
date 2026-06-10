@@ -10,9 +10,9 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.2/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.2/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.2/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.3/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.3/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.3/wechat-autoreply-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 
@@ -23,6 +23,8 @@
 | 3 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
 
 如果三项配置已经齐全，程序会直接进入客服页映射；如果换电脑后缺任意一项，会再次打开初始化页。
+
+外部判断库 Cookie 要从 Chrome 的 Application > Cookies > `runyuai.zhiduoke.com.cn` 里复制 `session_token`，不要用 Session Storage。可以粘裸 token、`session_token=...` 或完整 `Cookie: ...`，程序会自动抽取；Base URL 只填 `https://runyuai.zhiduoke.com.cn`。
 
 ## 自动初始化内容
 

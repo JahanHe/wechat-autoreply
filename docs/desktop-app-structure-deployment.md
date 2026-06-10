@@ -167,6 +167,8 @@ Windows：
 5. 确认主控制台 > 规则库里已有默认文字规则和页面动作规则。
 6. 悬浮窗显示“接管开启”后即可运行。
 
+判断库 Cookie 要从 Chrome 的 Application > Cookies > `runyuai.zhiduoke.com.cn` 复制 `session_token`。不要使用 Session Storage。`401` 表示 Cookie 过期或权限不足，`404` 通常是 Base URL 或网络解析问题；v0.3.3 起会自动规整 Base URL 并使用 `curl --resolve` 备用线路。
+
 ## 迁移配置
 
 要把一台电脑的配置复制到另一台电脑，复制运行目录里的这些文件：

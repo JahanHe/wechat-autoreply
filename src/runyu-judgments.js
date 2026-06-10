@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const DEFAULT_BASE_URL = "https://runyuai.zhiduoke.com.cn";
+const DEFAULT_HOST = "runyuai.zhiduoke.com.cn";
+const QUERY_ROUTE = "/api/sync/judgments/query";
+const DIRECT_RESOLVE_IPS = ["121.40.163.230", "121.41.43.9"];
 const DEFAULT_SOURCES = ["runyu", "liurun", "xiangshui", "xingxing", "book", "dedao"];
 const DEFAULT_SEARCH_TYPES = ["judgments", "quotes", "cases"];
 const DEFAULT_REFRESH_KEYWORDS = [
@@ -31,7 +35,7 @@ export function getRunyuJudgmentConfig(env = process.env) {
     : resolve(configRoot, "runyu-judgments-cache.json");
   return {
     enabled: boolEnv(env.RUNYU_JUDGMENTS_ENABLED, false),
-    baseUrl: String(env.RUNYU_WEB_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, ""),
+    baseUrl: normalizeRunyuBaseUrl(env.RUNYU_WEB_BASE_URL || DEFAULT_BASE_URL),
     cookie: normalizeRunyuCookie(env.RUNYU_WEB_COOKIE || ""),
     sources: listEnv(env.RUNYU_JUDGMENTS_SOURCES, DEFAULT_SOURCES),
     searchTypes: listEnv(env.RUNYU_JUDGMENTS_SEARCH_TYPES, DEFAULT_SEARCH_TYPES).filter((type) => TYPE_ACTIONS[type]),
@@ -46,11 +50,34 @@ export function getRunyuJudgmentConfig(env = process.env) {
   };
 }
 
+export function normalizeRunyuBaseUrl(value) {
+  let text = String(value || "").trim();
+  if (!text) return DEFAULT_BASE_URL;
+  text = text.replace(/^RUNYU_WEB_BASE_URL\s*=\s*/i, "").trim();
+  text = stripWrappingQuotes(text);
+  if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
+  try {
+    const url = new URL(text);
+    if (!/^https?:$/.test(url.protocol)) return DEFAULT_BASE_URL;
+    return `${url.protocol}//${url.host}`.replace(/\/$/, "");
+  } catch {
+    return DEFAULT_BASE_URL;
+  }
+}
+
 export function normalizeRunyuCookie(value) {
-  const text = String(value || "").trim();
+  let text = String(value || "").trim();
   if (!text) return "";
-  if (/session_token=/.test(text)) return text;
-  return `session_token=${text}`;
+  text = text.replace(/^RUNYU_WEB_COOKIE\s*=\s*/i, "").trim();
+  text = text.replace(/^Cookie:\s*/i, "").trim();
+  text = stripWrappingQuotes(text);
+  const match = text.match(/(?:^|;\s*)session_token=([^;\s]+)/i);
+  if (match?.[1]) return `session_token=${match[1].trim()}`;
+  if (/^session_token=/i.test(text)) return text;
+  const token = text.split(/[;\s]/).find(Boolean) || "";
+  if (!token) return "";
+  if (/^session_token=/i.test(token)) return token;
+  return `session_token=${token}`;
 }
 
 export function maskRunyuCookie(value) {
@@ -243,7 +270,31 @@ async function queryJudgmentKeyword(keyword, config, options = {}) {
 }
 
 async function queryRunyuJudgments(body, config) {
-  const response = await fetch(`${config.baseUrl}/api/sync/judgments/query`, {
+  const url = `${normalizeRunyuBaseUrl(config.baseUrl)}${QUERY_ROUTE}`;
+  const result = await postRunyuJsonWithFetch(url, body, config).catch((error) => ({
+    ok: false,
+    status: 0,
+    data: { message: String(error?.message || error) },
+    transportError: true
+  }));
+  if (result.ok) return result.data;
+
+  if (shouldUseDirectResolveFallback(result, url)) {
+    const direct = await postRunyuJsonWithDirectResolve(url, body, config).catch((error) => ({
+      ok: false,
+      status: 0,
+      data: { message: String(error?.message || error) },
+      transportError: true
+    }));
+    if (direct.ok) return direct.data;
+    throw new Error(apiErrorMessage(direct.status || result.status, direct.data, url, result));
+  }
+
+  throw new Error(apiErrorMessage(result.status, result.data, url));
+}
+
+async function postRunyuJsonWithFetch(url, body, config) {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -253,18 +304,140 @@ async function queryRunyuJudgments(body, config) {
     signal: AbortSignal.timeout(config.timeoutMs)
   });
   const text = await response.text();
-  const data = parseJson(text);
-  if (!response.ok) {
-    throw new Error(apiErrorMessage(response.status, data));
-  }
-  return data;
+  return {
+    ok: response.ok,
+    status: response.status,
+    data: parseJson(text),
+    transport: "fetch"
+  };
 }
 
-function apiErrorMessage(status, data) {
+async function postRunyuJsonWithDirectResolve(url, body, config) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" || parsed.hostname !== DEFAULT_HOST) {
+    return {
+      ok: false,
+      status: 0,
+      data: { message: "当前 Base URL 不是 Runyu 默认域名，无法使用直连备用线路" },
+      transport: "direct-resolve"
+    };
+  }
+
+  let last = null;
+  for (const ip of DIRECT_RESOLVE_IPS) {
+    const result = await postRunyuJsonWithCurlResolve(url, body, config, ip).catch((error) => ({
+      ok: false,
+      status: 0,
+      data: { message: String(error?.message || error) },
+      transportError: true,
+      resolveIp: ip
+    }));
+    if (result.ok) return result;
+    last = result;
+    if (result.status && result.status !== 404) return result;
+  }
+  return last || {
+    ok: false,
+    status: 0,
+    data: { message: "直连备用线路没有返回结果" },
+    transport: "direct-resolve"
+  };
+}
+
+function postRunyuJsonWithCurlResolve(url, body, config, resolveIp = "") {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const parsed = new URL(url);
+    const bodyText = JSON.stringify(body);
+    const marker = "__RUNYU_HTTP_STATUS__:";
+    const port = parsed.port || (parsed.protocol === "http:" ? "80" : "443");
+    const args = [
+      "-sS",
+      "--max-time",
+      String(Math.ceil(config.timeoutMs / 1000)),
+      "--noproxy",
+      "*",
+      "--resolve",
+      `${parsed.hostname}:${port}:${resolveIp}`,
+      "-w",
+      `\n${marker}%{http_code}`,
+      "--config",
+      "-"
+    ];
+    const child = spawn("curl", args, { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", rejectPromise);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        rejectPromise(new Error(stderr || `curl exited with ${code}`));
+        return;
+      }
+      const index = stdout.lastIndexOf(marker);
+      const status = index >= 0 ? Number(stdout.slice(index + marker.length).trim()) : 0;
+      const text = index >= 0 ? stdout.slice(0, index).replace(/\n$/, "") : stdout;
+      resolvePromise({
+        ok: status >= 200 && status < 300,
+        status,
+        data: parseJson(text),
+        transport: "curl-resolve",
+        resolveIp
+      });
+    });
+    child.stdin.end([
+      `url = "${escapeCurlConfigValue(url)}"`,
+      "request = \"POST\"",
+      "header = \"content-type: application/json\"",
+      `header = "cookie: ${escapeCurlConfigValue(config.cookie)}"`,
+      `data = "${escapeCurlConfigValue(bodyText)}"`
+    ].join("\n"));
+  });
+}
+
+function shouldUseDirectResolveFallback(result, url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== DEFAULT_HOST) return false;
+  } catch {
+    return false;
+  }
+  if (result.status === 404) return true;
+  if (result.transportError) return true;
+  const message = String(result.data?.message || result.data?.error || "");
+  return /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|socket|network/i.test(message);
+}
+
+function apiErrorMessage(status, data, url = "", previous = null) {
   const message = data?.message || data?.error || data?.code || JSON.stringify(data || {});
-  if (status === 401) return "判断库未登录或 Cookie 已过期";
+  if (status === 401) return "判断库未登录或 Cookie 已过期。请在 Chrome 登录 Runyu 后，从 Application > Cookies > runyuai.zhiduoke.com.cn 复制新的 session_token，不要用 Session Storage";
   if (status === 403) return "当前账号没有判断库查询权限";
+  if (status === 404) {
+    const previousHint = previous?.status
+      ? `；首次请求状态 ${previous.status}`
+      : "";
+    return `判断库 API 404：请求地址不可用${previousHint}。请确认 Runyu Base URL 只填 ${DEFAULT_BASE_URL}，不要带 ${QUERY_ROUTE}。当前请求：${url}`;
+  }
+  if (!status) return `判断库请求失败：${message}`;
   return `判断库 API ${status}: ${message}`;
+}
+
+function stripWrappingQuotes(value) {
+  return String(value || "").replace(/^["']|["']$/g, "").trim();
+}
+
+function escapeCurlConfigValue(value) {
+  return String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("\"", "\\\"")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "");
 }
 
 function loadJudgmentCache(path) {

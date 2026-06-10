@@ -6,7 +6,7 @@ import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeRunyuCookie } from "../src/runyu-judgments.js";
+import { normalizeRunyuBaseUrl, normalizeRunyuCookie } from "../src/runyu-judgments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(__dirname, "..");
@@ -58,6 +58,7 @@ let lastAiHealth = {
   message: "未检查"
 };
 const notifyCooldowns = new Map();
+const healthIssues = new Map();
 const NOTIFY_OUTBOX_LIMIT = 200;
 const REPLY_RECORD_LIMIT = 5000;
 let notifyOutbox = [];
@@ -506,6 +507,7 @@ async function startAiServerWithNotify() {
     };
     await sendNotification("ai_start_failed", "本地 AI 服务启动失败", lastAiHealth.message, {
       severity: "critical",
+      recoveryKey: "ai",
       cooldownMs: 60_000
     });
   }
@@ -683,6 +685,7 @@ function createMainWindow() {
   mainWindow.on("unresponsive", () => {
     sendNotification("shell_unresponsive", "控制台窗口无响应", "桌面程序将尝试重载控制台", {
       severity: "critical",
+      recoveryKey: "shell",
       cooldownMs: 60_000
     });
     mainWindow.webContents.reload();
@@ -691,12 +694,14 @@ function createMainWindow() {
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     sendNotification("shell_crashed", "控制台进程异常", `原因：${details.reason || "unknown"}，已尝试重开`, {
       severity: "critical",
+      recoveryKey: "shell",
       cooldownMs: 60_000
     });
     mainWindow.loadFile(MAIN_SHELL_HTML_PATH);
   });
 
   mainWindow.webContents.on("did-finish-load", () => {
+    notifyHealthRecovered("shell", "控制台已恢复", "主控制台页面已重新加载。").catch((error) => console.error("[notify] shell recovery failed", error));
     broadcastStatus();
   });
 
@@ -707,6 +712,7 @@ function createMainWindow() {
   mainWindow.webContents.on("did-fail-load", (_event, code, description, url) => {
     sendNotification("shell_load_failed", "控制台加载失败", `${description || code}\n${url || ""}`, {
       severity: "critical",
+      recoveryKey: "shell",
       cooldownMs: 60_000
     });
   });
@@ -740,6 +746,7 @@ function createKfView() {
   wc.on("unresponsive", () => {
     sendNotification("page_unresponsive", "客服页面无响应", "桌面程序将尝试重载客服页面", {
       severity: "critical",
+      recoveryKey: "page",
       cooldownMs: 60_000
     });
     wc.reload();
@@ -748,12 +755,14 @@ function createKfView() {
   wc.on("render-process-gone", (_event, details) => {
     sendNotification("page_crashed", "客服页面进程异常", `原因：${details.reason || "unknown"}，已尝试重开`, {
       severity: "critical",
+      recoveryKey: "page",
       cooldownMs: 60_000
     });
     wc.loadURL(config.kfUrl);
   });
 
   wc.on("did-finish-load", () => {
+    notifyHealthRecovered("page", "客服页面已恢复", "微信小店客服页已重新加载。").catch((error) => console.error("[notify] page recovery failed", error));
     inspectLoginState();
     injectBotScript();
     persistAuthenticatedKfUrlSoon();
@@ -762,6 +771,7 @@ function createKfView() {
   });
 
   wc.on("did-navigate", () => {
+    notifyHealthRecovered("page", "客服页面已恢复", "微信小店客服页导航已恢复。").catch((error) => console.error("[notify] page recovery failed", error));
     inspectLoginState();
     injectBotScript();
     persistAuthenticatedKfUrlSoon();
@@ -772,6 +782,7 @@ function createKfView() {
   wc.on("did-fail-load", (_event, code, description, url) => {
     sendNotification("page_load_failed", "客服页面加载失败", `${description || code}\n${url || ""}`, {
       severity: "critical",
+      recoveryKey: "page",
       cooldownMs: 60_000
     });
     broadcastStatus();
@@ -1117,10 +1128,12 @@ async function injectBotScript() {
       title: wc.getTitle(),
       at: Date.now()
     };
+    await notifyHealthRecovered("bot", "自动回复脚本已恢复", "客服页自动回复脚本已重新注入。");
     broadcastStatus();
   } catch (error) {
     await sendNotification("bot_inject_failed", "自动回复脚本注入失败", String(error?.message || error), {
       severity: "critical",
+      recoveryKey: "bot",
       cooldownMs: 60_000
     });
   }
@@ -1505,7 +1518,7 @@ async function saveDesktopSettings(payload) {
       DEEPSEEK_REVIEW_TIMEOUT_MS: payload.env.deepseekReviewTimeoutMs,
       WECOM_BOT_WEBHOOK_URL: payload.env.wecomWebhookUrl,
       RUNYU_WEB_COOKIE: payload.env.runyuWebCookie == null ? undefined : normalizeRunyuCookie(payload.env.runyuWebCookie),
-      RUNYU_WEB_BASE_URL: payload.env.runyuWebBaseUrl,
+      RUNYU_WEB_BASE_URL: payload.env.runyuWebBaseUrl == null ? undefined : normalizeRunyuBaseUrl(payload.env.runyuWebBaseUrl),
       RUNYU_JUDGMENTS_ENABLED: payload.env.runyuJudgmentsEnabled,
       RUNYU_JUDGMENTS_SOURCES: payload.env.runyuJudgmentsSources,
       RUNYU_JUDGMENTS_SEARCH_TYPES: payload.env.runyuJudgmentsSearchTypes,
@@ -1670,8 +1683,10 @@ async function testWebhookUrl(webhookUrl) {
       wecomWebhookUrl: url
     };
     await postWecomWithRetry(`${APP_DISPLAY_NAME}通知测试`, "控制台配置里的 Webhook 测试消息", "info");
+    await notifyWebhookRecovered("企业微信 Webhook 测试成功，通知通道已恢复。");
     return { ok: true, message: "Webhook 测试成功" };
   } catch (error) {
+    markHealthIssue("webhook", "企业微信 Webhook 测试失败", String(error?.message || error));
     return { ok: false, message: String(error?.message || error) };
   } finally {
     config.notify = oldNotify;
@@ -3520,13 +3535,15 @@ async function checkAiHealth({ notifyOk = false } = {}) {
 
     if (!data.hasKey) {
       await sendNotification("ai_missing_key", "本地 AI 服务缺少 API Key", "请检查项目 .env 里的 DEEPSEEK_API_KEY", {
-        severity: "critical"
+        severity: "critical",
+        recoveryKey: "ai"
       });
     } else if (notifyOk) {
       await sendNotification("ai_health_ok", "AI 服务正常", lastAiHealth.message, {
         cooldownMs: 30_000
       });
     }
+    if (data.hasKey) await notifyHealthRecovered("ai", "AI 服务已恢复", lastAiHealth.message);
   } catch (error) {
     lastAiHealth = {
       ok: false,
@@ -3536,6 +3553,7 @@ async function checkAiHealth({ notifyOk = false } = {}) {
     };
     await sendNotification("ai_down", "本地 AI 服务异常", `${lastAiHealth.message}\n程序将尝试重启 AI 服务`, {
       severity: "critical",
+      recoveryKey: "ai",
       cooldownMs: 60_000
     });
     restartAiServer();
@@ -3604,7 +3622,7 @@ async function getJudgmentLibraryStatus() {
 async function testJudgmentLibrary(payload = {}) {
   const query = String(payload.query || payload.keyword || "会员").trim();
   if (!query) return { ok: false, message: "测试关键词不能为空" };
-  return await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/search`, {
+  const result = await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/search`, {
     query,
     limit: clampInt(payload.limit || 10, 1, 30)
   }, Number(config?.judgmentLibrary?.timeoutMs || 12000) + 5000).catch((error) => ({
@@ -3612,6 +3630,16 @@ async function testJudgmentLibrary(payload = {}) {
     message: String(error?.message || error),
     results: []
   }));
+  if (result.ok) {
+    await notifyHealthRecovered("judgments", "判断库接入已恢复", `测试关键词：${query}\n返回 ${result.results?.length || 0} 条。`);
+  } else {
+    await sendNotification("judgments_test_failed", "判断库接入测试失败", result.message || "请检查 Cookie、Base URL、权限和网络", {
+      severity: "warning",
+      recoveryKey: "judgments",
+      cooldownMs: 10 * 60_000
+    });
+  }
+  return result;
 }
 
 async function refreshJudgmentLibrary(payload = {}) {
@@ -3619,7 +3647,7 @@ async function refreshJudgmentLibrary(payload = {}) {
     ...config.judgmentLibrary,
     ...(payload || {})
   });
-  return await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/refresh`, {
+  const result = await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/refresh`, {
     keywords: normalizeList(payload.keywords || library.refreshKeywords),
     sources: normalizeList(payload.sources || library.sources),
     searchTypes: normalizeList(payload.searchTypes || library.searchTypes),
@@ -3631,6 +3659,16 @@ async function refreshJudgmentLibrary(payload = {}) {
     message: String(error?.message || error),
     errors: [{ message: String(error?.message || error) }]
   }));
+  if (result.ok) {
+    await notifyHealthRecovered("judgments", "判断库刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
+  } else if (payload.notify !== false) {
+    await sendNotification("judgments_refresh_manual_failed", "判断库刷新失败", result.message || "请检查 Cookie、Base URL、权限和网络", {
+      severity: "warning",
+      recoveryKey: "judgments",
+      cooldownMs: 10 * 60_000
+    });
+  }
+  return result;
 }
 
 async function startJudgmentFullDownload(payload = {}) {
@@ -3679,6 +3717,11 @@ async function startJudgmentFullDownload(payload = {}) {
     judgmentDownloadJob.finishedAt = Date.now();
     judgmentDownloadJob.errors.push({ message: String(error?.message || error) });
     judgmentDownloadJob.progress = 100;
+    sendNotification("judgments_full_download_failed", "判断库全量下载失败", String(error?.message || error), {
+      severity: "warning",
+      recoveryKey: "judgments",
+      cooldownMs: 10 * 60_000
+    }).catch((notifyError) => console.error("[notify] judgment download failed notification failed", notifyError));
     broadcastStatus();
   });
   return getJudgmentDownloadStatus();
@@ -3710,7 +3753,8 @@ async function runJudgmentFullDownload({ library, combinations }) {
         searchTypes: [combo.searchType],
         limit: pageLimit,
         offset,
-        reason: "full_download"
+        reason: "full_download",
+        notify: false
       });
       judgmentDownloadJob.fetched += Number(result.fetched || 0);
       judgmentDownloadJob.added += Number(result.added || 0);
@@ -3737,6 +3781,15 @@ async function runJudgmentFullDownload({ library, combinations }) {
   judgmentDownloadJob.progress = 100;
   config.judgmentLibrary.lastAutoRefreshAt = Date.now();
   await saveConfig();
+  if (judgmentDownloadJob.errors.length) {
+    await sendNotification("judgments_full_download_partial", "判断库全量下载有失败项", `已获取 ${judgmentDownloadJob.fetched || 0} 条，失败 ${judgmentDownloadJob.errors.length} 项，请在控制台查看详情。`, {
+      severity: "warning",
+      recoveryKey: "judgments",
+      cooldownMs: 10 * 60_000
+    });
+  } else {
+    await notifyHealthRecovered("judgments", "判断库全量下载已恢复", `已获取 ${judgmentDownloadJob.fetched || 0} 条，新增 ${judgmentDownloadJob.added || 0} 条，更新 ${judgmentDownloadJob.updated || 0} 条。`);
+  }
   broadcastStatus();
 }
 
@@ -3761,15 +3814,19 @@ async function maybeAutoRefreshJudgments() {
 
   const result = await refreshJudgmentLibrary({
     ...library,
-    reason: "auto_refresh"
+    reason: "auto_refresh",
+    notify: false
   });
   config.judgmentLibrary.lastAutoRefreshAt = Date.now();
   await saveConfig();
   if (!result.ok) {
     await sendNotification("judgments_refresh_failed", "判断库自动刷新失败", result.message || "请打开控制台检查 Cookie、权限和关键词", {
       severity: "warning",
+      recoveryKey: "judgments",
       cooldownMs: 6 * 60 * 60_000
     });
+  } else {
+    await notifyHealthRecovered("judgments", "判断库自动刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
   }
 }
 
@@ -3781,7 +3838,8 @@ async function inspectLoginState() {
 
   if (!url.includes("store.weixin.qq.com")) {
     await sendNotification("wrong_page", "客服窗口不在微信小店页面", `当前地址：${url}\n已尝试切回客服页`, {
-      severity: "warning"
+      severity: "warning",
+      recoveryKey: "page"
     });
     wc.loadURL(config.kfUrl);
     return;
@@ -3791,6 +3849,7 @@ async function inspectLoginState() {
     const pageState = await readLoginPageState(wc);
     if (pageState.hasInput || isAuthenticatedKfUrl(url)) {
       clearPendingLoginNotification();
+      await notifyHealthRecovered("login", "客服页登录已恢复", "已检测到客服输入框，可以继续自动回复。", { eventType: "login" });
       return;
     }
     if (pageState.hasLoginText && !pageState.hasInput) {
@@ -3854,6 +3913,7 @@ async function inspectBotHeartbeat() {
 
   await sendNotification("bot_stale", "自动回复脚本长时间无状态", "程序将重新注入脚本并刷新客服页，避免静默失效", {
     severity: "critical",
+    recoveryKey: "bot",
     cooldownMs: 60_000
   });
   await injectBotScript();
@@ -3861,6 +3921,10 @@ async function inspectBotHeartbeat() {
 }
 
 async function sendNotification(key, title, body, options = {}) {
+  if (options.recoveryKey) {
+    markHealthIssue(options.recoveryKey, title, body);
+  }
+
   const cooldownMs = Number(options.cooldownMs ?? config?.notify?.cooldownMs ?? 300_000);
   const cooldownKey = String(key || title);
   const last = notifyCooldowns.get(cooldownKey) || 0;
@@ -3875,8 +3939,12 @@ async function sendNotification(key, title, body, options = {}) {
   if (config?.notify?.enabled && config.notify.wecomWebhookUrl && shouldSendWebhookNotification(key, options)) {
     try {
       await postWecomWithRetry(title, body, options.severity || "info");
+      if (String(key || "") !== "recovered:webhook") {
+        await notifyWebhookRecovered("企业微信 Webhook 已恢复，本次通知已成功送达。");
+      }
     } catch (error) {
       console.error("[notify] wecom failed", error);
+      markHealthIssue("webhook", "企业微信通知发送失败", String(error?.message || error));
       await enqueueNotifyOutbox({
         key: cooldownKey,
         title,
@@ -3896,6 +3964,46 @@ async function sendNotification(key, title, body, options = {}) {
   return true;
 }
 
+function markHealthIssue(key, title, body = "") {
+  const id = String(key || "").trim();
+  if (!id) return;
+  const current = healthIssues.get(id) || {};
+  healthIssues.set(id, {
+    title: String(title || current.title || id),
+    body: String(body || current.body || ""),
+    firstAt: current.firstAt || Date.now(),
+    lastAt: Date.now()
+  });
+}
+
+async function notifyHealthRecovered(key, title, body = "", options = {}) {
+  const id = String(key || "").trim();
+  if (!id || !healthIssues.has(id)) return false;
+  healthIssues.delete(id);
+  return await sendNotification(
+    `recovered:${id}`,
+    title,
+    body,
+    {
+      severity: "info",
+      cooldownMs: options.cooldownMs ?? 60_000,
+      eventType: options.eventType || "health"
+    }
+  );
+}
+
+async function notifyWebhookRecovered(body = "企业微信 Webhook 已恢复，后续错误和恢复通知会继续推送。") {
+  if (!healthIssues.has("webhook")) return false;
+  healthIssues.delete("webhook");
+  try {
+    await postWecomWithRetry(`${APP_DISPLAY_NAME}通知通道已恢复`, body, "info");
+    return true;
+  } catch (error) {
+    markHealthIssue("webhook", "企业微信通知发送失败", String(error?.message || error));
+    return false;
+  }
+}
+
 function shouldSendWebhookNotification(key, options = {}) {
   const rules = config?.notify?.eventRules || {};
   const eventType = String(options.eventType || webhookEventTypeFromKey(key));
@@ -3911,7 +4019,8 @@ function webhookEventTypeFromKey(key) {
   if (/reply_failed|ai_followup_failed/.test(text)) return "replyFailed";
   if (/reply_timeout/.test(text)) return "replyTimeout";
   if (/needs_login|login|扫码/.test(text)) return "login";
-  if (/ai_|bot_stale|page_|shell_|wrong_page/.test(text)) return "health";
+  if (/^recovered:/.test(text)) return "health";
+  if (/ai_|bot_stale|page_|shell_|wrong_page|judgments_/.test(text)) return "health";
   if (/app_started|webhook_missing/.test(text)) return "app";
   return "";
 }
@@ -3940,6 +4049,7 @@ async function sendLoginScreenshotNotificationNow() {
 
   const title = "客服页需要扫码登录";
   const body = "请打开桌面客服窗口，用微信扫码、验证码或登录确认完成登录。截图会紧跟这条消息发送。";
+  markHealthIssue("login", title, body);
   console.log(`[notify] ${title}: ${body}`);
 
   if (Notification.isSupported()) {
@@ -4183,6 +4293,7 @@ async function flushNotifyOutbox() {
 
   notifyOutboxFlushing = true;
   let changed = false;
+  let delivered = 0;
   try {
     const now = Date.now();
     const remaining = [];
@@ -4200,6 +4311,7 @@ async function flushNotifyOutbox() {
           await postWecomWithRetry(item.title, item.body, item.severity || "info");
         }
         changed = true;
+        delivered += 1;
         console.log(`[notify] outbox delivered: ${item.title}`);
       } catch (error) {
         item.attempts = Number(item.attempts || 0) + 1;
@@ -4210,6 +4322,9 @@ async function flushNotifyOutbox() {
       }
     }
     notifyOutbox = remaining.slice(-NOTIFY_OUTBOX_LIMIT);
+    if (delivered > 0) {
+      await notifyWebhookRecovered(`企业微信 Webhook 已恢复，已补发 ${delivered} 条积压通知。`);
+    }
   } finally {
     notifyOutboxFlushing = false;
     if (changed) await saveNotifyOutbox();

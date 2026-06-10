@@ -1560,72 +1560,13 @@
   }
 
   function installToolbar() {
-    if (document.querySelector("#wechat-kf-bot-status")) return;
-
-    const root = document.createElement("div");
-    root.id = "wechat-kf-bot-status";
-    root.style.cssText = [
-      "position:fixed",
-      "right:12px",
-      "bottom:12px",
-      "z-index:2147483647",
-      "background:#111827",
-      "color:#fff",
-      "font-size:12px",
-      "line-height:1.25",
-      "padding:8px",
-      "border-radius:6px",
-      "box-shadow:0 4px 16px rgba(0,0,0,.18)",
-      "font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
-      "pointer-events:auto",
-      "display:grid",
-      "gap:6px"
-    ].join(";");
-
-    const label = document.createElement("div");
-    label.id = "wechat-kf-bot-status-label";
-    label.textContent = "客服Bot：启动中";
-    const actions = document.createElement("div");
-    actions.style.cssText = "display:flex;gap:5px;";
-    actions.append(
-      toolbarButton("悬浮窗", () => window.wechatKfDesktop?.openFloatingWindow?.("compact")),
-      toolbarButton("设置", () => window.wechatKfDesktop?.openFloatingWindow?.("settings")),
-      toolbarButton("结构", async () => {
-        const result = await captureAndSavePageStructure();
-        updateToolbar(result?.ok ? `结构已捕捉 ${result.count || 0}` : `结构失败 ${result?.message || ""}`.trim());
-      })
-    );
-    root.append(label, actions);
-    document.documentElement.appendChild(root);
+    document.querySelector("#wechat-kf-bot-status")?.remove();
   }
 
   function updateToolbar(status, extra = {}) {
     state.lastStatus = status;
-    const label = document.querySelector("#wechat-kf-bot-status-label");
-    if (label) label.textContent = `客服Bot：${status}`;
+    document.querySelector("#wechat-kf-bot-status")?.remove();
     reportStatus(status, extra);
-  }
-
-  function toolbarButton(text, handler) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = text;
-    button.style.cssText = [
-      "height:22px",
-      "border:1px solid rgba(255,255,255,.35)",
-      "border-radius:5px",
-      "background:rgba(255,255,255,.12)",
-      "color:#fff",
-      "font-size:11px",
-      "padding:0 6px",
-      "cursor:pointer"
-    ].join(";");
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      Promise.resolve(handler()).catch((error) => warn("toolbar action failed", error));
-    });
-    return button;
   }
 
   async function captureAndSavePageStructure() {
