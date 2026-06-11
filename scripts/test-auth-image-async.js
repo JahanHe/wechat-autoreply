@@ -195,6 +195,12 @@ function assertRunyuAutoCapture(source) {
   if (!navigationBlock.includes('["expired", "forbidden", "error", "timeout"].includes(runyuAuthState.status)')) {
     throw new Error("判断库登录页导航仍会覆盖已确认的鉴权错误状态");
   }
+  const loginStart = source.indexOf("async function openRunyuLoginWindow");
+  const loginEnd = source.indexOf("function startRunyuLoginDeadline", loginStart);
+  const loginBlock = source.slice(loginStart, loginEnd);
+  if (!loginBlock.includes("keepFailure ? runyuAuthState.status : \"monitoring\"") || !loginBlock.includes("keepFailure ? runyuAuthState.message")) {
+    throw new Error("打开判断库登录窗口仍会覆盖已确认的鉴权错误状态");
+  }
 }
 
 function assertBundledImages(config) {

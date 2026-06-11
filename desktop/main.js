@@ -4581,10 +4581,15 @@ async function openRunyuLoginWindow(options = {}) {
   }
 
   startRunyuLoginDeadline();
-  setRunyuAuthState("monitoring", "登录窗口已打开，请在5分钟内完成登录；检测到新凭证后会自动验证", {
-    source: "browser_login",
-    cookieDetected: false
-  });
+  const keepFailure = ["expired", "forbidden", "error", "timeout"].includes(runyuAuthState.status);
+  setRunyuAuthState(
+    keepFailure ? runyuAuthState.status : "monitoring",
+    keepFailure ? runyuAuthState.message : "登录窗口已打开，请在5分钟内完成登录；检测到新凭证后会自动验证",
+    {
+      source: "browser_login",
+      cookieDetected: false
+    }
+  );
   runyuLoginWindow = new BrowserWindow({
     width: 1180,
     height: 780,
