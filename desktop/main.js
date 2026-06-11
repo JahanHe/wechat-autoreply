@@ -4615,7 +4615,10 @@ async function openRunyuLoginWindow(options = {}) {
   runyuLoginWindow.once("ready-to-show", () => runyuLoginWindow?.show());
   wc.on("did-finish-load", () => scheduleRunyuCookieInspection("page_loaded"));
   wc.on("did-navigate", (_event, url) => {
-    setRunyuAuthState(runyuAuthState.status === "cookie_detected" ? "cookie_detected" : "monitoring", runyuAuthState.message, {
+    const status = ["expired", "forbidden", "error", "timeout"].includes(runyuAuthState.status)
+      ? runyuAuthState.status
+      : runyuAuthState.status === "cookie_detected" ? "cookie_detected" : "monitoring";
+    setRunyuAuthState(status, runyuAuthState.message, {
       source: "browser_login",
       lastUrl: String(url || "")
     });
@@ -4705,6 +4708,9 @@ async function inspectRunyuLoginCookie(source = "browser_login") {
   const normalized = normalizeRunyuCookie(cookie);
   const saved = normalizeRunyuCookie(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "");
   if (normalized === saved) {
+    if (["expired", "forbidden", "error", "timeout"].includes(runyuAuthState.status)) {
+      return runyuAuthStatusPayload();
+    }
     return setRunyuAuthState("monitoring", "已检测到本机保存的凭证，正在后台验证；如提示过期请完成网页登录，程序会自动验证新凭证", {
       source,
       cookieDetected: true

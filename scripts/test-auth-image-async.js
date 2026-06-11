@@ -186,8 +186,14 @@ function assertRunyuAutoCapture(source) {
   const inspectStart = source.indexOf("async function inspectRunyuLoginCookie");
   const inspectEnd = source.indexOf("async function captureAndVerifyRunyuCookie", inspectStart);
   const inspectBlock = source.slice(inspectStart, inspectEnd);
-  if (!inspectBlock.includes("if (normalized === saved)") || !inspectBlock.includes("正在后台验证") || !inspectBlock.includes("程序会自动验证新凭证")) {
+  if (!inspectBlock.includes("if (normalized === saved)") || !inspectBlock.includes('return runyuAuthStatusPayload()') || !inspectBlock.includes("正在后台验证") || !inspectBlock.includes("程序会自动验证新凭证")) {
     throw new Error("判断库登录页仍会把已保存 Cookie 误报为待手工捕捉的新凭证");
+  }
+  const navigationStart = source.indexOf('wc.on("did-navigate"');
+  const navigationEnd = source.indexOf('wc.on("did-navigate-in-page"', navigationStart);
+  const navigationBlock = source.slice(navigationStart, navigationEnd);
+  if (!navigationBlock.includes('["expired", "forbidden", "error", "timeout"].includes(runyuAuthState.status)')) {
+    throw new Error("判断库登录页导航仍会覆盖已确认的鉴权错误状态");
   }
 }
 
