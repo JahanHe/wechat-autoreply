@@ -25,6 +25,9 @@ assertBundledImages(replies);
 assertControlServerAuth(mainSource);
 assertDeepSeekFetch(serverSource);
 assertRuleExecutionConfirm(mainShellSource);
+assertEnvBackedNotificationMigration(mainSource);
+assertDesktopStorageBridge(mainSource, contentSource);
+assertRunyuAutoCapture(mainSource);
 
 let app;
 try {
@@ -76,6 +79,9 @@ try {
       "本机控制接口Token保护",
       "DeepSeek调用不暴露命令行Key",
       "真实执行规则二次确认",
+      "运行目录Webhook配置自动迁移",
+      "客服页存储桥不覆盖window.chrome",
+      "判断库新Cookie自动验证并关闭登录窗",
       "图标分组导航和Hover说明",
       "日志判断库Thinking和处理步骤",
       "异步AI最终回复不中断",
@@ -123,12 +129,59 @@ function assertMediaHeartbeat(source) {
 function assertRemoteOnlyAuthCheck(main, judgment) {
   if (!main.includes("remoteOnly: true")) throw new Error("Cookie 自检没有强制远端查询");
   if (!judgment.includes("const remoteOnly = options.remoteOnly === true")) throw new Error("判断库查询没有实现远端强制模式");
+  if (!judgment.includes("请在小店AI客服的判断库页面点击重新登录")) throw new Error("判断库过期提示没有优先引导应用内网页登录");
 }
 
 function assertBackgroundHeartbeat(source) {
   const viewBlock = source.slice(source.indexOf("kfView = new BrowserView"), source.indexOf("const wc = kfView.webContents"));
   if (!viewBlock.includes("backgroundThrottling: false")) {
     throw new Error("客服页切换到后台后仍可能被 Electron 节流");
+  }
+}
+
+function assertEnvBackedNotificationMigration(source) {
+  const start = source.indexOf("function applyEnvBackedConfig()");
+  const end = source.indexOf("function applyUserDataOverride()", start);
+  const block = source.slice(start, end);
+  if (!block.includes("process.env.WECOM_BOT_WEBHOOK_URL")) {
+    throw new Error("桌面启动没有读取运行目录中的 Webhook 配置");
+  }
+  if (!block.includes("hadConfiguredWebhook ? Boolean(config.notify?.enabled) : true")) {
+    throw new Error("旧配置迁移没有自动启用首次发现的 Webhook，或会覆盖用户主动关闭状态");
+  }
+}
+
+function assertDesktopStorageBridge(mainSource, contentSource) {
+  const preloadSource = readFileSync(resolve(root, "desktop/preload.cjs"), "utf8");
+  if (preloadSource.includes('exposeInMainWorld("chrome"')) {
+    throw new Error("客服页 preload 仍会覆盖网页已有的 window.chrome");
+  }
+  if (!preloadSource.includes("...storageBridge") || !contentSource.includes("window.wechatKfDesktop?.storage?.local")) {
+    throw new Error("客服页没有通过独立桌面桥读取自动回复配置");
+  }
+  const captureStart = mainSource.indexOf("async function captureKfPageImage()");
+  const captureEnd = mainSource.indexOf("async function postWecomWithRetry", captureStart);
+  const captureBlock = mainSource.slice(captureStart, captureEnd);
+  if (captureBlock.indexOf("mainWindow.capturePage(kfView.getBounds())") > captureBlock.indexOf("wc.capturePage()")) {
+    throw new Error("登录二维码截图没有优先使用已挂载的客服视图");
+  }
+}
+
+function assertRunyuAutoCapture(source) {
+  if (!source.includes('scheduleRunyuCookieInspection(`cookie_${cause || "changed"}`, { autoVerify: true })')) {
+    throw new Error("判断库登录后没有自动验证新 Cookie");
+  }
+  const scheduleStart = source.indexOf("function scheduleRunyuCookieInspection");
+  const scheduleEnd = source.indexOf("async function inspectRunyuLoginCookie", scheduleStart);
+  const scheduleBlock = source.slice(scheduleStart, scheduleEnd);
+  if (!scheduleBlock.includes("options.autoVerify") || !scheduleBlock.includes("captureAndVerifyRunyuCookie(source)")) {
+    throw new Error("判断库 Cookie 监控没有接入自动捕捉验证");
+  }
+  const captureStart = source.indexOf("async function captureAndVerifyRunyuCookie");
+  const captureEnd = source.indexOf("async function readRunyuSessionCookie", captureStart);
+  const captureBlock = source.slice(captureStart, captureEnd);
+  if (!captureBlock.includes("runyuLoginWindow.close()")) {
+    throw new Error("判断库验证成功后没有自动关闭登录窗口");
   }
 }
 
@@ -149,6 +202,9 @@ function assertBundledImages(config) {
 function assertControlServerAuth(source) {
   if (!source.includes("DESKTOP_CONTROL_TOKEN") || !source.includes("isControlRequestAuthorized")) {
     throw new Error("本机控制接口缺少 Token 鉴权");
+  }
+  if (!source.includes('url.pathname === "/judgments/capture-login"') || !source.includes('captureAndVerifyRunyuCookie("desktop_control")')) {
+    throw new Error("本机控制接口缺少判断库 Cookie 捕捉入口");
   }
 }
 

@@ -418,7 +418,7 @@ function shouldUseDirectResolveFallback(result, url) {
 
 function apiErrorMessage(status, data, url = "", previous = null) {
   const message = data?.message || data?.error || data?.code || JSON.stringify(data || {});
-  if (status === 401) return "判断库未登录或 Cookie 已过期。请在 Chrome 登录 Runyu 后，从 Application > Cookies > runyuai.zhiduoke.com.cn 复制新的 session_token，不要用 Session Storage";
+  if (status === 401) return "判断库登录已过期。请在小店AI客服的判断库页面点击重新登录，完成网页登录后获取凭证；手工复制 session_token 仅作为自动获取失败时的备用方式";
   if (status === 403) return "当前账号没有判断库查询权限";
   if (status === 404) {
     const previousHint = previous?.status

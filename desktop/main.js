@@ -224,6 +224,15 @@ async function startDesktopApp() {
 
 function applyEnvBackedConfig() {
   if (!config) return;
+  const envWebhookUrl = String(process.env.WECOM_BOT_WEBHOOK_URL || "").trim();
+  if (envWebhookUrl) {
+    const hadConfiguredWebhook = Boolean(String(config.notify?.wecomWebhookUrl || "").trim());
+    config.notify = {
+      ...config.notify,
+      wecomWebhookUrl: envWebhookUrl,
+      enabled: hadConfiguredWebhook ? Boolean(config.notify?.enabled) : true
+    };
+  }
   if (process.env.RUNYU_JUDGMENTS_ENABLED) {
     config.judgmentLibrary = normalizeJudgmentLibraryConfig({
       ...config.judgmentLibrary,
@@ -716,6 +725,11 @@ async function startDesktopControlServer() {
 
       if (req.method === "GET" && url.pathname === "/judgments/status") {
         controlJson(res, 200, await getJudgmentLibraryStatus());
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/judgments/capture-login") {
+        controlJson(res, 200, await captureAndVerifyRunyuCookie("desktop_control"));
         return;
       }
 
@@ -4594,7 +4608,7 @@ async function openRunyuLoginWindow(options = {}) {
   const onCookieChanged = (_event, cookie, cause, removed) => {
     if (removed || cookie?.name !== "session_token") return;
     if (!String(cookie?.domain || "").includes("zhiduoke.com.cn")) return;
-    scheduleRunyuCookieInspection(`cookie_${cause || "changed"}`);
+    scheduleRunyuCookieInspection(`cookie_${cause || "changed"}`, { autoVerify: true });
   };
   authSession.cookies.on("changed", onCookieChanged);
 
@@ -4660,10 +4674,13 @@ function clearRunyuLoginDeadline() {
   runyuLoginDeadlineAt = 0;
 }
 
-function scheduleRunyuCookieInspection(source = "browser_login") {
+function scheduleRunyuCookieInspection(source = "browser_login", options = {}) {
   clearTimeout(runyuCookieCaptureTimer);
   runyuCookieCaptureTimer = setTimeout(() => {
-    inspectRunyuLoginCookie(source).catch((error) => {
+    const task = options.autoVerify
+      ? captureAndVerifyRunyuCookie(source)
+      : inspectRunyuLoginCookie(source);
+    task.catch((error) => {
       console.error("[runyu] cookie inspection failed", error);
       setRunyuAuthState("error", String(error?.message || error), {
         source,
@@ -4721,7 +4738,11 @@ async function captureAndVerifyRunyuCookie(source = "browser_login") {
       broadcastStatus();
     }
     if (["connected", "ready"].includes(result.status)) {
-      return bootstrapRunyuJudgmentLibrary({ notify: true, source: "first_login_bootstrap" });
+      const bootstrapped = await bootstrapRunyuJudgmentLibrary({ notify: true, source: "first_login_bootstrap" });
+      if (["connected", "ready"].includes(bootstrapped.status) && runyuLoginWindow && !runyuLoginWindow.isDestroyed()) {
+        runyuLoginWindow.close();
+      }
+      return bootstrapped;
     }
     return result;
   } catch (error) {
@@ -5497,27 +5518,34 @@ async function captureLoginScreenshot() {
 }
 
 async function captureKfPageImage() {
+  const errors = [];
+  if (mainWindow && !mainWindow.isDestroyed() && kfView && kfViewAttached) {
+    try {
+      return await mainWindow.capturePage(kfView.getBounds());
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
   const wc = getKfWebContents();
   if (wc) {
     try {
       return await wc.capturePage();
     } catch (error) {
-      console.error("[notify] kf webContents capture failed", error);
+      errors.push(error);
     }
   }
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
-      if (kfView && kfViewAttached) {
-        return await mainWindow.capturePage(kfView.getBounds());
-      }
       return await mainWindow.capturePage();
     } catch (error) {
-      console.error("[notify] main window capture failed", error);
+      errors.push(error);
     }
   }
 
-  throw new Error("客服页面截图不可用");
+  const detail = errors.map((error) => String(error?.message || error)).filter(Boolean).join("; ");
+  throw new Error(`客服页面截图不可用${detail ? `：${detail}` : ""}`);
 }
 
 async function postWecomWithRetry(title, body, severity) {

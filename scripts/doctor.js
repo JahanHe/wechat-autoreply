@@ -1,9 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
+import { homedir, platform } from "node:os";
 import { resolve } from "node:path";
 
 const root = resolve(".");
-const env = loadDotEnv();
+const envPath = findDotEnvPath();
+const env = loadDotEnv(envPath);
 const checks = [];
 
 await check("Node.js 可用", async () => {
@@ -12,7 +14,8 @@ await check("Node.js 可用", async () => {
 });
 
 await check(".env 存在", async () => {
-  if (!existsSync(resolve(root, ".env"))) throw new Error("缺少 .env");
+  if (!envPath || !existsSync(envPath)) throw new Error("仓库和桌面运行目录都缺少 .env");
+  return envPath;
 });
 
 await check("DeepSeek API Key 已配置", async () => {
@@ -60,16 +63,30 @@ console.log("生产就绪检查通过");
 
 async function check(name, fn) {
   try {
-    await fn();
-    checks.push({ name, ok: true });
+    const message = await fn();
+    checks.push({ name, ok: true, message: message ? String(message) : "" });
   } catch (error) {
     checks.push({ name, ok: false, message: String(error?.message || error) });
   }
 }
 
-function loadDotEnv() {
-  const path = resolve(root, ".env");
-  if (!existsSync(path)) return {};
+function findDotEnvPath() {
+  const explicitRoot = process.env.WECHAT_KF_CONFIG_ROOT || process.env.WECHAT_KF_DESKTOP_USER_DATA;
+  if (explicitRoot) return resolve(explicitRoot, ".env");
+
+  const candidates = [resolve(root, ".env")];
+  if (platform() === "darwin") {
+    candidates.push(resolve(homedir(), "Library/Application Support/小店AI客服/.env"));
+  } else if (platform() === "win32" && process.env.APPDATA) {
+    candidates.push(resolve(process.env.APPDATA, "小店AI客服/.env"));
+  } else {
+    candidates.push(resolve(process.env.XDG_CONFIG_HOME || resolve(homedir(), ".config"), "小店AI客服/.env"));
+  }
+  return candidates.find((path) => existsSync(path)) || candidates[0];
+}
+
+function loadDotEnv(path) {
+  if (!path || !existsSync(path)) return {};
 
   const values = {};
   const content = readFileSync(path, "utf8");
