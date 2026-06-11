@@ -4581,7 +4581,7 @@ async function openRunyuLoginWindow(options = {}) {
   }
 
   startRunyuLoginDeadline();
-  setRunyuAuthState("monitoring", "登录窗口已打开，5分钟内完成登录后点击“捕捉 Cookie Token”", {
+  setRunyuAuthState("monitoring", "登录窗口已打开，请在5分钟内完成登录；检测到新凭证后会自动验证", {
     source: "browser_login",
     cookieDetected: false
   });
@@ -4695,12 +4695,20 @@ async function inspectRunyuLoginCookie(source = "browser_login") {
   const cookie = await readRunyuSessionCookie();
   if (!cookie) {
     if (!["connected", "checking", "timeout"].includes(runyuAuthState.status)) {
-      setRunyuAuthState("monitoring", "正在监控登录状态，登录成功后点击“捕捉 Cookie Token”", {
+      setRunyuAuthState("monitoring", "正在监控登录状态，登录成功后会自动捕捉并验证凭证", {
         source,
         cookieDetected: false
       });
     }
     return runyuAuthStatusPayload();
+  }
+  const normalized = normalizeRunyuCookie(cookie);
+  const saved = normalizeRunyuCookie(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "");
+  if (runyuAuthState.status === "expired" && normalized === saved) {
+    return setRunyuAuthState("monitoring", "登录页已打开，当前凭证已过期；请完成网页登录，程序会自动验证新凭证", {
+      source,
+      cookieDetected: true
+    });
   }
   return setRunyuAuthState("cookie_detected", "已检测到登录 Cookie，请点击“捕捉 Cookie Token”完成验证", {
     source,
