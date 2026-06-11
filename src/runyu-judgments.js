@@ -117,7 +117,8 @@ export async function searchJudgmentLibrary(query, options = {}) {
   }
 
   let cache = loadJudgmentCache(config.cachePath);
-  const local = config.useCache ? searchCachedJudgments(keyword, cache.records, config.maxResults) : [];
+  const remoteOnly = options.remoteOnly === true;
+  const local = config.useCache && !remoteOnly ? searchCachedJudgments(keyword, cache.records, config.maxResults) : [];
   let remote = [];
   let remoteError = "";
 
@@ -149,13 +150,14 @@ export async function searchJudgmentLibrary(query, options = {}) {
     .slice(0, options.limit || config.maxResults);
 
   return {
-    ok: !remoteError || mergedResults.length > 0,
+    ok: remoteOnly ? !remoteError : (!remoteError || mergedResults.length > 0),
     enabled: true,
     hasCookie: Boolean(config.cookie),
     results: mergedResults,
     fromCache: local.length,
     fromRemote: remote.length,
-    error: remoteError
+    error: remoteError,
+    remoteOnly
   };
 }
 

@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.3.5";
+  const VERSION = "0.3.6";
 
   const CONFIG = {
     enabled: true,
@@ -106,6 +106,7 @@
     lastReplyAt: 0,
     replied: loadReplied(),
     inFlight: new Set(),
+    pendingAiFollowups: new Map(),
     pendingCustomerMessages: new Map(),
     quickRepliesUsed: loadQuickRepliesUsed(),
     waitingRepliesUsed: loadWaitingRepliesUsed(),
@@ -261,6 +262,13 @@
     }
 
     if (latest.from !== "customer") {
+      const pendingFollowup = Array.from(state.pendingAiFollowups.values()).at(-1);
+      if (pendingFollowup) {
+        setStep("waiting_ai", "等待AI", `承接语已发送，仍在处理：${pendingFollowup.customer || "客户问题"}`, {
+          customer: pendingFollowup.customer || ""
+        });
+        return;
+      }
       setStep("last_kf", "客服最后", "当前会话最后一条消息来自客服");
       state.pendingCustomerMessages.clear();
       return;
@@ -326,13 +334,22 @@
         setStep("sending_image", "发送图片", "正在上传并发送匹配图片", { customer: latest.text, actionType: "image" });
         const imageResult = await requestImageReply(imageReply, latest.text);
 
-        if (!captionSent && !imageResult.ok) {
+        if (!imageResult.sent) {
           setStep("reply_failed", "回复失败", imageResult.message || "图片回复发送失败", { customer: latest.text, actionType: "image" });
-          reportEvent("reply_failed", { stage: "image_reply", sourceType: "image_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: caption, error: imageResult.message });
+          reportEvent("reply_failed", {
+            stage: "image_reply",
+            sourceType: "image_rule",
+            usedRuleLibrary: true,
+            reason,
+            customer: latest.text,
+            reply: caption,
+            captionSent,
+            error: imageResult.message
+          });
           return;
         }
 
-        responseSent = captionSent || Boolean(imageResult.ok);
+        responseSent = true;
         markReplied(key);
         state.lastReplyAt = Date.now();
         setStep(imageResult.sent ? "image_sent" : imageResult.pasted ? "monitoring" : "reply_failed", imageResult.sent ? "图片已发" : imageResult.pasted ? "待确认" : "回复失败", imageResult.message || "图片回复处理完成", { customer: latest.text, actionType: "image" });
@@ -427,6 +444,14 @@
       let aiCompleted = false;
       let waitingTimer = null;
       let fallbackTimer = null;
+      let slowPromise = null;
+      let fallbackPromise = null;
+      state.pendingAiFollowups.set(key, {
+        key,
+        sessionKey,
+        customer: latest.text,
+        startedAt: Date.now()
+      });
       const clearAiTimers = () => {
         if (waitingTimer) window.clearTimeout(waitingTimer);
         if (fallbackTimer) window.clearTimeout(fallbackTimer);
@@ -439,11 +464,11 @@
         setStep("sending_ack", "发送承接", "AI仍在思考，正在生成承接语", { customer: latest.text });
         slowReply = await askQuickReply(latest.text);
         if (!slowReply || aiCompleted || fallbackStarted) return false;
+        if (!(await ensureSessionActive(sessionKey))) return false;
         const sent = await sendReplyParts(slowReply);
         slowSent = sent;
         if (sent) {
           responseSent = true;
-          markReplied(key);
           rememberSessionReply(sessionKey, slowReply);
           state.quickAckedSessions.add(sessionKey);
           persistQuickAckedSessions();
@@ -478,11 +503,14 @@
           fallbackStarted = false;
           return false;
         }
+        if (!(await ensureSessionActive(sessionKey))) {
+          fallbackStarted = false;
+          return false;
+        }
         const sent = await sendReplyParts(fallbackReplyText);
         fallbackSent = sent;
         if (sent) {
           responseSent = true;
-          markReplied(key);
           rememberSessionReply(sessionKey, fallbackReplyText);
           state.lastReplyAt = Date.now();
           setStep("text_sent", "文字已发", "兜底文字已发送给当前客户", { customer: latest.text });
@@ -506,44 +534,50 @@
         fallbackStarted = false;
         return false;
       };
+      const startSlowReply = () => {
+        if (!slowPromise) {
+          slowPromise = sendSlowReply().finally(() => {
+            slowPromise = null;
+          });
+        }
+        return slowPromise;
+      };
+      const startFallbackReply = (trigger, allowAfterAi = false) => {
+        if (!fallbackPromise) {
+          fallbackPromise = sendFallbackReply(trigger, allowAfterAi).finally(() => {
+            fallbackPromise = null;
+          });
+        }
+        return fallbackPromise;
+      };
 
       setStep("querying_judgment", "查询判断库", "正在检索外部判断库和本地缓存", { customer: latest.text });
       if (shouldSendQuickAck(sessionKey)) {
         waitingTimer = window.setTimeout(() => {
-          sendSlowReply().catch((error) => warn("slow reply failed", error));
+          startSlowReply().catch((error) => warn("slow reply failed", error));
         }, normalizeDelay(CONFIG.aiSlowMs, 15000));
       } else {
         log("skip 15s quick ack", { reason, customer: latest.text, sessionKey });
       }
 
       fallbackTimer = window.setTimeout(() => {
-        sendFallbackReply("timeout").catch((error) => warn("fallback reply failed", error));
+        startFallbackReply("timeout").catch((error) => warn("fallback reply failed", error));
       }, normalizeDelay(CONFIG.fallbackReplyMs, 60000));
 
       const aiResult = await askLocalAi(latest.text, "deep");
       aiCompleted = true;
       clearAiTimers();
+      if (slowPromise) await slowPromise;
+      if (fallbackPromise) await fallbackPromise;
       const aiReply = String(aiResult?.reply || aiResult || "").trim();
       const usedJudgmentLibrary = Boolean(aiResult?.judgments?.used);
       const followupStage = usedJudgmentLibrary ? "judgment_ai" : "ai_followup";
-      if (fallbackStarted || fallbackSent) {
-        setStep("text_sent", "文字已发", "兜底回复已经发送，不再追加AI回复", { customer: latest.text });
-        reportEvent("ai_followup_skipped", {
-          stage: followupStage,
-          sourceType: followupStage,
-          usedAi: true,
-          usedJudgmentLibrary,
-          reason,
-          customer: latest.text,
-          reply: aiReply,
-          skippedReason: "fallback_already_sent"
-        });
-        return;
-      }
 
       if (!aiReply || (slowReply && normalize(aiReply) === normalize(slowReply))) {
-        const fallbackOk = await sendFallbackReply("ai_empty", true);
-        if (!fallbackOk) {
+        const fallbackOk = fallbackSent || await startFallbackReply("ai_empty", true);
+        if (fallbackOk) {
+          markReplied(key);
+        } else {
           setStep(responseSent ? "waiting_ai" : "reply_failed", responseSent ? "等待AI" : "回复失败", responseSent ? "承接语已发送，但AI没有可用结果" : "AI和兜底均未产生可用回复", { customer: latest.text });
           reportEvent("reply_failed", { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, usedJudgmentLibrary, reason, customer: latest.text });
         }
@@ -551,7 +585,8 @@
       }
 
       if (hasSessionReply(sessionKey, aiReply)) {
-        const fallbackOk = await sendFallbackReply("ai_duplicate", true);
+        const fallbackOk = fallbackSent || await startFallbackReply("ai_duplicate", true);
+        markReplied(key);
         if (!fallbackOk) {
           setStep("duplicate", "跳过重复", "AI回复与本会话已有回复重复", { customer: latest.text });
           reportEvent("ai_followup_skipped", {
@@ -569,7 +604,9 @@
       }
 
       setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送判断库和AI生成的回复" : "正在发送AI生成的文字回复", { customer: latest.text, actionType: "text" });
-      const followupSent = await sendReplyParts(aiReply);
+      const sessionReady = await ensureSessionActive(sessionKey);
+      const followupSent = sessionReady ? await sendReplyParts(aiReply) : false;
+      let fallbackAfterSendFailure = false;
       if (followupSent) {
         responseSent = true;
         markReplied(key);
@@ -589,14 +626,18 @@
           latencyMs: aiResult?.latencyMs || null
         });
       } else {
-        const fallbackOk = await sendFallbackReply("ai_send_failed", true);
-        if (!fallbackOk) {
+        fallbackAfterSendFailure = fallbackSent || await startFallbackReply("ai_send_failed", true);
+        if (fallbackAfterSendFailure) {
+          markReplied(key);
+        } else {
           reportEvent(responseSent ? "ai_followup_failed" : "reply_failed", { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary, reason, customer: latest.text, reply: aiReply });
         }
       }
-      setStep(followupSent ? "text_sent" : "reply_failed", followupSent ? "文字已发" : "回复失败", followupSent ? (usedJudgmentLibrary ? "判断库和AI生成的回复已发送" : "AI文字回复已发送") : "AI补充回复未能发送", { customer: latest.text, actionType: "text" });
+      const completed = followupSent || fallbackAfterSendFailure;
+      setStep(completed ? "text_sent" : "reply_failed", completed ? "文字已发" : "回复失败", followupSent ? (usedJudgmentLibrary ? "判断库和AI生成的回复已发送" : "AI文字回复已发送") : fallbackAfterSendFailure ? "AI补充发送失败，已发送兜底回复" : "AI补充回复未能发送", { customer: latest.text, actionType: "text" });
       log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply, judgments: aiResult?.judgments || null });
     } finally {
+      state.pendingAiFollowups.delete(key);
       state.inFlight.delete(key);
     }
   }
@@ -771,6 +812,18 @@
       .filter(Boolean);
     const nickname = lines.find((line) => !/^\d+$/.test(line) && !/^\d{1,2}:\d{2}$/.test(line));
     return `session:${nickname || lines.join("|")}`;
+  }
+
+  async function ensureSessionActive(sessionKey) {
+    if (!sessionKey || sessionKey.startsWith("url:") || currentSessionKey() === sessionKey) return true;
+    const identity = sessionKey.replace(/^session:/, "");
+    const target = visibleElements(".session-list-card, .session-item-container")
+      .filter(isLeftSession)
+      .find((node) => sessionIdentity(node) === identity);
+    if (!target) return false;
+    target.click();
+    await sleep(700);
+    return currentSessionKey() === sessionKey && visible(document.querySelector("#input-textarea"));
   }
 
   function messageReplyKey(message, sessionKey = currentSessionKey()) {

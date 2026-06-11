@@ -10,21 +10,25 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 
 | 步骤 | 位置 | 用途 |
 | --- | --- | --- |
-| 1 | 主控制台 > 初始化 | 填 `DEEPSEEK_API_KEY`、企业微信 Webhook，点击“登录并自动接入”完成润宇登录 |
-| 2 | 主控制台 > 初始化 | 点“保存并自检”，自动检查 AI、Webhook、判断库、规则库和长期运行状态 |
-| 3 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
+| 1 | 主控制台 > 初始化 | 填 `DEEPSEEK_API_KEY` 和企业微信 Webhook |
+| 2 | 主控制台 > 初始化 | 点“打开登录网页”，5 分钟内完成润宇网页登录 |
+| 3 | 主控制台 > 初始化 | 点“我已登录，获取凭证”，真实查询通过后自动初始化 10 条引用缓存 |
+| 4 | 主控制台 > 初始化 | 点“保存并自检”，检查 AI、Webhook、判断库、规则库和长期运行状态 |
+| 5 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
 
 如果三项配置已经齐全，程序会直接进入客服页映射；如果换电脑后缺任意一项，会再次打开初始化页。
 
-外部判断库默认通过应用内网页登录自动接入。每台电脑第一次使用时点击“登录并自动接入”，程序会使用独立持久会话保存登录状态、自动读取 `session_token` 并执行真实查询验证。重启应用会自动恢复；状态显示“登录已过期”时点击“重新登录”。手工粘贴 Cookie 只作为备用，Base URL 保持 `https://runyuai.zhiduoke.com.cn`。
+外部判断库默认通过应用内网页登录接入。每台电脑第一次使用时依次点击“打开登录网页”和“我已登录，获取凭证”。程序会检测 `session_token`、保存到本机、强制查询远端接口，再下载首次 10 条引用数据。只有真实查询成功才显示连接成功，本地缓存不会造成误判。
+
+登录监控会显示 5 分钟倒计时、Token 检测、远端验证、缓存初始化、错误码和最近凭证记录。Cookie 过期时点“重新登录”；网络问题处理后点“自检 Cookie”；查询成功但缓存为空时点“初始化引用库”。错误和恢复都会通过 Webhook 通知。手工粘贴 Cookie 只作为备用，Base URL 保持 `https://runyuai.zhiduoke.com.cn`。
 
 主控制台和悬浮窗会同步显示检测、规则匹配、判断库、AI 思考、文字、图片、商品、文件和异常步骤。短状态统一控制在 6 个字符以内，完整含义见 [运行状态说明](runtime-statuses.md)。
 
@@ -82,6 +86,7 @@ flowchart TD
   L --> N{"60 秒内是否有可用答案"}
   N -- "是" --> M
   N -- "否" --> O["轮换发送兜底回复"]
+  O --> P["AI稍后返回仍继续发送详细答案"]
   E --> J["记录动作结果"]
   G --> J
   M --> J
@@ -186,6 +191,9 @@ flowchart TD
 | 发图片/发商品都失败 | 还停在扫码页，没进 `/shop/kf` 客服工作台 | 扫码登录并选中测试会话 |
 | AI 不回复 | 未填 DeepSeek API Key | 主控制台 > API 接入 填写后保存 |
 | Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 主控制台 > Webhook，保存后点测试 |
+| 判断库显示 Cookie 过期 | 当前电脑的 `session_token` 已失效 | 点“重新登录”，登录后点“我已登录，获取凭证” |
+| 判断库显示 404 | Base URL 带了接口路径或网络解析异常 | Base URL 只保留域名，保存后点“自检 Cookie” |
+| 判断库查询成功但缓存为 0 | 首次引用数据没有落入本地缓存 | 点“初始化引用库”，复制错误码和最近记录反馈 |
 | 规则看起来没加载 | 旧运行配置覆盖过新版规则 | 新版会自动补齐；也可在主控制台 > 规则库检查 |
 | macOS 提示无法打开 | 未签名本地应用的系统提示 | 右键打开，或在系统设置安全性里允许 |
 | Windows 提示未知发布者 | 当前安装包未代码签名 | 选择仍要运行，后续可接入证书签名 |

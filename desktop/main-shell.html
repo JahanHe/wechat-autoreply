@@ -374,6 +374,7 @@
       .metric {
         display: grid;
         gap: 8px;
+        min-width: 0;
       }
 
       .metric strong {
@@ -385,6 +386,24 @@
       .muted,
       .hint {
         color: var(--muted);
+      }
+
+      .metric span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .runyu-monitor .switch-row {
+        border: 0;
+        border-top: 1px solid var(--hairline);
+        border-radius: 0;
+        background: transparent;
+        padding: 9px 0;
+      }
+
+      .runyu-monitor .switch-row:first-child {
+        border-top: 0;
       }
 
       .runtime-trail {

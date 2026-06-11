@@ -63,6 +63,15 @@ contextBridge.exposeInMainWorld("mainShell", {
   openRunyuLogin(options) {
     return ipcRenderer.invoke("main-open-runyu-login", options || {});
   },
+  captureRunyuCookie() {
+    return ipcRenderer.invoke("main-capture-runyu-cookie");
+  },
+  verifyRunyuAuth() {
+    return ipcRenderer.invoke("main-verify-runyu-auth");
+  },
+  bootstrapRunyuLibrary() {
+    return ipcRenderer.invoke("main-bootstrap-runyu-library");
+  },
   clearRunyuLogin() {
     return ipcRenderer.invoke("main-clear-runyu-login");
   },

@@ -1,5 +1,5 @@
 const DEFAULTS = {
-  configVersion: "0.3.5",
+  configVersion: "0.3.6",
   enabled: true,
   aiFallback: true,
   aiEndpoint: "http://127.0.0.1:8787/reply",

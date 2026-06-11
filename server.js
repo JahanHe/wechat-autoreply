@@ -156,7 +156,10 @@ export function createAiServer() {
       const body = await readJson(req);
       const query = String(body.query || body.keyword || "").trim();
       const limit = Number(body.limit || 10);
-      json(res, 200, await searchJudgmentLibrary(query, { limit }));
+      json(res, 200, await searchJudgmentLibrary(query, {
+        limit,
+        remoteOnly: body.remoteOnly === true
+      }));
     } catch (error) {
       json(res, 500, { error: "judgment_search_failed", message: error.message });
     }

@@ -24,6 +24,8 @@ const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
+const RUNYU_LOGIN_TIMEOUT_MS = 5 * 60_000;
+const RUNYU_AUTH_HISTORY_LIMIT = 100;
 const BOT_STATUS_HISTORY_LIMIT = 6;
 const BOT_RUNTIME_STATUSES = {
   starting: { label: "启动中", tone: "active", category: "系统" },
@@ -131,10 +133,18 @@ let judgmentDownloadJob = null;
 let runyuLoginWindow = null;
 let runyuCookieCaptureTimer = null;
 let runyuCookieCaptureInProgress = false;
+let runyuLoginDeadlineAt = 0;
+let runyuLoginTimeoutTimer = null;
+let runyuAuthVerificationPromise = null;
+let runyuAuthHistory = [];
 let runyuAuthState = {
   status: "unconfigured",
   message: "尚未登录润宇判断库",
   source: "",
+  errorCode: "",
+  httpStatus: 0,
+  errorDetail: "",
+  cookieDetected: false,
   updatedAt: 0,
   verifiedAt: 0
 };
@@ -168,6 +178,7 @@ async function startDesktopApp() {
   loadDotEnv(runtimeConfigRoot(), { override: true });
   config = await loadConfig();
   applyEnvBackedConfig();
+  await loadRunyuAuthHistory();
   initializeRunyuAuthState();
   await saveConfig();
   await loadNotifyOutbox();
@@ -336,6 +347,7 @@ function defaultConfig() {
       aiHealthMs: 60_000,
       pageHealthMs: 60_000,
       botHeartbeatMs: 60_000,
+      runyuAuthHealthMs: 10 * 60_000,
       reloadOnBotStale: true,
       preventAppSuspension: true
     }
@@ -417,6 +429,10 @@ function replySummaryStatePath() {
   return resolve(app.getPath("userData"), "reply-summary-state.json");
 }
 
+function runyuAuthHistoryPath() {
+  return resolve(app.getPath("userData"), "runyu-auth-history.json");
+}
+
 function mergeConfig(base, saved) {
   const savedFloatWindow = saved?.floatWindow || {};
   const resetFloatingSizes = Number(savedFloatWindow.uiVersion || 0) !== Number(base.floatWindow.uiVersion);
@@ -466,6 +482,7 @@ function normalizeWatchdogConfig(value = {}) {
     aiHealthMs: clampInt(value.aiHealthMs ?? 60_000, 15_000, 3_600_000),
     pageHealthMs: clampInt(value.pageHealthMs ?? 60_000, 15_000, 3_600_000),
     botHeartbeatMs: clampInt(value.botHeartbeatMs ?? 60_000, 15_000, 3_600_000),
+    runyuAuthHealthMs: clampInt(value.runyuAuthHealthMs ?? 10 * 60_000, 60_000, 24 * 60 * 60_000),
     reloadOnBotStale: value.reloadOnBotStale !== false,
     preventAppSuspension: value.preventAppSuspension !== false
   };
@@ -1317,6 +1334,9 @@ function registerIpc() {
   ipcMain.handle("main-test-ai-reply", (_event, payload = {}) => testAiReply(payload || {}));
   ipcMain.handle("main-get-judgments-status", () => getJudgmentLibraryStatus());
   ipcMain.handle("main-open-runyu-login", (_event, options = {}) => openRunyuLoginWindow(options || {}));
+  ipcMain.handle("main-capture-runyu-cookie", () => captureAndVerifyRunyuCookie("manual_capture"));
+  ipcMain.handle("main-verify-runyu-auth", () => selfCheckRunyuAuth({ notify: true, source: "manual_check" }));
+  ipcMain.handle("main-bootstrap-runyu-library", () => bootstrapRunyuJudgmentLibrary({ notify: true, source: "manual_bootstrap" }));
   ipcMain.handle("main-clear-runyu-login", () => clearRunyuLogin());
   ipcMain.handle("main-test-judgments", (_event, payload = {}) => testJudgmentLibrary(payload || {}));
   ipcMain.handle("main-refresh-judgments", (_event, payload = {}) => refreshJudgmentLibrary(payload || {}));
@@ -2911,7 +2931,8 @@ async function handleImageReply(payload = {}) {
   let sent = false;
   let fallbackMessage = "";
 
-  if (config.bot.autoPasteImages && getKfWebContents()) {
+  const shouldAutoSend = Boolean(payload.fromAction || config.bot.autoPasteImages);
+  if (shouldAutoSend && getKfWebContents()) {
     const uploadResult = await uploadAndSendImageFile(resolvedPath);
     uploaded = Boolean(uploadResult.uploaded);
     sent = Boolean(uploadResult.sent);
@@ -2922,7 +2943,7 @@ async function handleImageReply(payload = {}) {
   if (!sent) {
     clipboard.writeImage(image);
     copied = true;
-    if (config.bot.autoPasteImages && getKfWebContents()) {
+    if (shouldAutoSend && getKfWebContents()) {
       const result = await pasteAndSendClipboardImage();
       pasted = Boolean(result.pasted);
       sent = Boolean(result.sent);
@@ -2946,13 +2967,13 @@ async function handleImageReply(payload = {}) {
   }
 
   const output = {
-    ok: true,
+    ok: Boolean(sent),
     copied,
     uploaded,
     pasted,
     sent,
     path: resolvedPath,
-    message: sent ? (uploaded ? "图片已通过上传控件发送" : "图片已自动发送") : pasted ? "图片已粘贴待确认" : "图片已复制到剪贴板"
+    message: sent ? (uploaded ? "图片已通过上传控件发送" : "图片已自动发送") : pasted ? "图片已粘贴待确认" : fallbackMessage || "图片未能自动发送，已复制到剪贴板"
   };
   updateFloatingStatus(sent ? "图片已发" : pasted ? "待确认" : "回复失败", {
     code: sent ? "image_sent" : pasted ? "monitoring" : "reply_failed",
@@ -3102,7 +3123,10 @@ async function uploadAndSendLocalFile(filePath, options = {}) {
 
     const clicked = await wc.executeJavaScript(`(${clickSendButtonScript.toString()})()`, true).catch(() => false);
     if (!clicked) return { uploaded: true, sent: false, message: "已上传，但未找到发送按钮" };
-    await sleep(1200);
+    const confirmed = await waitForUploadSent(before, ready);
+    if (!confirmed.sent) {
+      return { uploaded: true, sent: false, message: confirmed.message || "已点击发送，但没有检测到发送完成" };
+    }
     return { uploaded: true, sent: true, message: `已通过${options.kind || "文件"}上传入口发送` };
   } catch (error) {
     return { uploaded: false, sent: false, message: `上传入口失败：${String(error?.message || error)}` };
@@ -3126,7 +3150,8 @@ async function waitForUploadReady(before = {}) {
     last = await wc.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
       .catch((error) => ({ ready: false, message: String(error?.message || error) }));
     const hasNewPreview = Number(last?.previewCount || 0) > Number(before?.previewCount || 0);
-    if (last?.sendButtonVisible || hasNewPreview) {
+    const hasNewDialog = Boolean(last?.dialogSendButtonVisible && !before?.dialogSendButtonVisible);
+    if (hasNewDialog || hasNewPreview) {
       return { ...last, ready: true };
     }
     await sleep(300);
@@ -3134,9 +3159,28 @@ async function waitForUploadReady(before = {}) {
   return { ...(last || {}), ready: false, message: "等待图片预览超时" };
 }
 
+async function waitForUploadSent(before = {}, ready = {}) {
+  const wc = getKfWebContents();
+  if (!wc) return { sent: false, message: "客服窗口未打开" };
+  const started = Date.now();
+  let last = ready;
+  while (Date.now() - started < 6000) {
+    last = await wc.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
+      .catch((error) => ({ message: String(error?.message || error) }));
+    const newMessageMedia = Number(last?.messageMediaCount || 0) > Number(before?.messageMediaCount || 0);
+    const dialogClosed = Boolean(ready?.dialogSendButtonVisible && !last?.dialogSendButtonVisible);
+    const previewConsumed = Number(ready?.previewCount || 0) > Number(last?.previewCount || 0);
+    if (newMessageMedia || (dialogClosed && previewConsumed)) return { ...last, sent: true };
+    await sleep(300);
+  }
+  return { ...(last || {}), sent: false, message: "发送后未检测到图片消息或上传弹窗关闭" };
+}
+
 function findFileUploadInputScript() {
+  const inputs = Array.from(document.querySelectorAll("input[type='file']"));
   const input = document.querySelector("#file2") ||
-    Array.from(document.querySelectorAll("input[type='file']")).find((node) => node.id !== "file1");
+    inputs.find((node) => /(?:^|[-_])file2(?:$|[-_])/i.test(node.id || "")) ||
+    inputs.find((node) => !/(?:^|[-_])file1(?:$|[-_])/i.test(node.id || ""));
   if (!input) return { ok: false, message: "未找到文件 input[type=file]" };
   return {
     ok: true,
@@ -3185,9 +3229,25 @@ function findImageUploadInputScript() {
     return "";
   };
   const inputs = Array.from(document.querySelectorAll("input[type='file']"));
-  const input = document.querySelector("#file1") ||
-    inputs.find((node) => visible(node) && /image|jpg|jpeg|png|gif|bmp/i.test(node.getAttribute("accept") || "")) ||
-    inputs.find((node) => visible(node) && /图片/.test(titleNear(node)));
+  const score = (node) => {
+    const id = String(node.id || "");
+    const accept = String(node.getAttribute("accept") || "");
+    const nearby = titleNear(node);
+    const context = String(node.closest("[role='dialog'],form,.chat-input,.chat-page")?.innerText || "");
+    let value = 0;
+    if (id === "file1") value += 120;
+    if (/(?:^|[-_])file1(?:$|[-_])/i.test(id)) value += 90;
+    if (/image|jpg|jpeg|png|gif|bmp|webp/i.test(accept)) value += 70;
+    if (/图片/.test(nearby)) value += 55;
+    if (node.closest(".chat-input,.chat-page")) value += 45;
+    if (visible(node)) value += 20;
+    if (/投诉|图片凭证/.test(`${nearby} ${context}`)) value -= 150;
+    return value;
+  };
+  const input = inputs
+    .map((node) => ({ node, score: score(node) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.node || null;
   if (!input) return { ok: false, message: "未找到图片 input[type=file]" };
   return {
     ok: true,
@@ -3253,9 +3313,15 @@ function uploadStateScript() {
   const dialogSendButtonVisible = Array.from(document.querySelectorAll(".file-upload-dialog button, .t-dialog__ctx button, .t-dialog button, [role='dialog'] button"))
     .filter(visible)
     .some(isSendButton);
+  const messageMediaCount = Array.from(document.querySelectorAll(".msg img, .msg canvas, .msg video, .message img, [class*='message'] img"))
+    .filter(visible)
+    .length;
   return {
     previewCount,
-    sendButtonVisible: sendButtonVisible || dialogSendButtonVisible
+    sendButtonVisible: sendButtonVisible || dialogSendButtonVisible,
+    composerSendButtonVisible: sendButtonVisible,
+    dialogSendButtonVisible,
+    messageMediaCount
   };
 }
 
@@ -3804,7 +3870,8 @@ function startWatchdogs() {
   watchdogTimers = [
     setInterval(() => checkAiHealth({ notifyOk: false }), watchdog.aiHealthMs),
     setInterval(() => inspectLoginState(), watchdog.pageHealthMs),
-    setInterval(() => inspectBotHeartbeat(), Math.min(watchdog.botHeartbeatMs, 60_000))
+    setInterval(() => inspectBotHeartbeat(), Math.min(watchdog.botHeartbeatMs, 60_000)),
+    setInterval(() => selfCheckRunyuAuth({ notify: true, source: "scheduled_check" }), watchdog.runyuAuthHealthMs)
   ];
   broadcastStatus();
 }
@@ -3920,6 +3987,10 @@ function initializeRunyuAuthState() {
         status: "configured",
         message: "已保存登录凭证，等待真实查询验证",
         source: "saved",
+        errorCode: "",
+        httpStatus: 0,
+        errorDetail: "",
+        cookieDetected: true,
         updatedAt: Date.now(),
         verifiedAt: 0
       }
@@ -3927,32 +3998,91 @@ function initializeRunyuAuthState() {
         status: "unconfigured",
         message: "尚未登录润宇判断库",
         source: "",
+        errorCode: "",
+        httpStatus: 0,
+        errorDetail: "",
+        cookieDetected: false,
         updatedAt: Date.now(),
         verifiedAt: 0
       };
 }
 
 function runyuAuthStatusPayload() {
+  const remainingMs = runyuLoginDeadlineAt ? Math.max(0, runyuLoginDeadlineAt - Date.now()) : 0;
   return {
     ...runyuAuthState,
     loginWindowOpen: Boolean(runyuLoginWindow && !runyuLoginWindow.isDestroyed()),
-    configured: Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE)
+    configured: Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE),
+    deadlineAt: runyuLoginDeadlineAt,
+    remainingMs,
+    history: runyuAuthHistory.slice(-30).reverse()
   };
 }
 
 function setRunyuAuthState(status, message, extra = {}) {
+  const clearError = !["error", "expired", "forbidden", "timeout"].includes(status);
+  const clearVerification = ["unconfigured", "login_required", "monitoring", "expired", "forbidden", "error", "timeout"].includes(status);
   runyuAuthState = {
     ...runyuAuthState,
+    ...(clearError ? { errorCode: "", httpStatus: 0, errorDetail: "" } : {}),
+    ...(clearVerification ? { queryVerified: false } : {}),
     ...extra,
     status,
     message: String(message || ""),
     updatedAt: Date.now()
   };
+  recordRunyuAuthHistory(runyuAuthState);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("main-runyu-auth", runyuAuthStatusPayload());
   }
   broadcastStatus();
   return runyuAuthStatusPayload();
+}
+
+async function loadRunyuAuthHistory() {
+  const path = runyuAuthHistoryPath();
+  if (!existsSync(path)) return;
+  try {
+    const items = JSON.parse(await readFile(path, "utf8"));
+    runyuAuthHistory = Array.isArray(items) ? items.slice(-RUNYU_AUTH_HISTORY_LIMIT) : [];
+  } catch (error) {
+    console.error("[runyu] load auth history failed", error);
+    runyuAuthHistory = [];
+  }
+}
+
+function recordRunyuAuthHistory(state = {}) {
+  const item = {
+    status: String(state.status || "unknown"),
+    message: String(state.message || ""),
+    source: String(state.source || ""),
+    errorCode: String(state.errorCode || ""),
+    httpStatus: Number(state.httpStatus || 0),
+    cookieDetected: Boolean(state.cookieDetected),
+    queryVerified: Boolean(state.queryVerified),
+    downloadedRecords: Number(state.downloadedRecords || 0),
+    at: Number(state.updatedAt || Date.now())
+  };
+  const previous = runyuAuthHistory.at(-1);
+  if (
+    previous &&
+    previous.status === item.status &&
+    previous.message === item.message &&
+    previous.errorCode === item.errorCode &&
+    previous.httpStatus === item.httpStatus &&
+    previous.cookieDetected === item.cookieDetected &&
+    previous.queryVerified === item.queryVerified &&
+    previous.downloadedRecords === item.downloadedRecords &&
+    previous.source === item.source
+  ) return;
+  runyuAuthHistory.push(item);
+  runyuAuthHistory = runyuAuthHistory.slice(-RUNYU_AUTH_HISTORY_LIMIT);
+  saveRunyuAuthHistory().catch((error) => console.error("[runyu] save auth history failed", error));
+}
+
+async function saveRunyuAuthHistory() {
+  await mkdir(dirname(runyuAuthHistoryPath()), { recursive: true });
+  await writeFile(runyuAuthHistoryPath(), JSON.stringify(runyuAuthHistory, null, 2), "utf8");
 }
 
 async function validateRunyuAuthOnStartup() {
@@ -3963,7 +4093,31 @@ async function validateRunyuAuthOnStartup() {
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
   if (!configured) return setRunyuAuthState("unconfigured", "尚未登录润宇判断库");
   setRunyuAuthState("checking", "正在验证已保存的润宇登录状态");
-  return verifyRunyuConnection({ notify: false, source: persisted ? "browser_session" : "saved" });
+  const result = await verifyRunyuConnection({ notify: false, source: persisted ? "browser_session" : "saved" });
+  if (["connected", "ready"].includes(result.status) && !Number(result.downloadedRecords || 0)) {
+    return bootstrapRunyuJudgmentLibrary({ notify: false, source: "startup_bootstrap" });
+  }
+  return result;
+}
+
+async function selfCheckRunyuAuth(options = {}) {
+  const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
+  if (!configured) {
+    return setRunyuAuthState("unconfigured", "这台电脑没有判断库 Cookie Token，请重新登录获取", {
+      source: options.source || "auth_check",
+      cookieDetected: false,
+      errorCode: "RUNYU_COOKIE_NOT_CONFIGURED",
+      errorDetail: "本机配置中没有 RUNYU_WEB_COOKIE"
+    });
+  }
+  setRunyuAuthState("checking", "正在强制查询远端判断库，自检 Cookie Token", {
+    source: options.source || "auth_check",
+    cookieDetected: true
+  });
+  return verifyRunyuConnection({
+    notify: options.notify !== false,
+    source: options.source || "auth_check"
+  });
 }
 
 async function openRunyuLoginWindow(options = {}) {
@@ -3971,11 +4125,16 @@ async function openRunyuLoginWindow(options = {}) {
   if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) {
     runyuLoginWindow.show();
     runyuLoginWindow.focus();
-    scheduleRunyuCookieCapture("existing_window");
+    startRunyuLoginDeadline();
+    scheduleRunyuCookieInspection("existing_window");
     return runyuAuthStatusPayload();
   }
 
-  setRunyuAuthState("login_required", "请在打开的窗口中登录润宇判断库", { source: "browser_login" });
+  startRunyuLoginDeadline();
+  setRunyuAuthState("monitoring", "登录窗口已打开，5分钟内完成登录后点击“捕捉 Cookie Token”", {
+    source: "browser_login",
+    cookieDetected: false
+  });
   runyuLoginWindow = new BrowserWindow({
     width: 1180,
     height: 780,
@@ -3999,16 +4158,27 @@ async function openRunyuLoginWindow(options = {}) {
   const onCookieChanged = (_event, cookie, cause, removed) => {
     if (removed || cookie?.name !== "session_token") return;
     if (!String(cookie?.domain || "").includes("zhiduoke.com.cn")) return;
-    scheduleRunyuCookieCapture(`cookie_${cause || "changed"}`);
+    scheduleRunyuCookieInspection(`cookie_${cause || "changed"}`);
   };
   authSession.cookies.on("changed", onCookieChanged);
 
   runyuLoginWindow.once("ready-to-show", () => runyuLoginWindow?.show());
-  wc.on("did-finish-load", () => scheduleRunyuCookieCapture("page_loaded"));
-  wc.on("did-navigate", () => scheduleRunyuCookieCapture("navigated"));
-  wc.on("did-navigate-in-page", () => scheduleRunyuCookieCapture("in_page"));
-  wc.on("did-fail-load", (_event, code, description) => {
-    setRunyuAuthState("error", `润宇登录页加载失败：${description || code}`, { source: "browser_login" });
+  wc.on("did-finish-load", () => scheduleRunyuCookieInspection("page_loaded"));
+  wc.on("did-navigate", (_event, url) => {
+    setRunyuAuthState(runyuAuthState.status === "cookie_detected" ? "cookie_detected" : "monitoring", runyuAuthState.message, {
+      source: "browser_login",
+      lastUrl: String(url || "")
+    });
+    scheduleRunyuCookieInspection("navigated");
+  });
+  wc.on("did-navigate-in-page", () => scheduleRunyuCookieInspection("in_page"));
+  wc.on("did-fail-load", (_event, code, description, validatedUrl) => {
+    setRunyuAuthState("error", `润宇登录页加载失败：${description || code}`, {
+      source: "browser_login",
+      errorCode: "RUNYU_LOGIN_PAGE_LOAD_FAILED",
+      httpStatus: Number(code || 0),
+      errorDetail: String(validatedUrl || description || code || "")
+    });
   });
   wc.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(RUNYU_BASE_URL)) {
@@ -4021,8 +4191,12 @@ async function openRunyuLoginWindow(options = {}) {
   runyuLoginWindow.on("closed", () => {
     authSession.cookies.removeListener("changed", onCookieChanged);
     runyuLoginWindow = null;
-    if (runyuAuthState.status === "login_required") {
-      setRunyuAuthState("unconfigured", "登录窗口已关闭，尚未取得有效凭证", { source: "browser_login" });
+    clearRunyuLoginDeadline();
+    if (["login_required", "monitoring", "cookie_detected", "timeout"].includes(runyuAuthState.status)) {
+      setRunyuAuthState("unconfigured", "登录窗口已关闭，尚未完成凭证验证", {
+        source: "browser_login",
+        cookieDetected: Boolean(runyuAuthState.cookieDetected)
+      });
     } else {
       broadcastStatus();
     }
@@ -4032,14 +4206,53 @@ async function openRunyuLoginWindow(options = {}) {
   return runyuAuthStatusPayload();
 }
 
-function scheduleRunyuCookieCapture(source = "browser_login") {
+function startRunyuLoginDeadline() {
+  clearRunyuLoginDeadline();
+  runyuLoginDeadlineAt = Date.now() + RUNYU_LOGIN_TIMEOUT_MS;
+  runyuLoginTimeoutTimer = setTimeout(() => {
+    setRunyuAuthState("timeout", "5分钟登录时间已到，请点击“重新登录”后再试", {
+      source: "browser_login",
+      errorCode: "RUNYU_LOGIN_TIMEOUT",
+      errorDetail: "登录窗口打开后 5 分钟内未完成 Cookie Token 验证"
+    });
+  }, RUNYU_LOGIN_TIMEOUT_MS);
+}
+
+function clearRunyuLoginDeadline() {
+  clearTimeout(runyuLoginTimeoutTimer);
+  runyuLoginTimeoutTimer = null;
+  runyuLoginDeadlineAt = 0;
+}
+
+function scheduleRunyuCookieInspection(source = "browser_login") {
   clearTimeout(runyuCookieCaptureTimer);
   runyuCookieCaptureTimer = setTimeout(() => {
-    captureAndVerifyRunyuCookie(source).catch((error) => {
-      console.error("[runyu] cookie capture failed", error);
-      setRunyuAuthState("error", String(error?.message || error), { source });
+    inspectRunyuLoginCookie(source).catch((error) => {
+      console.error("[runyu] cookie inspection failed", error);
+      setRunyuAuthState("error", String(error?.message || error), {
+        source,
+        errorCode: "RUNYU_COOKIE_INSPECTION_FAILED",
+        errorDetail: String(error?.stack || error?.message || error)
+      });
     });
   }, 700);
+}
+
+async function inspectRunyuLoginCookie(source = "browser_login") {
+  const cookie = await readRunyuSessionCookie();
+  if (!cookie) {
+    if (!["connected", "checking", "timeout"].includes(runyuAuthState.status)) {
+      setRunyuAuthState("monitoring", "正在监控登录状态，登录成功后点击“捕捉 Cookie Token”", {
+        source,
+        cookieDetected: false
+      });
+    }
+    return runyuAuthStatusPayload();
+  }
+  return setRunyuAuthState("cookie_detected", "已检测到登录 Cookie，请点击“捕捉 Cookie Token”完成验证", {
+    source,
+    cookieDetected: true
+  });
 }
 
 async function captureAndVerifyRunyuCookie(source = "browser_login") {
@@ -4048,22 +4261,40 @@ async function captureAndVerifyRunyuCookie(source = "browser_login") {
   try {
     const cookie = await readRunyuSessionCookie();
     if (!cookie) {
-      if (runyuAuthState.status !== "connected") {
-        setRunyuAuthState("login_required", "等待润宇登录完成", { source });
-      }
+      setRunyuAuthState("login_required", "没有检测到 session_token，请先在登录窗口完成登录", {
+        source,
+        cookieDetected: false,
+        errorCode: "RUNYU_SESSION_TOKEN_NOT_FOUND",
+        errorDetail: "Cookie 存储中没有找到 runyuai.zhiduoke.com.cn 的 session_token"
+      });
       return runyuAuthStatusPayload();
     }
     const normalized = normalizeRunyuCookie(cookie);
     const current = normalizeRunyuCookie(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "");
     if (normalized !== current) await saveRunyuCookie(normalized, source);
-    setRunyuAuthState("checking", "已取得登录凭证，正在执行真实查询验证", { source });
+    setRunyuAuthState("checking", "已捕捉 Cookie Token，正在执行真实查询验证", {
+      source,
+      cookieDetected: true
+    });
     const result = await verifyRunyuConnection({ notify: true, source });
-    if (result.status === "connected" && runyuLoginWindow && !runyuLoginWindow.isDestroyed()) {
-      setTimeout(() => {
-        if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) runyuLoginWindow.close();
-      }, 900);
+    if (["connected", "ready"].includes(result.status)) {
+      clearRunyuLoginDeadline();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("main-runyu-auth", runyuAuthStatusPayload());
+      }
+      broadcastStatus();
+    }
+    if (["connected", "ready"].includes(result.status)) {
+      return bootstrapRunyuJudgmentLibrary({ notify: true, source: "first_login_bootstrap" });
     }
     return result;
+  } catch (error) {
+    const diagnosis = diagnoseRunyuError(String(error?.message || error));
+    return setRunyuAuthState("error", diagnosis.message, {
+      source,
+      cookieDetected: Boolean(runyuAuthState.cookieDetected),
+      ...diagnosis
+    });
   } finally {
     runyuCookieCaptureInProgress = false;
   }
@@ -4098,25 +4329,153 @@ async function saveRunyuCookie(cookie, source = "browser_login") {
 }
 
 async function verifyRunyuConnection(options = {}) {
+  while (runyuAuthVerificationPromise) {
+    await runyuAuthVerificationPromise.catch(() => {});
+  }
+  const task = performRunyuConnectionVerification(options);
+  runyuAuthVerificationPromise = task;
+  try {
+    return await task;
+  } finally {
+    if (runyuAuthVerificationPromise === task) runyuAuthVerificationPromise = null;
+  }
+}
+
+async function performRunyuConnectionVerification(options = {}) {
   const result = await testJudgmentLibrary({
     query: "会员",
     limit: 1,
-    notify: options.notify !== false
+    remoteOnly: true,
+    notify: false
   });
   if (result.ok) {
-    return setRunyuAuthState("connected", `润宇判断库连接成功，测试返回 ${result.results?.length || 0} 条`, {
+    const cacheStatus = await fetchJson(`http://127.0.0.1:${PORT}/judgments/status`, 5000).catch(() => ({ records: 0 }));
+    const records = Number(cacheStatus.records || 0);
+    const state = setRunyuAuthState(records > 0 ? "ready" : "connected", `Cookie 自检通过，远端返回 ${result.results?.length || 0} 条，本地缓存 ${records} 条`, {
       source: options.source || runyuAuthState.source || "saved",
+      cookieDetected: true,
+      queryVerified: true,
+      downloadedRecords: records,
+      lastCheckedAt: Date.now(),
       verifiedAt: Date.now()
     });
+    if (options.notify !== false) {
+      await notifyHealthRecovered("runyu_auth", "判断库 Cookie 已恢复", `远端查询成功，本地缓存 ${records} 条。`, { eventType: "health" });
+    }
+    return state;
   }
   const message = String(result.message || result.error || "判断库验证失败");
+  const diagnosis = diagnoseRunyuError(message);
   if (/没有.*权限|403|FORBIDDEN/i.test(message)) {
-    return setRunyuAuthState("forbidden", message, { source: options.source || runyuAuthState.source });
+    const state = setRunyuAuthState("forbidden", diagnosis.message, { source: options.source || runyuAuthState.source, cookieDetected: true, ...diagnosis });
+    if (options.notify !== false) await notifyRunyuAuthFailure(state);
+    return state;
   }
   if (/未登录|过期|401|UNAUTHORIZED/i.test(message)) {
-    return setRunyuAuthState("expired", message, { source: options.source || runyuAuthState.source });
+    const state = setRunyuAuthState("expired", diagnosis.message, { source: options.source || runyuAuthState.source, cookieDetected: true, ...diagnosis });
+    if (options.notify !== false) await notifyRunyuAuthFailure(state);
+    return state;
   }
-  return setRunyuAuthState("error", message, { source: options.source || runyuAuthState.source });
+  const state = setRunyuAuthState("error", diagnosis.message, { source: options.source || runyuAuthState.source, cookieDetected: true, ...diagnosis });
+  if (options.notify !== false) await notifyRunyuAuthFailure(state);
+  return state;
+}
+
+async function notifyRunyuAuthFailure(state = {}) {
+  const action = state.status === "expired"
+    ? "请打开控制台，在判断库页面点击“重新登录”，登录后点击“我已登录，获取凭证”。"
+    : state.status === "forbidden"
+      ? "请改用有判断库权限的账号重新登录。"
+      : "请打开控制台查看错误码，按页面引导重试。";
+  await sendNotification(
+    `runyu_auth:${state.errorCode || state.status}`,
+    "判断库 Cookie 自检失败",
+    [`错误码：${state.errorCode || "RUNYU_VERIFY_FAILED"}`, state.httpStatus ? `HTTP：${state.httpStatus}` : "", state.message || "", action].filter(Boolean).join("\n"),
+    {
+      severity: "warning",
+      recoveryKey: "runyu_auth",
+      cooldownMs: 10 * 60_000,
+      eventType: "health"
+    }
+  );
+}
+
+async function bootstrapRunyuJudgmentLibrary(options = {}) {
+  const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
+  if (!configured) {
+    return setRunyuAuthState("unconfigured", "缺少 Cookie Token，无法初始化判断库缓存", {
+      source: options.source || "bootstrap",
+      cookieDetected: false,
+      errorCode: "RUNYU_COOKIE_NOT_CONFIGURED",
+      errorDetail: "请先打开登录网页，完成登录后获取凭证"
+    });
+  }
+  setRunyuAuthState("syncing", "远端查询已通过，正在下载首次引用缓存", {
+    source: options.source || "bootstrap",
+    cookieDetected: true,
+    queryVerified: true
+  });
+  const result = await testJudgmentLibrary({
+    query: "会员",
+    limit: 10,
+    remoteOnly: true,
+    notify: false
+  });
+  if (!result.ok) {
+    const diagnosis = diagnoseRunyuError(String(result.message || result.error || "首次缓存下载失败"));
+    const state = setRunyuAuthState("error", diagnosis.message, {
+      source: options.source || "bootstrap",
+      cookieDetected: true,
+      queryVerified: true,
+      ...diagnosis
+    });
+    if (options.notify !== false) await notifyRunyuAuthFailure(state);
+    return state;
+  }
+  const cacheStatus = await fetchJson(`http://127.0.0.1:${PORT}/judgments/status`, 5000).catch(() => ({ records: 0 }));
+  const records = Number(cacheStatus.records || 0);
+  if (!records) {
+    const state = setRunyuAuthState("error", "远端查询成功，但没有下载到可引用记录", {
+      source: options.source || "bootstrap",
+      cookieDetected: true,
+      queryVerified: true,
+      errorCode: "RUNYU_BOOTSTRAP_EMPTY",
+      errorDetail: "测试关键词“会员”没有写入本地缓存，请复制错误信息反馈"
+    });
+    if (options.notify !== false) await notifyRunyuAuthFailure(state);
+    return state;
+  }
+  const state = setRunyuAuthState("ready", `判断库已就绪：远端查询成功，本地可引用 ${records} 条`, {
+    source: options.source || "bootstrap",
+    cookieDetected: true,
+    queryVerified: true,
+    downloadedRecords: records,
+    lastCheckedAt: Date.now(),
+    lastDownloadAt: Date.now(),
+    verifiedAt: Date.now()
+  });
+  if (options.notify !== false) {
+    await notifyHealthRecovered("runyu_auth", "判断库已恢复并可引用", `远端查询成功，本地可引用 ${records} 条。`, { eventType: "health" });
+  }
+  return state;
+}
+
+function diagnoseRunyuError(input) {
+  const message = String(input || "判断库验证失败").trim();
+  const httpMatch = message.match(/(?:API|HTTP|状态)\s*(401|403|404|408|429|5\d\d)/i);
+  const httpStatus = Number(httpMatch?.[1] || 0);
+  let errorCode = "RUNYU_VERIFY_FAILED";
+  if (/404/.test(message)) errorCode = "RUNYU_API_404";
+  else if (/401|未登录|过期|UNAUTHORIZED/i.test(message)) errorCode = "RUNYU_AUTH_EXPIRED";
+  else if (/403|没有.*权限|FORBIDDEN/i.test(message)) errorCode = "RUNYU_PERMISSION_DENIED";
+  else if (/超时|timeout|ETIMEDOUT|408/i.test(message)) errorCode = "RUNYU_REQUEST_TIMEOUT";
+  else if (/fetch failed|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket|network/i.test(message)) errorCode = "RUNYU_NETWORK_FAILED";
+  return {
+    message,
+    errorCode,
+    httpStatus,
+    errorDetail: message
+  };
 }
 
 async function clearRunyuBrowserSession(options = {}) {
@@ -4133,8 +4492,9 @@ async function clearRunyuBrowserSession(options = {}) {
 
 async function clearRunyuLogin() {
   if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) runyuLoginWindow.close();
+  clearRunyuLoginDeadline();
   await clearRunyuBrowserSession({ clearSavedCookie: true });
-  setRunyuAuthState("unconfigured", "已清除这台电脑上的润宇登录状态", { source: "" });
+  setRunyuAuthState("unconfigured", "已清除这台电脑上的润宇登录状态", { source: "", cookieDetected: false });
   return runyuAuthStatusPayload();
 }
 
@@ -4143,7 +4503,8 @@ async function testJudgmentLibrary(payload = {}) {
   if (!query) return { ok: false, message: "测试关键词不能为空" };
   const result = await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/search`, {
     query,
-    limit: clampInt(payload.limit || 10, 1, 30)
+    limit: clampInt(payload.limit || 10, 1, 30),
+    remoteOnly: payload.remoteOnly === true
   }, Number(config?.judgmentLibrary?.timeoutMs || 12000) + 5000).catch((error) => ({
     ok: false,
     message: String(error?.message || error),

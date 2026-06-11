@@ -211,10 +211,10 @@ flowchart TD
 
 当前 Release：
 
-- [v0.3.5 发布页](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.3.5)
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.5/wechat-autoreply-windows-portable.exe)
+- [v0.3.6 发布页](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.3.6)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-windows-portable.exe)
 
 ## 第七幕：带着答案回来
 
@@ -279,7 +279,7 @@ flowchart TD
 
 | 来源 | 内容 |
 | --- | --- |
-| 版本标签 | `v0.1.0` 到 `v0.3.5` 的连续发行记录 |
+| 版本标签 | `v0.1.0` 到 `v0.3.6` 的连续发行记录 |
 | 关键提交 | 控制台、判断库、安装修复、长期运行、Cookie 修复、自动登录和统一状态机 |
 | 跨电脑反馈 | 另一台 Mac 缺少模块、未签名应用被拦截、Cookie 导入 404、规则和图片动作未初始化 |
 | 真实验证 | 图片、文件、商品卡片、邀请下单、Runyu 真实查询、重启恢复和状态 UI 自动化测试 |
@@ -296,6 +296,7 @@ flowchart LR
   V32 --> V33["v0.3.3 接口与恢复通知"]
   V33 --> V34["v0.3.4 自动登录判断库"]
   V34 --> V35["v0.3.5 全过程状态机"]
+  V35 --> V36["v0.3.6 登录与发送闭环"]
 ```
 
 ## 第一阶段：新的普通世界
@@ -453,14 +454,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A["点击登录并自动接入"] --> B["打开独立Runyu登录窗口"]
-  B --> C["用户完成网页登录"]
+  A["打开独立Runyu登录窗口"] --> B["用户完成网页登录"]
+  B --> C["用户确认已登录"]
   C --> D["应用读取session_token"]
   D --> E["只写入本机.env"]
   E --> F["执行真实判断库查询"]
   F --> G{"查询是否成功"}
-  G -- "是" --> H["显示已连接并关闭登录窗"]
-  G -- "否" --> I["显示过期/无权限/连接异常"]
+  G -- "是" --> H["初始化本地引用缓存"]
+  G -- "否" --> I["显示错误码和处理步骤"]
   H --> J["重启后恢复持久会话并复验"]
 ```
 
@@ -486,7 +487,23 @@ flowchart TD
 
 脚本心跳也与业务状态拆开：`AI思考中` 或 `发送图片` 不会再被误认为脚本异常。自动化测试依次模拟 14 个关键状态，通过正式 IPC 状态机验证双窗口同步、六字限制和窗口无溢出。
 
-## 第十二阶段：携带灵药归来
+## 第十二阶段：把登录和发送做成闭环
+
+`v0.3.6` 继续追查两个“看起来完成、实际上会中断”的问题。
+
+第一个问题是 Cookie 已保存不代表远端接口可用。旧逻辑可能命中本地缓存后显示连接成功，换电脑或 Token 过期时无法解释失败。新版把接入拆成打开页面、确认登录、捕捉凭证、远端验证和初始化引用库五个可见阶段，并增加 5 分钟倒计时、周期自检、错误码、最近凭证记录以及故障/恢复 Webhook。真实测试也因此准确识别出旧 Token 已过期，而不是继续误报成功。
+
+第二个问题是异步回复和页面动作的完成条件。15 秒承接语、60 秒兜底回复现在只负责告诉客户“正在处理”，不会把任务标记为最终完成；即使最后一条消息已经是客服发出的承接语，AI 后续答案仍会继续发送。图片动作同时改为识别微信客服页隐藏的 `collab-file1-*` 输入框，并等待预览或发送状态变化后才记录成功。
+
+| 闭环 | 新的完成标准 |
+| --- | --- |
+| Cookie | 远端真实查询成功，不能由本地缓存代替 |
+| 首次接入 | 查询成功后本地至少有可引用记录 |
+| 故障排查 | 页面展示错误码、HTTP 状态、原因、下一步和历史记录 |
+| 异步回复 | 承接/兜底之后，最终 AI 答案仍可继续发送 |
+| 图片动作 | 找到真实输入框，并检测到上传预览或发送状态变化 |
+
+## 第十三阶段：携带灵药归来
 
 第二段英雄之旅带回来的“灵药”，是一套可以复制到其他电脑的运行闭环：
 
@@ -519,11 +536,12 @@ flowchart TD
 | `v0.3.2` | `66c53b1` | 统一应用名和图标、初始化向导、开机自启和防后台清退 |
 | `v0.3.3` | `c0c097d` | Cookie/Base URL 修复、故障和恢复通知闭环 |
 | `v0.3.4` | `bfe0e11` | 判断库网页登录、自动取凭证、真实查询和重启恢复 |
-| `v0.3.5` | 本次发布 | 42 个详细状态、双窗口同步、脚本心跳和状态 UI 自动化测试 |
+| `v0.3.5` | `4258bc3` | 42 个详细状态、双窗口同步、脚本心跳和状态 UI 自动化测试 |
+| `v0.3.6` | 本次发布 | Cookie 引导、自检追溯、异步最终回复和图片发送确认闭环 |
 
 ## 今天的位置
 
-截至 `2026-06-10`，项目已经从“依赖浏览器的自动回复脚本”推进成“可安装、可配置、可观察、可恢复、可继续扩展规则的桌面客服工作台”。
+截至 `2026-06-11`，项目已经从“依赖浏览器的自动回复脚本”推进成“可安装、可配置、可观察、可恢复、可继续扩展规则的桌面客服工作台”。
 
 仍然保留的下一步不是补救基础能力，而是继续提高交付等级：
 

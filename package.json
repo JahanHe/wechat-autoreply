@@ -1,6 +1,6 @@
 {
   "name": "xiaodian-ai-kefu",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "小店AI客服桌面程序",
   "author": "local",
   "private": true,
@@ -19,6 +19,7 @@
     "install:desktop:mac": "bash scripts/install-desktop-launch-agent.sh",
     "install:desktop:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\install-desktop-windows.ps1",
     "test:notify-outbox": "node scripts/test-notify-outbox.js",
+    "test:regressions": "node scripts/test-auth-image-async.js",
     "test:status-ui": "node scripts/test-runtime-status-ui.js",
     "test:webhook": "node scripts/test-wecom-webhook.js",
     "uninstall:desktop:mac": "bash uninstall-desktop-launch-agent.sh",

@@ -39,6 +39,7 @@ const state = {
   runyuAuth: null,
   judgmentDownload: null,
   judgmentPollTimer: null,
+  runyuCountdownTimer: null,
   setupChecks: [],
   setupRunning: false,
   apiKeyShown: false,
@@ -161,6 +162,10 @@ function renderChrome() {
 }
 
 function renderView() {
+  if (!["setup", "judgments"].includes(state.view) && state.runyuCountdownTimer) {
+    window.clearInterval(state.runyuCountdownTimer);
+    state.runyuCountdownTimer = null;
+  }
   if (!state.settings) {
     content.innerHTML = `<div class="empty">正在读取配置...</div>`;
     return;
@@ -193,11 +198,12 @@ function renderPageView() {
 function needsInitialSetup() {
   const env = state.settings?.env || {};
   const notify = state.settings?.config?.notify || {};
-  const authStatus = currentRunyuAuth().status;
+  const auth = currentRunyuAuth();
   return !String(env.deepseekApiKey || "").trim()
     || !String(env.wecomWebhookUrl || notify.wecomWebhookUrl || "").trim()
-    || !String(env.runyuWebCookie || "").trim()
-    || ["unconfigured", "expired"].includes(authStatus);
+    || !hasRunyuCredential(env, auth)
+    || !Number(auth.downloadedRecords || state.judgments?.records || 0)
+    || ["unconfigured", "expired", "forbidden", "error", "timeout"].includes(auth.status);
 }
 
 function renderSetup() {
@@ -224,10 +230,16 @@ function renderSetup() {
           <div class="field span-2">
             <label>润宇判断库登录</label>
             <div class="toolbar" style="justify-content:flex-start">
-              <button id="setupRunyuLogin" type="button" class="primary">登录并自动接入</button>
+              <button id="setupRunyuLogin" type="button" class="primary">打开登录网页</button>
+              <button id="setupCaptureRunyuCookie" type="button">我已登录，获取凭证</button>
+              <button id="setupVerifyRunyuAuth" type="button">自检 Cookie</button>
+              <button id="setupBootstrapRunyu" type="button">初始化引用库</button>
               <button id="setupRunyuRelogin" type="button">重新登录</button>
             </div>
-            <div class="hint">应用会为这台电脑单独保存网页登录状态，自动读取 session_token 并执行真实查询验证。</div>
+            <div class="hint">每台新电脑都要单独完成一次：打开页面、确认登录成功、再获取本机 Cookie Token。</div>
+            ${runyuLoginFlowHtml(runyuAuth)}
+            ${runyuNextActionHtml(runyuAuth)}
+            ${runyuAuthMonitorHtml(runyuAuth, "setup")}
           </div>
           ${passwordField("setupRunyuWebCookie", "Session Cookie（手工备用）", env.runyuWebCookie || "", "只有自动登录不可用时才需要手工粘贴。必须来自 Cookies 中的 session_token。", "span-2")}
           ${field("setupDeepseekModel", "模型", env.deepseekModel || "deepseek-v4-flash", "默认不用改。")}
@@ -249,10 +261,15 @@ function renderSetup() {
     </div>
   `;
   $("#runSetupSelfCheck").disabled = state.setupRunning;
+  $("#setupCaptureRunyuCookie").disabled = !runyuAuth.loginWindowOpen && !runyuAuth.cookieDetected;
   $("#runSetupSelfCheck").addEventListener("click", runSetupSelfCheck);
   $("#setupRunyuLogin").addEventListener("click", () => openRunyuLogin(false));
+  $("#setupCaptureRunyuCookie").addEventListener("click", captureRunyuCookie);
+  $("#setupVerifyRunyuAuth").addEventListener("click", verifyRunyuAuth);
+  $("#setupBootstrapRunyu").addEventListener("click", bootstrapRunyuLibrary);
   $("#setupRunyuRelogin").addEventListener("click", () => openRunyuLogin(true));
   $("#skipToKfPage").addEventListener("click", () => switchView("page"));
+  syncRunyuAuthUi();
 }
 
 function currentRunyuAuth() {
@@ -262,13 +279,87 @@ function currentRunyuAuth() {
   };
 }
 
+function hasRunyuCredential(env = state.settings?.env || {}, auth = currentRunyuAuth()) {
+  return Boolean(String(env.runyuWebCookie || "").trim() || auth.configured || auth.cookieDetected || ["connected", "ready"].includes(auth.status));
+}
+
+function runyuLoginFlowHtml(auth = {}) {
+  const pageOpened = Boolean(auth.loginWindowOpen || auth.cookieDetected || auth.configured || ["connected", "ready"].includes(auth.status));
+  const loginConfirmed = Boolean(auth.cookieDetected || auth.configured || ["connected", "ready"].includes(auth.status));
+  const connected = Boolean(auth.queryVerified || ["connected", "ready"].includes(auth.status));
+  const downloaded = Boolean(Number(auth.downloadedRecords || state.judgments?.records || 0));
+  return `
+    <div class="grid" style="gap:6px;margin-top:10px">
+      ${setupStep("1", "打开登录页面", "应用使用这台电脑独立的登录窗口。", pageOpened)}
+      ${setupStep("2", "确认网页已登录", "看到判断库登录后的页面，再回到控制台。", loginConfirmed)}
+      ${setupStep("3", "获取并验证凭证", "点击“我已登录，获取凭证”，通过真实查询后完成。", connected)}
+      ${setupStep("4", "下载首次引用库", "验证成功后自动下载 10 条测试数据，本地可引用后才算完成。", downloaded)}
+    </div>
+  `;
+}
+
+function runyuNextActionHtml(auth = {}) {
+  const code = String(auth.errorCode || "");
+  let title = "下一步：打开登录页面";
+  let body = "点击“打开登录网页”，在独立窗口完成账号登录。每台新电脑都需要单独登录一次。";
+  if (["monitoring", "login_required"].includes(auth.status)) {
+    title = "需要您确认网页登录";
+    body = auth.cookieDetected
+      ? "系统已发现 Cookie。请确认网页已经进入登录后的判断库页面，再点击“我已登录，获取凭证”。"
+      : "请在登录窗口完成登录。确认已经进入判断库页面后，回到这里点击“我已登录，获取凭证”。";
+  } else if (auth.status === "cookie_detected") {
+    title = "下一步：获取并验证凭证";
+    body = "Cookie 已检测到。请点击“我已登录，获取凭证”，系统会强制查询远端接口，不会用本地缓存冒充成功。";
+  } else if (["checking", "syncing"].includes(auth.status)) {
+    title = auth.status === "checking" ? "正在验证 Cookie" : "正在初始化引用库";
+    body = auth.status === "checking" ? "正在执行远端真实查询，请等待结果。" : "查询已通过，正在下载首次 10 条引用数据。";
+  } else if (["connected", "ready"].includes(auth.status)) {
+    title = auth.status === "ready" ? "判断库已经可用" : "连接已通过，继续初始化缓存";
+    body = auth.status === "ready"
+      ? `远端查询和本地引用缓存均已通过，目前可引用 ${Number(auth.downloadedRecords || state.judgments?.records || 0)} 条。后续可按需全部下载。`
+      : "点击“初始化引用库”，下载首次可引用数据。";
+  } else if (auth.status === "expired" || code === "RUNYU_AUTH_EXPIRED") {
+    title = "Cookie 已失效，需要重新登录";
+    body = "点击“重新登录”，在新窗口完成登录，再点击“我已登录，获取凭证”。旧 Token 会被新 Token 替换。";
+  } else if (auth.status === "forbidden" || code === "RUNYU_PERMISSION_DENIED") {
+    title = "账号没有查询权限";
+    body = "Cookie 已获取，但当前账号不能调用判断库。请换有权限的账号重新登录，或联系判断库提供方开通权限。";
+  } else if (code === "RUNYU_API_404") {
+    title = "接口地址不可用";
+    body = "确认 Base URL 只填写 https://runyuai.zhiduoke.com.cn，不带接口路径；保存后点“自检 Cookie”。仍失败时复制错误信息反馈。";
+  } else if (code === "RUNYU_SESSION_TOKEN_NOT_FOUND") {
+    title = "没有发现 Cookie Token";
+    body = "返回登录窗口确认已经登录成功，并等待页面加载完成；然后再次点击“我已登录，获取凭证”。";
+  } else if (code === "RUNYU_NETWORK_FAILED" || code === "RUNYU_REQUEST_TIMEOUT") {
+    title = "网络暂时无法访问判断库";
+    body = "检查网络、代理或防火墙后点击“自检 Cookie”。无需重复登录，除非随后显示 Cookie 已失效。";
+  } else if (code === "RUNYU_BOOTSTRAP_EMPTY") {
+    title = "查询通过但缓存为空";
+    body = "点击“初始化引用库”重试；仍为空时复制错误信息和最近凭证记录反馈。";
+  } else if (["error", "timeout"].includes(auth.status)) {
+    title = "本次接入没有完成";
+    body = "按错误码处理后重试。可以复制错误信息和最近凭证记录，便于准确追溯。";
+  }
+  return `
+    <div style="margin-top:10px;padding:12px;border:1px solid #ead8cd;border-radius:8px;background:#fff8f3">
+      <strong>${escapeHtml(title)}</strong>
+      <div class="hint" style="margin-top:5px">${escapeHtml(body)}</div>
+    </div>
+  `;
+}
+
 function runyuAuthLabel(auth = {}) {
   return ({
     unconfigured: "待登录",
     configured: "待验证",
+    monitoring: "监控登录",
+    cookie_detected: "已发现Token",
     login_required: "等待登录",
     checking: "验证中",
     connected: "已连接",
+    syncing: "下载缓存",
+    ready: "已就绪",
+    timeout: "登录超时",
     expired: "登录已过期",
     forbidden: "账号无权限",
     error: "连接异常"
@@ -276,16 +367,121 @@ function runyuAuthLabel(auth = {}) {
 }
 
 function runyuAuthTone(auth = {}) {
-  return auth.status === "connected" ? "ok" : auth.status === "checking" || auth.status === "configured" || auth.status === "login_required" ? "warn" : "warn";
+  if (["connected", "ready"].includes(auth.status)) return "ok";
+  if (["error", "expired", "forbidden", "timeout"].includes(auth.status)) return "bad";
+  return "warn";
+}
+
+function runyuAuthMonitorHtml(auth = {}, prefix = "runyu") {
+  const remaining = runyuRemainingText(auth);
+  const errorCode = String(auth.errorCode || "").trim();
+  const detail = String(auth.errorDetail || auth.message || "").trim();
+  return `
+    <div class="download-panel runyu-monitor" style="margin-top:10px">
+      <div class="download-head">
+        <strong>登录监控</strong>
+        <span class="badge ${["connected", "ready"].includes(auth.status) ? "rule" : ["error", "expired", "forbidden", "timeout"].includes(auth.status) ? "fail" : "direct"}">${escapeHtml(runyuAuthLabel(auth))}</span>
+      </div>
+      <div class="grid" style="gap:7px;margin-top:8px">
+        <div class="switch-row">
+          <div><strong>登录窗口</strong><div class="hint">${auth.loginWindowOpen ? "窗口已打开，正在监控网页登录" : "窗口未打开"}</div></div>
+          <span class="badge ${auth.loginWindowOpen ? "rule" : ""}">${auth.loginWindowOpen ? "监控中" : "未打开"}</span>
+        </div>
+        <div class="switch-row">
+          <div><strong>Cookie Token</strong><div class="hint">只显示检测状态，不会在页面暴露 Token 内容。</div></div>
+          <span class="badge ${auth.cookieDetected ? "rule" : "direct"}">${auth.cookieDetected ? "已检测" : "未检测"}</span>
+        </div>
+        <div class="switch-row">
+          <div><strong>剩余时间</strong><div class="hint">登录窗口每次打开后有 5 分钟操作时间。</div></div>
+          <span class="badge" data-runyu-countdown>${escapeHtml(remaining)}</span>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:9px">${escapeHtml(auth.message || "等待开始登录")}</div>
+      ${errorCode ? `
+        <div style="margin-top:10px;padding:12px;border:1px solid #efc3bd;border-radius:8px;background:#fff7f5">
+          <div class="download-head"><strong>错误码：${escapeHtml(errorCode)}</strong><span>${auth.httpStatus ? `HTTP ${Number(auth.httpStatus)}` : "本机错误"}</span></div>
+          <div class="hint error-text" style="margin-top:6px">${escapeHtml(detail)}</div>
+          <button type="button" data-copy-runyu-error="${escapeHtml(prefix)}" style="margin-top:8px;padding:0 10px">复制错误信息</button>
+        </div>
+      ` : ""}
+      ${runyuAuthHistoryHtml(auth.history || [])}
+    </div>
+  `;
+}
+
+function runyuAuthHistoryHtml(history = []) {
+  const items = Array.isArray(history) ? history.slice(0, 8) : [];
+  if (!items.length) return `<div class="hint" style="margin-top:10px">还没有 Cookie 自检记录。</div>`;
+  return `
+    <details style="margin-top:10px">
+      <summary>最近凭证记录（${items.length}）</summary>
+      <div class="grid" style="gap:6px;margin-top:8px">
+        ${items.map((item) => `
+          <div class="log-row" style="grid-template-columns:136px minmax(0,1fr) auto;padding:9px">
+            <div class="log-time">${escapeHtml(formatFullTime(item.at))}</div>
+            <div>
+              <strong>${escapeHtml(runyuAuthLabel(item))}</strong>
+              <div class="hint">${escapeHtml(item.message || "")}</div>
+            </div>
+            <span class="badge ${item.errorCode ? "fail" : ["connected", "ready"].includes(item.status) ? "rule" : "direct"}">${escapeHtml(item.errorCode || (item.httpStatus ? `HTTP ${item.httpStatus}` : item.status || "记录"))}</span>
+          </div>
+        `).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function runyuRemainingText(auth = {}) {
+  if (["connected", "ready"].includes(auth.status)) return "已完成";
+  const deadlineAt = Number(auth.deadlineAt || 0);
+  if (!deadlineAt) return auth.status === "timeout" ? "00:00" : "未计时";
+  const seconds = Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function syncRunyuAuthUi() {
+  window.clearInterval(state.runyuCountdownTimer);
+  state.runyuCountdownTimer = null;
+  const auth = currentRunyuAuth();
+  const update = () => {
+    $$('[data-runyu-countdown]').forEach((node) => {
+      node.textContent = runyuRemainingText(auth);
+    });
+  };
+  update();
+  if (Number(auth.deadlineAt || 0) > Date.now() && !["connected", "ready"].includes(auth.status)) {
+    state.runyuCountdownTimer = window.setInterval(update, 1000);
+  }
+  $$('[data-copy-runyu-error]').forEach((button) => {
+    button.addEventListener("click", () => copyRunyuDiagnostic(auth));
+  });
+}
+
+async function copyRunyuDiagnostic(auth = {}) {
+  const diagnostic = [
+    `状态: ${runyuAuthLabel(auth)}`,
+    `错误码: ${auth.errorCode || "无"}`,
+    auth.httpStatus ? `HTTP: ${auth.httpStatus}` : "",
+    `原因: ${auth.errorDetail || auth.message || "未知"}`,
+    auth.lastUrl ? `页面: ${auth.lastUrl}` : "",
+    `时间: ${new Date(auth.updatedAt || Date.now()).toLocaleString("zh-CN")}`
+  ].filter(Boolean).join("\n");
+  try {
+    await navigator.clipboard.writeText(diagnostic);
+    showFlash("判断库错误信息已复制", "ok");
+  } catch (error) {
+    showFlash(`复制失败：${String(error?.message || error)}`, "error");
+  }
 }
 
 function setupMissingItems() {
   const env = state.settings?.env || {};
   const notify = state.settings?.config?.notify || {};
+  const auth = currentRunyuAuth();
   return {
     apiKey: !String(env.deepseekApiKey || "").trim(),
     webhook: !String(env.wecomWebhookUrl || notify.wecomWebhookUrl || "").trim(),
-    cookie: !String(env.runyuWebCookie || "").trim()
+    cookie: !hasRunyuCredential(env, auth)
   };
 }
 
@@ -550,11 +746,16 @@ function renderJudgments() {
           <div class="field span-2">
             <label>本机网页登录</label>
             <div class="toolbar" style="justify-content:flex-start">
-              <button id="openRunyuLogin" type="button" class="primary">登录并自动接入</button>
+              <button id="openRunyuLogin" type="button" class="primary">打开登录网页</button>
+              <button id="captureRunyuCookie" type="button">我已登录，获取凭证</button>
+              <button id="verifyRunyuAuth" type="button">自检 Cookie</button>
+              <button id="bootstrapRunyu" type="button">初始化引用库</button>
               <button id="reopenRunyuLogin" type="button">重新登录</button>
               <button id="clearRunyuLogin" type="button" class="danger">清除本机登录</button>
             </div>
-            <div class="hint">状态：${escapeHtml(runyuAuthLabel(runyuAuth))}。${escapeHtml(runyuAuth.message || "应用会自动读取并验证这台电脑的登录状态。")}</div>
+            <div class="hint">登录成功后由您明确点击捕捉按钮，系统再保存 Token 和验证接口，避免网页尚未登录完成时误判。</div>
+            ${runyuNextActionHtml(runyuAuth)}
+            ${runyuAuthMonitorHtml(runyuAuth, "judgments")}
           </div>
           ${toggleRow("judgmentEnabled", "启用外部判断库", "开启后 AI 补充回复会先检索判断库。", Boolean(library.enabled))}
           ${toggleRow("judgmentUseRemote", "允许实时查询远端", "本地缓存不足时，直接调用 Runyu API 查询。", library.useRemote !== false)}
@@ -624,7 +825,11 @@ function renderJudgments() {
     </div>
   `;
   bindToggleButtons();
+  $("#captureRunyuCookie").disabled = !runyuAuth.loginWindowOpen && !runyuAuth.cookieDetected;
   $("#openRunyuLogin").addEventListener("click", () => openRunyuLogin(false));
+  $("#captureRunyuCookie").addEventListener("click", captureRunyuCookie);
+  $("#verifyRunyuAuth").addEventListener("click", verifyRunyuAuth);
+  $("#bootstrapRunyu").addEventListener("click", bootstrapRunyuLibrary);
   $("#reopenRunyuLogin").addEventListener("click", () => openRunyuLogin(true));
   $("#clearRunyuLogin").addEventListener("click", clearRunyuLogin);
   $("#toggleRunyuCookie").addEventListener("click", () => {
@@ -638,6 +843,7 @@ function renderJudgments() {
   $("#refreshJudgmentsInline").addEventListener("click", refreshJudgments);
   $("#downloadAllJudgments").addEventListener("click", downloadAllJudgments);
   $("#downloadAllJudgmentsInline").addEventListener("click", downloadAllJudgments);
+  syncRunyuAuthUi();
   pollJudgmentDownloadIfNeeded();
 }
 
@@ -990,9 +1196,14 @@ function renderHelp() {
 async function runSetupSelfCheck() {
   const deepseekApiKey = value("setupDeepseekApiKey");
   const webhookUrl = value("setupWebhookUrl");
-  const runyuWebCookie = value("setupRunyuWebCookie");
-  if (!deepseekApiKey || !webhookUrl || !runyuWebCookie) {
-    showFlash("请先填写 DeepSeek Key、Webhook 和判断库 Session Cookie", "error");
+  const env = state.settings.env || {};
+  const runyuWebCookie = value("setupRunyuWebCookie") || env.runyuWebCookie || "";
+  if (!deepseekApiKey || !webhookUrl) {
+    showFlash("请先填写 DeepSeek Key 和 Webhook", "error");
+    return;
+  }
+  if (!runyuWebCookie && !hasRunyuCredential(env, currentRunyuAuth())) {
+    showFlash("请先完成判断库网页登录并点击“我已登录，获取凭证”", "error");
     return;
   }
 
@@ -1000,7 +1211,6 @@ async function runSetupSelfCheck() {
   state.setupChecks = [{ name: "保存本机配置", ok: false, message: "正在保存..." }];
   renderSetup();
   try {
-    const env = state.settings.env || {};
     const library = state.settings.config?.judgmentLibrary || {};
     await saveSettings({
       config: {
@@ -1041,7 +1251,7 @@ async function runSetupSelfCheck() {
         deepseekTimeoutMs: env.deepseekTimeoutMs || "80000",
         deepseekReviewTimeoutMs: env.deepseekReviewTimeoutMs || "25000",
         wecomWebhookUrl: webhookUrl,
-        runyuWebCookie,
+        runyuWebCookie: runyuWebCookie || undefined,
         runyuWebBaseUrl: value("setupRunyuBaseUrl") || env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn",
         runyuJudgmentsEnabled: "enabled",
         runyuJudgmentsUseCache: "enabled",
@@ -1244,7 +1454,57 @@ async function openRunyuLogin(reset = false) {
     state.runyuAuth = await window.mainShell.openRunyuLogin({ reset });
     state.judgments = await window.mainShell.getJudgmentsStatus();
     if (["setup", "judgments"].includes(state.view)) renderView();
-    showFlash("请在登录窗口完成润宇登录，成功后会自动验证", "ok");
+    showFlash("请在 5 分钟内完成登录，然后点击“我已登录，获取凭证”", "ok");
+  } catch (error) {
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function captureRunyuCookie() {
+  showFlash("正在捕捉 Cookie Token 并执行真实查询验证...");
+  try {
+    state.runyuAuth = await window.mainShell.captureRunyuCookie();
+    const [settings, judgments] = await Promise.all([
+      window.mainShell.getSettings(),
+      window.mainShell.getJudgmentsStatus()
+    ]);
+    state.settings = settings;
+    state.judgments = judgments;
+    renderView();
+    showFlash(
+      ["connected", "ready"].includes(state.runyuAuth.status) ? state.runyuAuth.message : state.runyuAuth.message,
+      ["connected", "ready"].includes(state.runyuAuth.status) ? "ok" : "error"
+    );
+  } catch (error) {
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function verifyRunyuAuth() {
+  showFlash("正在强制查询远端判断库，自检 Cookie Token...");
+  try {
+    state.runyuAuth = await window.mainShell.verifyRunyuAuth();
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
+    showFlash(
+      ["connected", "ready"].includes(state.runyuAuth.status) ? state.runyuAuth.message : `${state.runyuAuth.errorCode || "自检失败"}：${state.runyuAuth.message}`,
+      ["connected", "ready"].includes(state.runyuAuth.status) ? "ok" : "error"
+    );
+  } catch (error) {
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function bootstrapRunyuLibrary() {
+  showFlash("正在强制查询远端并下载首次引用库...");
+  try {
+    state.runyuAuth = await window.mainShell.bootstrapRunyuLibrary();
+    state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
+    showFlash(
+      state.runyuAuth.status === "ready" ? state.runyuAuth.message : `${state.runyuAuth.errorCode || "初始化失败"}：${state.runyuAuth.message}`,
+      state.runyuAuth.status === "ready" ? "ok" : "error"
+    );
   } catch (error) {
     showFlash(String(error?.message || error), "error");
   }
