@@ -1,6 +1,6 @@
 import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen, session, shell } from "electron";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
@@ -91,6 +91,7 @@ loadDotEnv(APP_ROOT);
 const PORT = Number(process.env.PORT || 8787);
 const CONTROL_PORT = Number(process.env.DESKTOP_CONTROL_PORT || 8797);
 let activeAiPort = PORT;
+let controlToken = process.env.DESKTOP_CONTROL_TOKEN || "";
 
 let config = null;
 let mainWindow = null;
@@ -188,6 +189,7 @@ async function startDesktopApp() {
   await ensureRuntimeConfigFiles();
   process.env.WECHAT_KF_CONFIG_ROOT = runtimeConfigRoot();
   loadDotEnv(runtimeConfigRoot(), { override: true });
+  await ensureDesktopControlToken();
   config = await loadConfig();
   applyEnvBackedConfig();
   await loadRunyuAuthHistory();
@@ -684,11 +686,18 @@ async function startDesktopControlServer() {
       }
 
       const url = new URL(req.url || "/", `http://127.0.0.1:${CONTROL_PORT}`);
+      if (!isControlRequestAuthorized(req, url)) {
+        controlJson(res, 401, { ok: false, message: "CONTROL_UNAUTHORIZED: 缺少或错误的本机控制 Token" });
+        return;
+      }
+
       if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/status")) {
         controlJson(res, 200, {
           ok: true,
           port: CONTROL_PORT,
           app: APP_DISPLAY_NAME,
+          authRequired: true,
+          tokenConfigured: Boolean(controlToken),
           page: pageInfoPayload(),
           status: statusPayload()
         });
@@ -769,7 +778,26 @@ async function startDesktopControlServer() {
 function setControlCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  res.setHeader("Access-Control-Allow-Headers", "content-type,x-control-token,authorization");
+}
+
+async function ensureDesktopControlToken() {
+  controlToken = process.env.DESKTOP_CONTROL_TOKEN || "";
+  if (controlToken) return controlToken;
+  controlToken = randomBytes(18).toString("hex");
+  await writeEnvValues({ DESKTOP_CONTROL_TOKEN: controlToken });
+  return controlToken;
+}
+
+function isControlRequestAuthorized(req, url) {
+  if (req.method === "GET" && ["/health", "/status"].includes(url.pathname)) return true;
+  const expected = controlToken || process.env.DESKTOP_CONTROL_TOKEN || "";
+  if (!expected) return false;
+  const headerToken = String(req.headers["x-control-token"] || "");
+  const authorization = String(req.headers.authorization || "");
+  const bearer = authorization.replace(/^Bearer\s+/i, "").trim();
+  const queryToken = String(url.searchParams.get("token") || "");
+  return [headerToken, bearer, queryToken].some((value) => value && value === expected);
 }
 
 function controlJson(res, status, data) {

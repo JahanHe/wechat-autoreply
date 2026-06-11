@@ -1,6 +1,6 @@
 {
   "name": "xiaodian-ai-kefu",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "小店AI客服桌面程序",
   "author": "local",
   "private": true,
@@ -24,12 +24,12 @@
     "test:webhook": "node scripts/test-wecom-webhook.js",
     "uninstall:desktop:mac": "bash uninstall-desktop-launch-agent.sh",
     "uninstall:desktop:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\uninstall-desktop-windows.ps1",
-    "start": "node src/index.js run",
-    "dry-run": "node src/index.js run --dry-run",
-    "inspect": "node src/index.js inspect",
-    "inspect-wait": "node src/index.js inspect --wait",
-    "login": "node src/index.js login",
-    "reply-once": "node src/index.js reply-once"
+    "start": "electron .",
+    "legacy:dry-run": "node src/index.js run --dry-run",
+    "legacy:inspect": "node src/index.js inspect",
+    "legacy:inspect-wait": "node src/index.js inspect --wait",
+    "legacy:login": "node src/index.js login",
+    "legacy:reply-once": "node src/index.js reply-once"
   },
   "dependencies": {
     "playwright": "^1.52.0"
