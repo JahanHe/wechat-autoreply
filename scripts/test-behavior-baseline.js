@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(".");
-const main = read("desktop/main.js");
+const main = `${read("desktop/main.js")}\n${read("desktop/app-runtime.js")}`;
 const content = read("extension/content.js");
 const server = read("server.js");
 const preload = read("desktop/main-shell-preload.cjs");

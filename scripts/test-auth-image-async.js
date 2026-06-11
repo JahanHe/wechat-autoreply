@@ -7,7 +7,9 @@ import { _electron as electron } from "playwright";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-regression-"));
-const mainSource = readFileSync(resolve(root, "desktop/main.js"), "utf8");
+const mainSource = ["desktop/main.js", "desktop/app-runtime.js"]
+  .map((path) => readFileSync(resolve(root, path), "utf8"))
+  .join("\n");
 const contentSource = readFileSync(resolve(root, "extension/content.js"), "utf8");
 const judgmentSource = readFileSync(resolve(root, "src/runyu-judgments.js"), "utf8");
 const replies = JSON.parse(readFileSync(resolve(root, "config/replies.json"), "utf8"));
