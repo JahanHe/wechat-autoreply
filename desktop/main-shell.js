@@ -2,17 +2,17 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 const navItems = [
-  { id: "page", title: "客服页映射", hint: "聊天", group: "工作台", icon: "💬", description: "打开微信小店客服页，扫码后直接处理会话。" },
-  { id: "dashboard", title: "总览状态", hint: "监控", group: "工作台", icon: "📊", description: "集中查看 AI、脚本、页面、通知和判断库状态。" },
-  { id: "bot", title: "Bot 接管", hint: "运行", group: "自动回复", icon: "🤖", description: "控制自动回复开关、节奏、图片和长期运行参数。" },
-  { id: "rules", title: "规则库", hint: "动作", group: "自动回复", icon: "🧩", description: "配置文字、图片、商品、邀请下单和手动激发测试。" },
-  { id: "logs", title: "日志库", hint: "追踪", group: "自动回复", icon: "🧾", description: "复盘每次回复来源、动作、AI 思考和失败原因。" },
-  { id: "api", title: "API 接入", hint: "模型", group: "AI 与判断库", icon: "🔑", description: "配置 DeepSeek、回复风格、审核、知识库和测试回复。" },
-  { id: "judgments", title: "判断库", hint: "外部", group: "AI 与判断库", icon: "🧠", description: "登录、验证、刷新和下载 Runyu 外部判断库。" },
-  { id: "webhook", title: "Webhook", hint: "通知", group: "通知与运行", icon: "📣", description: "配置企业微信通知、失败补发、小时和每日总结。" },
-  { id: "floating", title: "悬浮窗", hint: "桌面", group: "通知与运行", icon: "🟢", description: "设置桌面状态灯，隐藏后仍可从控制台打开。" },
-  { id: "setup", title: "初始化", hint: "首次", group: "系统", icon: "🛠", description: "首次配置 Key、Webhook、判断库登录和安全自检。" },
-  { id: "help", title: "说明页", hint: "文档", group: "系统", icon: "📚", description: "查看后台逻辑、规则优先级、Webhook 和页面接口说明。" }
+  { id: "setup", title: "初始化", hint: "首次" },
+  { id: "page", title: "客服页映射", hint: "聊天" },
+  { id: "dashboard", title: "总览状态", hint: "监控" },
+  { id: "bot", title: "Bot 接管", hint: "开关" },
+  { id: "api", title: "API 接入", hint: "模型" },
+  { id: "judgments", title: "判断库", hint: "外部" },
+  { id: "webhook", title: "Webhook", hint: "通知" },
+  { id: "rules", title: "规则库", hint: "回复" },
+  { id: "logs", title: "日志库", hint: "追踪" },
+  { id: "floating", title: "悬浮窗", hint: "桌面" },
+  { id: "help", title: "说明页", hint: "文档" }
 ];
 
 const sourceLabels = {
@@ -94,22 +94,12 @@ async function init() {
 }
 
 function renderNav() {
-  let previousGroup = "";
-  $("#nav").innerHTML = navItems.map((item) => {
-    const group = item.group !== previousGroup ? `<div class="nav-section">${escapeHtml(item.group || "")}</div>` : "";
-    previousGroup = item.group;
-    return `
-      ${group}
-      <button type="button" data-view="${item.id}" title="${attr(item.description || item.title)}">
-        <span class="nav-icon">${escapeHtml(item.icon || "")}</span>
-        <span class="nav-copy">
-          <span class="nav-title">${escapeHtml(item.title)}</span>
-          <span class="nav-desc">${escapeHtml(item.description || "")}</span>
-        </span>
-        <small>${escapeHtml(item.hint)}</small>
-      </button>
-    `;
-  }).join("");
+  $("#nav").innerHTML = navItems.map((item) => `
+    <button type="button" data-view="${item.id}">
+      <span>${escapeHtml(item.title)}</span>
+      <small>${escapeHtml(item.hint)}</small>
+    </button>
+  `).join("");
   $$("#nav button").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
@@ -2023,34 +2013,6 @@ async function runRuleTriggerTest(execute) {
     showFlash("请先输入客户消息", "error");
     return;
   }
-
-  if (execute) {
-    showFlash("正在预检查命中规则...");
-    const preview = await window.mainShell.testRuleTrigger({ message, execute: false });
-    state.ruleTestResult = preview;
-    $("#ruleTestResult").innerHTML = renderRuleTestResult(preview);
-    if (!preview.ok || !preview.matched) {
-      showFlash(preview.message || "没有命中可执行规则", preview.ok ? "ok" : "error");
-      return;
-    }
-    const actionText = Array.isArray(preview.actions) && preview.actions.length
-      ? preview.actions.map((action) => actionSummary([action]) || action.type || "动作").join("\n")
-      : preview.reply || "无动作摘要";
-    const confirmed = window.confirm([
-      "确认要对当前客服会话真实执行这条规则吗？",
-      "",
-      `客户消息：${message}`,
-      `命中规则：${preview.ruleName || ""}`,
-      "",
-      "将执行：",
-      actionText
-    ].join("\n"));
-    if (!confirmed) {
-      showFlash("已取消真实执行", "ok");
-      return;
-    }
-  }
-
   showFlash(execute ? "正在真实执行命中规则..." : "正在测试规则匹配...");
   try {
     state.ruleTestResult = await window.mainShell.testRuleTrigger({ message, execute });
@@ -2196,12 +2158,10 @@ function collectEventRules() {
 }
 
 function pageHead(title, description, actions = "") {
-  const meta = navItems.find((item) => item.id === state.view);
-  const icon = meta?.icon ? `<span class="page-icon">${escapeHtml(meta.icon)}</span>` : "";
   return `
     <div class="page-head">
       <div>
-        <h2>${icon}${escapeHtml(title)}</h2>
+        <h2>${escapeHtml(title)}</h2>
         ${description ? `<p>${escapeHtml(description)}</p>` : ""}
       </div>
       ${actions ? `<div class="toolbar">${actions}</div>` : ""}

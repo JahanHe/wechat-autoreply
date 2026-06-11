@@ -225,24 +225,15 @@
         padding: 6px 10px 10px;
         display: grid;
         gap: 4px;
-        overflow: auto;
-      }
-
-      .nav-section {
-        margin: 10px 8px 3px;
-        color: var(--muted);
-        font-size: 11px;
-        font-weight: 700;
       }
 
       .nav button {
         width: 100%;
-        display: grid;
-        grid-template-columns: 24px minmax(0, 1fr) auto;
+        display: flex;
         align-items: center;
-        gap: 8px;
-        min-height: 40px;
-        padding: 7px 9px;
+        justify-content: space-between;
+        min-height: 38px;
+        padding: 0 10px;
         border-color: transparent;
         background: transparent;
         color: var(--body);
@@ -253,41 +244,6 @@
         border-color: #ead8cd;
         background: #fff5ef;
         color: var(--ink);
-      }
-
-      .nav-icon {
-        display: grid;
-        place-items: center;
-        width: 24px;
-        height: 24px;
-        border-radius: 7px;
-        background: #fff;
-        border: 1px solid var(--hairline);
-        font-size: 15px;
-      }
-
-      .nav-copy {
-        display: grid;
-        min-width: 0;
-      }
-
-      .nav-title {
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-
-      .nav-desc {
-        display: none;
-        margin-top: 2px;
-        color: var(--muted);
-        font-size: 11px;
-        line-height: 1.35;
-      }
-
-      .nav button:hover .nav-desc,
-      .nav button.active .nav-desc {
-        display: block;
       }
 
       .nav small {
@@ -342,23 +298,9 @@
       }
 
       .page-head h2 {
-        display: inline-flex;
-        align-items: center;
-        gap: 9px;
         margin: 0;
         font-size: 25px;
         line-height: 1.2;
-      }
-
-      .page-icon {
-        display: inline-grid;
-        place-items: center;
-        width: 34px;
-        height: 34px;
-        border: 1px solid var(--hairline);
-        border-radius: 9px;
-        background: #fff;
-        font-size: 18px;
       }
 
       .page-head p {

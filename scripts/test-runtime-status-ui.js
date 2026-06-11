@@ -169,7 +169,7 @@ async function assertMainDashboard(page, expectedStatus) {
     recentTitleCount: Array.from(document.querySelectorAll("h3")).filter((node) => node.textContent === "最近步骤").length,
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
   }));
-  if (!result.heading.includes("总览状态")) throw new Error(`主面板未打开: ${result.heading}`);
+  if (result.heading !== "总览状态") throw new Error(`主面板未打开: ${result.heading}`);
   if (!result.current.includes(expectedStatus)) throw new Error(`主面板未显示当前步骤: ${expectedStatus}`);
   if (!result.currentCount) throw new Error("主面板未显示当前状态");
   if (result.recentTitleCount) throw new Error("主面板仍显示最近步骤");

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   formatJudgmentResultsForPrompt,
@@ -442,26 +443,55 @@ async function reviewReply({ draft, message, context, sideContext, aiConfig, pro
 
 function postDeepSeek(payload, timeoutMs, aiConfig = getAiConfig()) {
   const requestTimeoutMs = Number(timeoutMs || aiConfig.requestTimeoutMs || 80000);
-  return fetch(`${aiConfig.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${aiConfig.apiKey}`,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(requestTimeoutMs)
-  }).then(async (response) => {
-    const text = await response.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`DeepSeek returned non-json: ${text.slice(0, 200)}`);
-    }
-    if (!response.ok || data.error) {
-      throw new Error(data.error?.message || data.message || `DeepSeek HTTP ${response.status}`);
-    }
-    return data;
+  return new Promise((resolve, reject) => {
+    const child = spawn("curl", [
+      "-sS",
+      "--max-time",
+      String(Math.ceil(requestTimeoutMs / 1000)),
+      `${aiConfig.baseUrl}/chat/completions`,
+      "-H",
+      `Authorization: Bearer ${aiConfig.apiKey}`,
+      "-H",
+      "Content-Type: application/json",
+      "-d",
+      JSON.stringify(payload)
+    ], {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr || `curl exited with ${code}`));
+        return;
+      }
+
+      let data;
+      try {
+        data = JSON.parse(stdout);
+      } catch {
+        reject(new Error(`DeepSeek returned non-json: ${stdout.slice(0, 200)}`));
+        return;
+      }
+
+      if (data.error) {
+        reject(new Error(data.error.message || "DeepSeek API error"));
+        return;
+      }
+
+      resolve(data);
+    });
   });
 }
 

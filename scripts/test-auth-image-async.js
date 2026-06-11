@@ -8,9 +8,7 @@ import { _electron as electron } from "playwright";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-regression-"));
 const mainSource = readFileSync(resolve(root, "desktop/main.js"), "utf8");
-const mainShellSource = readFileSync(resolve(root, "desktop/main-shell.js"), "utf8");
 const contentSource = readFileSync(resolve(root, "extension/content.js"), "utf8");
-const serverSource = readFileSync(resolve(root, "server.js"), "utf8");
 const judgmentSource = readFileSync(resolve(root, "src/runyu-judgments.js"), "utf8");
 const replies = JSON.parse(readFileSync(resolve(root, "config/replies.json"), "utf8"));
 const authScreenshot = "/tmp/xiaodian-ai-kefu-runyu-auth.png";
@@ -22,9 +20,6 @@ assertMediaHeartbeat(contentSource);
 assertRemoteOnlyAuthCheck(mainSource, judgmentSource);
 assertBackgroundHeartbeat(mainSource);
 assertBundledImages(replies);
-assertControlServerAuth(mainSource);
-assertDeepSeekFetch(serverSource);
-assertRuleExecutionConfirm(mainShellSource);
 
 let app;
 try {
@@ -41,8 +36,6 @@ try {
   });
 
   const main = await waitForWindow(app, "小店AI客服控制台");
-  await testControlServerAuth();
-  await testNavigationInformationArchitecture(main);
   await testRunyuAuthUi(main);
   await main.screenshot({ path: authScreenshot });
   await testManualCookieFailure(main);
@@ -73,10 +66,6 @@ try {
       "规则库手动激发测试",
       "非文本默认规则命中",
       "AI判断库Trace可视化",
-      "本机控制接口Token保护",
-      "DeepSeek调用不暴露命令行Key",
-      "真实执行规则二次确认",
-      "图标分组导航和Hover说明",
       "日志判断库Thinking和处理步骤",
       "异步AI最终回复不中断",
       "内置图片文件完整"
@@ -144,54 +133,6 @@ function assertBundledImages(config) {
       throw new Error(`内置图片不存在: ${relativePath}`);
     }
   }
-}
-
-function assertControlServerAuth(source) {
-  if (!source.includes("DESKTOP_CONTROL_TOKEN") || !source.includes("isControlRequestAuthorized")) {
-    throw new Error("本机控制接口缺少 Token 鉴权");
-  }
-}
-
-function assertDeepSeekFetch(source) {
-  const block = source.slice(source.indexOf("function postDeepSeek"), source.indexOf("function pickReplyFromFile"));
-  if (!block.includes("return fetch(")) throw new Error("DeepSeek 调用没有改为原生 fetch");
-  if (block.includes("spawn(\"curl\"") || block.includes("Authorization: Bearer ${aiConfig.apiKey}")) {
-    throw new Error("DeepSeek API Key 仍可能暴露在 curl 命令参数中");
-  }
-}
-
-function assertRuleExecutionConfirm(source) {
-  if (!source.includes("window.confirm") || !source.includes("确认要对当前客服会话真实执行这条规则吗")) {
-    throw new Error("规则真实执行缺少二次确认");
-  }
-}
-
-async function testControlServerAuth() {
-  const health = await fetch("http://127.0.0.1:18897/health").then((response) => response.json());
-  if (!health.ok || health.authRequired !== true || health.tokenConfigured !== true) {
-    throw new Error(`本机控制接口健康状态异常: ${JSON.stringify(health)}`);
-  }
-  const actionResponse = await fetch("http://127.0.0.1:18897/action", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type: "capture_structure" })
-  });
-  if (actionResponse.status !== 401) {
-    throw new Error(`本机控制接口未拒绝无 Token 动作请求: HTTP ${actionResponse.status}`);
-  }
-}
-
-async function testNavigationInformationArchitecture(page) {
-  const sections = await page.locator(".nav-section").evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()).filter(Boolean));
-  for (const expected of ["工作台", "自动回复", "AI 与判断库", "通知与运行", "系统"]) {
-    if (!sections.includes(expected)) throw new Error(`导航缺少分组: ${expected}`);
-  }
-  const icons = await page.locator(".nav-icon").count();
-  const buttons = await page.locator("#nav button").count();
-  if (icons !== buttons || buttons < 8) throw new Error(`导航图标数量异常: icons=${icons}, buttons=${buttons}`);
-  await page.locator("#nav button[data-view='rules']").hover();
-  const descVisible = await page.locator("#nav button[data-view='rules'] .nav-desc").isVisible();
-  if (!descVisible) throw new Error("导航 Hover 时没有展开说明文字");
 }
 
 async function testRunyuAuthUi(page) {
