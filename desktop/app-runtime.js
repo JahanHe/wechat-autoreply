@@ -1,13 +1,15 @@
 import { app, BrowserView, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, powerSaveBlocker, screen, session, shell } from "electron";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeRunyuBaseUrl, normalizeRunyuCookie } from "../src/runyu-judgments.js";
+import { safeErrorMessage } from "../src/redact.js";
 import { createAppContext, snapshotAppContext } from "./app-context.js";
+import { DESKTOP_CONFIG_SCHEMA_VERSION, repairDesktopConfig, validateDesktopConfig } from "./config-validator.js";
 import {
   BOT_RUNTIME_STATUSES,
   BOT_STATUS_HISTORY_LIMIT,
@@ -47,6 +49,7 @@ loadDotEnv(APP_ROOT);
 const PORT = Number(process.env.PORT || 8787);
 const CONTROL_PORT = Number(process.env.DESKTOP_CONTROL_PORT || 8797);
 let activeAiPort = PORT;
+let controlToken = process.env.DESKTOP_CONTROL_TOKEN || "";
 const appContext = createAppContext();
 
 let config = null;
@@ -117,6 +120,7 @@ let runyuAuthState = {
   verifiedAt: 0
 };
 let watchdogTimers = [];
+let configValidationState = { valid: true, version: DESKTOP_CONFIG_SCHEMA_VERSION, errors: [], backupPath: "" };
 
 const gotLock = process.env.WECHAT_KF_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -146,6 +150,7 @@ async function startDesktopApp() {
   await ensureRuntimeConfigFiles();
   process.env.WECHAT_KF_CONFIG_ROOT = runtimeConfigRoot();
   loadDotEnv(runtimeConfigRoot(), { override: true });
+  await ensureDesktopControlToken();
   config = await loadConfig();
   appContext.config = config;
   applyEnvBackedConfig();
@@ -338,21 +343,52 @@ function loadBundledReplyDefaults() {
 
 async function loadConfig() {
   const base = defaultConfig();
+  base.configSchemaVersion = DESKTOP_CONFIG_SCHEMA_VERSION;
   const path = configPath();
-  if (!existsSync(path)) return base;
+  if (!existsSync(path)) {
+    configValidationState = { valid: true, version: DESKTOP_CONFIG_SCHEMA_VERSION, errors: [], backupPath: "" };
+    return base;
+  }
 
+  let raw = "";
   try {
-    const saved = JSON.parse(await readFile(path, "utf8"));
-    return mergeConfig(base, saved);
+    raw = await readFile(path, "utf8");
+    const saved = JSON.parse(raw);
+    const initial = validateDesktopConfig(saved);
+    const repaired = initial.valid ? saved : repairDesktopConfig(saved, base);
+    const merged = mergeConfig(base, repaired);
+    merged.configSchemaVersion = DESKTOP_CONFIG_SCHEMA_VERSION;
+    const final = validateDesktopConfig(merged);
+    const backupPath = initial.valid ? "" : await backupInvalidConfig(raw, initial.errors);
+    configValidationState = { ...final, repaired: !initial.valid, sourceErrors: initial.errors, backupPath };
+    return merged;
   } catch (error) {
-    console.error("[desktop] config load failed", error);
+    const errors = [{ path: "$", code: "INVALID_JSON", message: safeErrorMessage(error) }];
+    const backupPath = raw ? await backupInvalidConfig(raw, errors) : "";
+    configValidationState = { valid: false, version: DESKTOP_CONFIG_SCHEMA_VERSION, errors, backupPath };
+    console.error("[desktop] config load failed", safeErrorMessage(error));
     return base;
   }
 }
 
 async function saveConfig() {
+  config.configSchemaVersion = DESKTOP_CONFIG_SCHEMA_VERSION;
+  configValidationState = {
+    ...configValidationState,
+    ...validateDesktopConfig(config),
+    repaired: Boolean(configValidationState.repaired),
+    sourceErrors: configValidationState.sourceErrors || [],
+    backupPath: configValidationState.backupPath || ""
+  };
   await mkdir(dirname(configPath()), { recursive: true });
   await writeFile(configPath(), JSON.stringify(config, null, 2), "utf8");
+}
+
+async function backupInvalidConfig(raw, errors) {
+  const path = `${configPath()}.invalid-${Date.now()}.bak`;
+  await writeFile(path, `${raw}\n`, "utf8").catch(() => {});
+  console.warn("[desktop] invalid config repaired", errors.map((item) => item.path).join(", "));
+  return path;
 }
 
 function runtimeConfigRoot() {
@@ -635,7 +671,7 @@ async function startDesktopControlServer() {
 
   controlServer = createHttpServer(async (req, res) => {
     try {
-      setControlCors(res);
+      setControlCors(req, res);
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         res.end();
@@ -643,11 +679,17 @@ async function startDesktopControlServer() {
       }
 
       const url = new URL(req.url || "/", `http://127.0.0.1:${CONTROL_PORT}`);
+      if (!isControlRequestAuthorized(req, url)) {
+        controlJson(res, 401, { ok: false, code: "CONTROL_UNAUTHORIZED", message: "缺少或错误的本机控制 Token" });
+        return;
+      }
       if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/status")) {
         controlJson(res, 200, {
           ok: true,
           port: CONTROL_PORT,
           app: APP_DISPLAY_NAME,
+          authRequired: true,
+          tokenConfigured: Boolean(controlToken),
           page: pageInfoPayload(),
           status: statusPayload()
         });
@@ -700,7 +742,7 @@ async function startDesktopControlServer() {
 
       controlJson(res, 404, { ok: false, message: "not found" });
     } catch (error) {
-      controlJson(res, 500, { ok: false, message: String(error?.message || error) });
+      controlJson(res, 500, { ok: false, message: safeErrorMessage(error) });
     }
   });
 
@@ -725,10 +767,37 @@ async function startDesktopControlServer() {
   });
 }
 
-function setControlCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1");
+function setControlCors(req, res) {
+  const origin = allowedCorsOrigin(req.headers.origin);
+  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  res.setHeader("Access-Control-Allow-Headers", "content-type,x-control-token,authorization");
+  res.setHeader("Vary", "Origin");
+}
+
+async function ensureDesktopControlToken() {
+  controlToken = process.env.DESKTOP_CONTROL_TOKEN || readEnvValues().DESKTOP_CONTROL_TOKEN || "";
+  if (!controlToken) {
+    controlToken = randomBytes(24).toString("hex");
+    await writeEnvValues({ DESKTOP_CONTROL_TOKEN: controlToken });
+  }
+  process.env.DESKTOP_CONTROL_TOKEN = controlToken;
+  return controlToken;
+}
+
+function isControlRequestAuthorized(req, url) {
+  if (req.method === "GET" && ["/health", "/status"].includes(url.pathname)) return true;
+  const authorization = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  const header = String(req.headers["x-control-token"] || "").trim();
+  return Boolean(controlToken && [authorization, header].includes(controlToken));
+}
+
+function allowedCorsOrigin(origin) {
+  const value = String(origin || "").trim();
+  if (!value) return "";
+  if (["https://store.weixin.qq.com", "http://127.0.0.1", "http://localhost"].includes(value)) return value;
+  if (/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(value)) return value;
+  return "";
 }
 
 function controlJson(res, status, data) {
@@ -1573,6 +1642,7 @@ function settingsPayload() {
       watchdog: config.watchdog
     },
     assistantProfile: loadAssistantProfile(),
+    configValidation: configValidationState,
     env: {
       deepseekApiKey: env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "",
       deepseekModel: env.DEEPSEEK_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",

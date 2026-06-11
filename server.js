@@ -101,7 +101,7 @@ const REVIEW_PROMPT = `你是客服回复审核员。你要检查草稿是否适
 
 export function createAiServer() {
   return createServer(async (req, res) => {
-  setCors(res);
+  setCors(req, res);
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -604,10 +604,20 @@ function json(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+function setCors(req, res) {
+  const origin = allowedCorsOrigin(req.headers.origin);
+  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+}
+
+function allowedCorsOrigin(origin) {
+  const value = String(origin || "").trim();
+  if (!value) return "";
+  if (["https://store.weixin.qq.com", "http://127.0.0.1", "http://localhost"].includes(value)) return value;
+  if (/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(value)) return value;
+  return "";
 }
 
 function loadDotEnv(root, options = {}) {
