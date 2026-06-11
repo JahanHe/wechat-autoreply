@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { scoreText } from "./text-utils.js";
 
 const DEFAULT_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const DEFAULT_HOST = "runyuai.zhiduoke.com.cn";
@@ -110,6 +111,7 @@ export async function getJudgmentCacheStatus(options = {}) {
 }
 
 export async function searchJudgmentLibrary(query, options = {}) {
+  const startedAt = Date.now();
   const config = options.config || getRunyuJudgmentConfig(options.env);
   const keyword = String(query || "").trim();
   if (!config.enabled || !keyword) {
@@ -156,8 +158,10 @@ export async function searchJudgmentLibrary(query, options = {}) {
     results: mergedResults,
     fromCache: local.length,
     fromRemote: remote.length,
+    transports: uniqueStrings(remote.map((record) => record.transport).filter(Boolean)),
     error: remoteError,
-    remoteOnly
+    remoteOnly,
+    latencyMs: Date.now() - startedAt
   };
 }
 
@@ -252,19 +256,19 @@ async function queryJudgmentKeyword(keyword, config, options = {}) {
       const params = type === "judgments"
         ? { keyword, status: "all" }
         : { keyword };
-      const data = await queryRunyuJudgments({
+      const response = await queryRunyuJudgments({
         action,
         source,
         params,
         limit,
         offset
       }, config);
-      records.push(...extractRecords(data).map((record) => normalizeRecord(record, {
+      records.push(...extractRecords(response.data).map((record) => ({ ...normalizeRecord(record, {
         source,
         type,
         keyword,
         action
-      })));
+      }), transport: response.transport, resolveIp: response.resolveIp || "" })));
     }
   }
 
@@ -279,7 +283,7 @@ async function queryRunyuJudgments(body, config) {
     data: { message: String(error?.message || error) },
     transportError: true
   }));
-  if (result.ok) return result.data;
+  if (result.ok) return { data: result.data, transport: result.transport || "fetch", resolveIp: result.resolveIp || "" };
 
   if (shouldUseDirectResolveFallback(result, url)) {
     const direct = await postRunyuJsonWithDirectResolve(url, body, config).catch((error) => ({
@@ -288,7 +292,7 @@ async function queryRunyuJudgments(body, config) {
       data: { message: String(error?.message || error) },
       transportError: true
     }));
-    if (direct.ok) return direct.data;
+    if (direct.ok) return { data: direct.data, transport: direct.transport || "curl-resolve", resolveIp: direct.resolveIp || "" };
     throw new Error(apiErrorMessage(direct.status || result.status, direct.data, url, result));
   }
 
@@ -595,31 +599,6 @@ function extractRecords(data) {
     if (Array.isArray(candidate)) return candidate;
   }
   return [];
-}
-
-function scoreText(query, value) {
-  const tokens = tokenize(query);
-  const text = String(value || "").toLowerCase();
-  return tokens.reduce((score, token) => score + (text.includes(token) ? token.length : 0), 0);
-}
-
-function tokenize(value) {
-  const text = String(value || "").toLowerCase();
-  const latin = text.match(/[a-z0-9]{2,}/g) || [];
-  const chinese = text.match(/[\u4e00-\u9fff]{2,}/g) || [];
-  const tokens = [
-    ...latin,
-    ...chinese.flatMap((part) => {
-      const items = [part];
-      for (const size of [2, 3, 4]) {
-        for (let index = 0; index <= part.length - size; index += 1) {
-          items.push(part.slice(index, index + size));
-        }
-      }
-      return items;
-    })
-  ];
-  return uniqueStrings(tokens).filter((token) => !["您好", "你好", "请问", "一下", "可以", "这个"].includes(token));
 }
 
 function parseJson(text) {

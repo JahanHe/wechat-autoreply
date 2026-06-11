@@ -21,6 +21,7 @@
     "test:notify-outbox": "node scripts/test-notify-outbox.js",
     "test:baseline": "node scripts/test-behavior-baseline.js",
     "test:desktop-modules": "node scripts/test-desktop-modules.js",
+    "test:ai-knowledge": "node scripts/test-ai-knowledge.js",
     "test:regressions": "node scripts/test-auth-image-async.js",
     "test:status-ui": "node scripts/test-runtime-status-ui.js",
     "test:webhook": "node scripts/test-wecom-webhook.js",

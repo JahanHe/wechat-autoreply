@@ -1,8 +1,9 @@
 import { createServer } from "node:http";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { requestDeepSeek } from "./src/deepseek-client.js";
+import { createKnowledgeIndex } from "./src/knowledge-index.js";
 import {
   formatJudgmentResultsForPrompt,
   getJudgmentCacheStatus,
@@ -26,6 +27,7 @@ export const AI_SERVICE_ROUTES = [
   "/quick-reply",
   "/waiting-reply",
   "/knowledge/search",
+  "/knowledge/reload",
   "/judgments/status",
   "/judgments/search",
   "/judgments/refresh"
@@ -35,6 +37,8 @@ const WAITING_REPLIES_PATH = resolve(ROOT, "config/waiting-replies.json");
 const KNOWLEDGE_DIR = resolve(ROOT, "knowledge-base");
 const ASSISTANT_PROFILE_PATH = resolve(CONFIG_ROOT, "assistant-profile.json");
 const BUNDLED_ASSISTANT_PROFILE_PATH = resolve(ROOT, "config/assistant-profile.json");
+const knowledgeIndex = createKnowledgeIndex({ directory: KNOWLEDGE_DIR });
+knowledgeIndex.startWatching();
 
 const SYSTEM_PROMPT = `你是微信小店里的真人客服助手，店铺是“润宇创业笔记”，主要处理课程、会员、订单、发票、售后问题。
 
@@ -151,9 +155,18 @@ export function createAiServer() {
     try {
       const body = await readJson(req);
       const query = String(body.query || "").trim();
-      json(res, 200, { results: searchKnowledge(query) });
+      json(res, 200, { results: knowledgeIndex.search(query), index: knowledgeIndex.status() });
     } catch (error) {
       json(res, 500, { error: "knowledge_search_failed", message: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/knowledge/reload") {
+    try {
+      json(res, 200, { ok: true, index: knowledgeIndex.reload("api") });
+    } catch (error) {
+      json(res, 500, { error: "knowledge_reload_failed", message: error.message });
     }
     return;
   }
@@ -331,7 +344,7 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
   const profile = loadAssistantProfile();
   const knowledge = profile.knowledgeFilesEnabled === false
     ? []
-    : searchKnowledge([message, sideContext, ...context.map((item) => item.text || "")].join("\n"));
+    : knowledgeIndex.search([message, sideContext, ...context.map((item) => item.text || "")].join("\n"));
   const judgmentSearch = await maybeSearchJudgments({ message, mode });
   const judgmentContext = formatJudgmentResultsForPrompt(judgmentSearch.results);
   const messages = [
@@ -388,6 +401,8 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
       judgmentCount: judgmentSearch.results.length,
       judgmentFromCache: judgmentSearch.fromCache || 0,
       judgmentFromRemote: judgmentSearch.fromRemote || 0,
+      judgmentTransports: judgmentSearch.transports || [],
+      judgmentLatencyMs: judgmentSearch.latencyMs || 0,
       judgmentError: judgmentSearch.error || "",
       latencyMs: Date.now() - startedAt
     }
@@ -442,56 +457,10 @@ async function reviewReply({ draft, message, context, sideContext, aiConfig, pro
 }
 
 function postDeepSeek(payload, timeoutMs, aiConfig = getAiConfig()) {
-  const requestTimeoutMs = Number(timeoutMs || aiConfig.requestTimeoutMs || 80000);
-  return new Promise((resolve, reject) => {
-    const child = spawn("curl", [
-      "-sS",
-      "--max-time",
-      String(Math.ceil(requestTimeoutMs / 1000)),
-      `${aiConfig.baseUrl}/chat/completions`,
-      "-H",
-      `Authorization: Bearer ${aiConfig.apiKey}`,
-      "-H",
-      "Content-Type: application/json",
-      "-d",
-      JSON.stringify(payload)
-    ], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr || `curl exited with ${code}`));
-        return;
-      }
-
-      let data;
-      try {
-        data = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`DeepSeek returned non-json: ${stdout.slice(0, 200)}`));
-        return;
-      }
-
-      if (data.error) {
-        reject(new Error(data.error.message || "DeepSeek API error"));
-        return;
-      }
-
-      resolve(data);
-    });
+  return requestDeepSeek(payload, {
+    baseUrl: aiConfig.baseUrl,
+    apiKey: aiConfig.apiKey,
+    timeoutMs: Number(timeoutMs || aiConfig.requestTimeoutMs || 80_000)
   });
 }
 
@@ -523,79 +492,6 @@ function loadReplies(path, prefix) {
   } catch {
     return [];
   }
-}
-
-function searchKnowledge(query, limit = 4) {
-  const normalizedQuery = tokenize(query);
-  if (normalizedQuery.length === 0) return [];
-
-  return loadKnowledgeChunks()
-    .map((chunk) => ({
-      ...chunk,
-      score: scoreChunk(normalizedQuery, chunk)
-    }))
-    .filter((chunk) => chunk.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(({ title, text, source, score }) => ({ title, text, source, score }));
-}
-
-function loadKnowledgeChunks() {
-  if (!existsSync(KNOWLEDGE_DIR)) return [];
-
-  const files = readdirSync(KNOWLEDGE_DIR)
-    .filter((file) => file.endsWith(".md"))
-    .map((file) => resolve(KNOWLEDGE_DIR, file));
-
-  return files.flatMap((file) => splitMarkdown(file, readFileSync(file, "utf8")));
-}
-
-function splitMarkdown(source, content) {
-  const chunks = [];
-  let title = "知识库";
-  let buffer = [];
-
-  for (const line of content.split(/\r?\n/)) {
-    const match = line.match(/^#{1,3}\s+(.+)$/);
-    if (match) {
-      flush();
-      title = match[1].trim();
-      continue;
-    }
-    buffer.push(line);
-  }
-  flush();
-  return chunks;
-
-  function flush() {
-    const text = buffer.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-    if (text) chunks.push({ title, text: text.slice(0, 900), source });
-    buffer = [];
-  }
-}
-
-function scoreChunk(queryTokens, chunk) {
-  const haystack = `${chunk.title}\n${chunk.text}`.toLowerCase();
-  return queryTokens.reduce((score, token) => score + (haystack.includes(token) ? token.length : 0), 0);
-}
-
-function tokenize(value) {
-  const text = String(value || "").toLowerCase();
-  const latin = text.match(/[a-z0-9]{2,}/g) || [];
-  const chinese = text.match(/[\u4e00-\u9fff]{2,}/g) || [];
-  const words = [
-    ...latin,
-    ...chinese.flatMap((part) => {
-      const tokens = [part];
-      for (let size of [2, 3, 4]) {
-        for (let index = 0; index <= part.length - size; index += 1) {
-          tokens.push(part.slice(index, index + size));
-        }
-      }
-      return tokens;
-    })
-  ];
-  return [...new Set(words)].filter((word) => !["您好", "你好", "请问", "一下", "可以"].includes(word));
 }
 
 function sanitizeReply(reply) {

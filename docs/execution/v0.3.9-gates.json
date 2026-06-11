@@ -5,9 +5,9 @@
   "overall": "in_progress",
   "stages": [
     { "id": 0, "name": "基线与行为保护", "status": "passed", "commit": "b246d6f" },
-    { "id": 1, "name": "桌面后端模块化", "status": "passed", "commit": "pending-stage-commit" },
-    { "id": 2, "name": "AI 判断库与知识库", "status": "in_progress", "commit": "" },
-    { "id": 3, "name": "配置网络与本机接口安全", "status": "pending", "commit": "" },
+    { "id": 1, "name": "桌面后端模块化", "status": "passed", "commit": "85ad6da" },
+    { "id": 2, "name": "AI 判断库与知识库", "status": "passed", "commit": "pending-stage-commit" },
+    { "id": 3, "name": "配置网络与本机接口安全", "status": "in_progress", "commit": "" },
     { "id": 4, "name": "客服页自动化脚本模块化", "status": "pending", "commit": "" },
     { "id": 5, "name": "运行生命周期与退出闭环", "status": "pending", "commit": "" },
     { "id": 6, "name": "主控台与悬浮窗前端", "status": "pending", "commit": "" },
