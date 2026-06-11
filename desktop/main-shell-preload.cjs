@@ -51,11 +51,17 @@ contextBridge.exposeInMainWorld("mainShell", {
   revealPath(targetPath) {
     return ipcRenderer.invoke("main-reveal-path", targetPath || "");
   },
+  getFilePreview(targetPath) {
+    return ipcRenderer.invoke("main-get-file-preview", targetPath || "");
+  },
   getReplyRecords(options) {
     return ipcRenderer.invoke("main-get-reply-records", options || {});
   },
   testAiReply(payload) {
     return ipcRenderer.invoke("main-test-ai-reply", payload || {});
+  },
+  testRuleTrigger(payload) {
+    return ipcRenderer.invoke("main-test-rule-trigger", payload || {});
   },
   getJudgmentsStatus() {
     return ipcRenderer.invoke("main-get-judgments-status");

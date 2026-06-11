@@ -10,7 +10,7 @@ const lamps = {
 };
 
 const texts = {
-  summary: $("#summaryText"),
+  liveClock: $("#liveClock"),
   ai: $("#aiText"),
   local: $("#localText"),
   script: $("#scriptText"),
@@ -18,7 +18,6 @@ const texts = {
   runtimeLabel: $("#runtimeLabel"),
   runtimeCategory: $("#runtimeCategory"),
   runtimeDetail: $("#runtimeDetail"),
-  statusTrail: $("#statusTrail"),
   botMode: $("#botMode"),
   updatedAt: $("#updatedAt"),
   miniTitle: $("#miniTitle"),
@@ -26,14 +25,22 @@ const texts = {
 };
 
 let compact = true;
+let latestPayload = null;
+let latestStatusAt = Date.now();
 
 $("#minimizeFloat").addEventListener("click", () => setMiniMode(true));
 $("#expandFloat").addEventListener("click", () => setMiniMode(false));
 $("#closeFloat").addEventListener("click", hideFloatingWindow);
 $("#closeMiniFloat").addEventListener("click", hideFloatingWindow);
+$("#openMain").addEventListener("click", () => window.desktopFloat.openMain());
+$("#openMainMini").addEventListener("click", () => window.desktopFloat.openMain());
+$("#toggleBot").addEventListener("click", async () => render(await window.desktopFloat.toggleEnabled()));
+$("#openLogin").addEventListener("click", async () => render(await window.desktopFloat.openPage()));
 
 window.desktopFloat.onStatus(render);
 window.desktopFloat.getStatus().then(render);
+updateLiveTime();
+window.setInterval(updateLiveTime, 1000);
 
 async function setMiniMode(value) {
   compact = !value;
@@ -47,6 +54,8 @@ async function hideFloatingWindow() {
 
 function render(payload) {
   if (!payload) return;
+  latestPayload = payload;
+  latestStatusAt = Number(payload.bot?.at || payload.now || Date.now());
 
   const states = buildStates(payload);
   setLamp(lamps.ai, states.ai.tone);
@@ -56,7 +65,6 @@ function render(payload) {
   setLamp(lamps.runtime, states.runtime.tone);
   setLamp(lamps.mini, states.overall.tone);
 
-  texts.summary.textContent = states.overall.summary;
   texts.ai.textContent = states.ai.text;
   texts.local.textContent = states.local.text;
   texts.script.textContent = states.script.text;
@@ -64,11 +72,12 @@ function render(payload) {
   texts.runtimeLabel.textContent = states.runtime.label;
   texts.runtimeCategory.textContent = states.runtime.category;
   texts.runtimeDetail.textContent = states.runtime.detail;
-  texts.botMode.textContent = payload.enabled ? "Bot开启" : "暂停中";
-  texts.updatedAt.textContent = formatTime(states.runtime.at || payload.now || Date.now());
+  texts.botMode.textContent = payload.enabled ? "Bot 正在接管" : "Bot 已暂停";
+  $("#toggleBot").textContent = payload.enabled ? "暂停 Bot" : "开启 Bot";
+  $("#toggleBot").classList.toggle("warn", payload.enabled);
+  $("#openLogin").textContent = states.login.text === "已登录" ? "打开客服页" : states.login.text === "待扫码" ? "去登录" : "查看客服页";
   texts.miniTitle.textContent = states.overall.title;
   texts.miniSubtitle.textContent = states.overall.summary;
-  renderTrail(payload.botHistory || []);
 
   const mode = payload.floating?.mode || "";
   if (mode === "mini") {
@@ -77,6 +86,16 @@ function render(payload) {
   } else if (!compact) {
     document.body.classList.remove("mini");
     compact = true;
+  }
+}
+
+function updateLiveTime() {
+  const now = Date.now();
+  texts.liveClock.textContent = formatTime(now);
+  const seconds = Math.max(0, Math.floor((now - latestStatusAt) / 1000));
+  texts.updatedAt.textContent = seconds < 2 ? "状态刚刚更新" : seconds < 60 ? `状态 ${seconds} 秒前更新` : `状态 ${Math.floor(seconds / 60)} 分钟前更新`;
+  if (latestPayload?.floating?.mode === "mini") {
+    texts.miniSubtitle.textContent = formatTime(now);
   }
 }
 
@@ -127,25 +146,6 @@ function buildStates(payload) {
     summary: states.runtime.detail
   };
   return states;
-}
-
-function renderTrail(history) {
-  const items = (Array.isArray(history) ? history : []).slice(-3).reverse();
-  texts.statusTrail.replaceChildren(...items.map((item) => {
-    const row = document.createElement("div");
-    row.className = "trail-item";
-    const lamp = document.createElement("i");
-    lamp.className = `lamp ${normalizeTone(item.tone)}`;
-    const copy = document.createElement("div");
-    copy.className = "trail-copy";
-    const label = document.createElement("strong");
-    label.textContent = shortStatus(item.label || item.status || "检测中");
-    const time = document.createElement("span");
-    time.textContent = formatTime(item.at || Date.now());
-    copy.append(label, time);
-    row.append(lamp, copy);
-    return row;
-  }));
 }
 
 function setLamp(node, tone) {

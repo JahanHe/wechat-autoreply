@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
-import { dirname, resolve } from "node:path";
+import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeRunyuBaseUrl, normalizeRunyuCookie } from "../src/runyu-judgments.js";
 
@@ -27,11 +27,19 @@ const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
 const RUNYU_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const RUNYU_AUTH_HISTORY_LIMIT = 100;
 const BOT_STATUS_HISTORY_LIMIT = 6;
+const AI_SERVICE_NAME = "xiaodian-ai-service";
+const AI_SERVICE_PROTOCOL = 2;
+const AI_REQUIRED_ROUTES = ["/reply", "/judgments/status", "/judgments/search", "/judgments/refresh"];
 const BOT_RUNTIME_STATUSES = {
   starting: { label: "启动中", tone: "active", category: "系统" },
   monitoring: { label: "检测中", tone: "ok", category: "检测" },
   detecting: { label: "检测消息", tone: "active", category: "检测" },
   message_found: { label: "已检测消息", tone: "active", category: "检测" },
+  image_found: { label: "收到图片", tone: "active", category: "检测" },
+  emoji_found: { label: "收到表情", tone: "active", category: "检测" },
+  product_found: { label: "收到商品", tone: "active", category: "检测" },
+  file_found: { label: "收到文件", tone: "active", category: "检测" },
+  video_found: { label: "收到视频", tone: "active", category: "检测" },
   last_kf: { label: "客服最后", tone: "ok", category: "等待" },
   waiting_message: { label: "等待消息", tone: "ok", category: "等待" },
   no_message: { label: "暂无消息", tone: "ok", category: "等待" },
@@ -41,6 +49,8 @@ const BOT_RUNTIME_STATUSES = {
   matching_product: { label: "匹配商品", tone: "active", category: "匹配" },
   collecting: { label: "收集上下文", tone: "active", category: "AI" },
   querying_judgment: { label: "查询判断库", tone: "active", category: "AI" },
+  api_calling: { label: "调用API", tone: "active", category: "AI" },
+  async_api: { label: "异步API", tone: "active", category: "AI" },
   ai_thinking: { label: "AI思考中", tone: "active", category: "AI" },
   ai_returned: { label: "AI已返回", tone: "active", category: "AI" },
   waiting_ai: { label: "等待AI", tone: "warn", category: "AI" },
@@ -80,6 +90,7 @@ loadDotEnv(APP_ROOT);
 
 const PORT = Number(process.env.PORT || 8787);
 const CONTROL_PORT = Number(process.env.DESKTOP_CONTROL_PORT || 8797);
+let activeAiPort = PORT;
 
 let config = null;
 let mainWindow = null;
@@ -169,6 +180,7 @@ app.on("before-quit", () => {
 });
 
 app.on("window-all-closed", () => {});
+app.on("activate", () => showMainWindow());
 
 async function startDesktopApp() {
   applyUserDataOverride();
@@ -292,15 +304,15 @@ function defaultConfig() {
       actionRules: replyDefaults.actionRules || []
     },
     floatWindow: {
-      uiVersion: 3,
+      uiVersion: 5,
       enabled: true,
       visible: true,
       alwaysOnTop: true,
       mode: "compact",
       bounds: null,
-      compactSize: { width: 320, height: 252 },
+      compactSize: { width: 344, height: 256 },
       miniSize: { width: 210, height: 44 },
-      settingsSize: { width: 320, height: 252 }
+      settingsSize: { width: 344, height: 256 }
     },
     notify: {
       enabled: Boolean(process.env.WECOM_BOT_WEBHOOK_URL),
@@ -579,14 +591,22 @@ function cloneJson(value) {
 async function startAiServerWithNotify() {
   try {
     const { startAiServer } = await import("../server.js");
-    aiServer = await startAiServer({ port: PORT, host: "127.0.0.1" });
+    try {
+      aiServer = await startAiServer({ port: PORT, host: "127.0.0.1" });
+      activeAiPort = PORT;
+    } catch (error) {
+      if (!String(error?.message || "").includes("EADDRINUSE")) throw error;
+      const existing = await fetchJson(`http://127.0.0.1:${PORT}/health`, 2000).catch(() => null);
+      if (isCompatibleAiService(existing)) {
+        activeAiPort = PORT;
+        aiServer = null;
+      } else {
+        aiServer = await startAiServerOnFallbackPort(startAiServer);
+      }
+    }
+    await syncLocalAiEndpoint();
     await checkAiHealth({ notifyOk: false });
   } catch (error) {
-    if (String(error?.message || "").includes("EADDRINUSE")) {
-      await checkAiHealth({ notifyOk: false });
-      if (lastAiHealth.ok) return;
-    }
-
     lastAiHealth = {
       ok: false,
       hasKey: false,
@@ -599,6 +619,42 @@ async function startAiServerWithNotify() {
       cooldownMs: 60_000
     });
   }
+}
+
+async function startAiServerOnFallbackPort(startAiServer) {
+  let lastError = null;
+  for (let port = PORT + 1; port <= PORT + 20; port += 1) {
+    try {
+      const server = await startAiServer({ port, host: "127.0.0.1" });
+      activeAiPort = port;
+      return server;
+    } catch (error) {
+      lastError = error;
+      if (!String(error?.message || "").includes("EADDRINUSE")) throw error;
+    }
+  }
+  throw new Error(`LOCAL_AI_NO_AVAILABLE_PORT: ${String(lastError?.message || "8787-8807 均被占用")}`);
+}
+
+function localAiUrl(pathname = "/health") {
+  const path = String(pathname || "/health").startsWith("/") ? pathname : `/${pathname}`;
+  return `http://127.0.0.1:${activeAiPort}${path}`;
+}
+
+function isCompatibleAiService(data) {
+  const routes = Array.isArray(data?.routes) ? data.routes : [];
+  return data?.serviceName === AI_SERVICE_NAME &&
+    Number(data?.protocolVersion || 0) >= AI_SERVICE_PROTOCOL &&
+    AI_REQUIRED_ROUTES.every((route) => routes.includes(route));
+}
+
+async function syncLocalAiEndpoint() {
+  if (!config?.bot) return;
+  const endpoint = localAiUrl("/reply");
+  const oldValue = config.bot.aiEndpoint;
+  config.bot.aiEndpoint = endpoint;
+  await saveConfig();
+  if (oldValue !== endpoint) sendConfigChanges({ aiEndpoint: { oldValue, newValue: endpoint } });
 }
 
 async function restartAiServer() {
@@ -826,6 +882,7 @@ function createKfView() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false,
       partition: "persist:wechat-kf-desktop"
     }
   });
@@ -1184,10 +1241,10 @@ function normalizeFloatingSize(mode, size = {}) {
   const normalized = normalizeFloatingMode(mode);
   const defaults = normalized === "mini"
     ? { width: 210, height: 44 }
-    : { width: 320, height: 252 };
+    : { width: 344, height: 256 };
   return {
-    width: clampInt(size?.width || defaults.width, normalized === "mini" ? 200 : 300, normalized === "mini" ? 340 : 420),
-    height: clampInt(size?.height || defaults.height, normalized === "mini" ? 44 : 236, normalized === "mini" ? 72 : 320)
+    width: clampInt(size?.width || defaults.width, normalized === "mini" ? 200 : 330, normalized === "mini" ? 340 : 420),
+    height: clampInt(size?.height || defaults.height, normalized === "mini" ? 44 : 248, normalized === "mini" ? 72 : 300)
   };
 }
 
@@ -1264,6 +1321,11 @@ function registerIpc() {
   });
 
   ipcMain.handle("float-open-main", () => showMainWindow());
+  ipcMain.handle("float-open-page", async () => {
+    showMainWindow();
+    await setMainMode("page");
+    return statusPayload();
+  });
   ipcMain.handle("float-toggle-enabled", () => setBotEnabled(!config.bot.enabled));
   ipcMain.handle("float-reload", () => reloadKfPage());
   ipcMain.handle("float-get-status", () => statusPayload());
@@ -1330,8 +1392,10 @@ function registerIpc() {
   ipcMain.handle("main-choose-image", () => chooseImagePath());
   ipcMain.handle("main-choose-file", (_event, options = {}) => chooseFilePath(options || {}));
   ipcMain.handle("main-reveal-path", (_event, targetPath = "") => revealPath(targetPath));
+  ipcMain.handle("main-get-file-preview", (_event, targetPath = "") => getFilePreview(targetPath));
   ipcMain.handle("main-get-reply-records", (_event, options = {}) => replyRecordsPayload(options || {}));
   ipcMain.handle("main-test-ai-reply", (_event, payload = {}) => testAiReply(payload || {}));
+  ipcMain.handle("main-test-rule-trigger", (_event, payload = {}) => testRuleTrigger(payload || {}));
   ipcMain.handle("main-get-judgments-status", () => getJudgmentLibraryStatus());
   ipcMain.handle("main-open-runyu-login", (_event, options = {}) => openRunyuLoginWindow(options || {}));
   ipcMain.handle("main-capture-runyu-cookie", () => captureAndVerifyRunyuCookie("manual_capture"));
@@ -1372,7 +1436,10 @@ function reloadKfPage() {
 }
 
 function showMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+    return;
+  }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -1900,7 +1967,7 @@ async function chooseFilePath(options = {}) {
 async function revealPath(targetPath) {
   const normalized = String(targetPath || "").trim();
   if (!normalized) return { ok: false, message: "路径为空" };
-  const absolute = resolve(APP_ROOT, normalized);
+  const absolute = resolveConfiguredFilePath(normalized);
   if (existsSync(absolute)) {
     shell.showItemInFolder(absolute);
     return { ok: true, path: absolute };
@@ -1911,6 +1978,29 @@ async function revealPath(targetPath) {
     return { ok: true, path: parent, missing: true, message: "文件不存在，已打开所在目录" };
   }
   return { ok: false, path: absolute, message: "路径不存在" };
+}
+
+async function getFilePreview(targetPath) {
+  const absolute = resolveConfiguredFilePath(targetPath);
+  if (!absolute || !existsSync(absolute)) {
+    return { ok: false, path: absolute || "", message: "图片文件不存在" };
+  }
+  const extension = extname(absolute).toLowerCase();
+  const mimeTypes = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif"
+  };
+  const mimeType = mimeTypes[extension];
+  if (!mimeType) return { ok: false, path: absolute, message: "当前文件不是可预览图片" };
+  const bytes = await readFile(absolute);
+  return {
+    ok: true,
+    path: absolute,
+    dataUrl: `data:${mimeType};base64,${bytes.toString("base64")}`
+  };
 }
 
 async function setFloatingPreset(preset) {
@@ -3151,7 +3241,8 @@ async function waitForUploadReady(before = {}) {
       .catch((error) => ({ ready: false, message: String(error?.message || error) }));
     const hasNewPreview = Number(last?.previewCount || 0) > Number(before?.previewCount || 0);
     const hasNewDialog = Boolean(last?.dialogSendButtonVisible && !before?.dialogSendButtonVisible);
-    if (hasNewDialog || hasNewPreview) {
+    const hasNewSendButton = Boolean(last?.sendButtonVisible && !before?.sendButtonVisible);
+    if (hasNewDialog || hasNewPreview || hasNewSendButton) {
       return { ...last, ready: true };
     }
     await sleep(300);
@@ -3333,13 +3424,21 @@ async function pasteAndSendClipboardImage() {
   const focused = await wc.executeJavaScript(`(${focusComposerScript.toString()})()`, true).catch(() => false);
   if (!focused) return { pasted: false, sent: false, message: "客服输入框不可见" };
 
+  const before = await wc.executeJavaScript(`(${uploadStateScript.toString()})()`, true)
+    .catch(() => ({ previewCount: 0, sendButtonVisible: false, messageMediaCount: 0 }));
   wc.paste();
-  await sleep(1200);
+  const ready = await waitForUploadReady(before);
+  if (!ready.ready) {
+    return { pasted: true, sent: false, message: ready.message || "图片已粘贴，但未检测到待发送预览" };
+  }
 
   const clicked = await wc.executeJavaScript(`(${clickSendButtonScript.toString()})()`, true).catch(() => false);
   if (!clicked) return { pasted: true, sent: false, message: "未找到发送按钮" };
-  await sleep(1200);
-  return { pasted: true, sent: true, message: "已点击发送按钮" };
+  const confirmed = await waitForUploadSent(before, ready);
+  if (!confirmed.sent) {
+    return { pasted: true, sent: false, message: confirmed.message || "已点击发送，但没有检测到发送完成" };
+  }
+  return { pasted: true, sent: true, message: "已粘贴并点击发送按钮" };
 }
 
 function focusComposerScript() {
@@ -3565,13 +3664,58 @@ async function recordReplyEvent(kind, payload = {}) {
     customer: clip(String(payload.customer || payload.message || ""), 180),
     reply: clip(String(payload.reply || ""), 240),
     actions: Array.isArray(payload.actions) ? payload.actions.slice(0, 8) : [],
-    latencyMs: Number.isFinite(Number(payload.latencyMs)) ? Number(payload.latencyMs) : null
+    latencyMs: Number.isFinite(Number(payload.latencyMs)) ? Number(payload.latencyMs) : null,
+    aiTrace: normalizeAiTrace(payload.aiTrace),
+    processSteps: normalizeProcessSteps(payload.processSteps, source, payload)
   };
   replyRecords.push(record);
   replyRecords = replyRecords.slice(-REPLY_RECORD_LIMIT);
   await saveReplyRecords().catch((error) => console.error("[summary] save reply record failed", error));
   broadcastStatus();
   return record;
+}
+
+function normalizeAiTrace(value) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    model: clip(String(value.model || ""), 80),
+    thinking: String(value.thinking || ""),
+    reasoningEffort: String(value.reasoningEffort || ""),
+    reviewEnabled: Boolean(value.reviewEnabled),
+    reviewApplied: Boolean(value.reviewApplied),
+    knowledgeCount: Number(value.knowledgeCount || 0),
+    judgmentQueried: Boolean(value.judgmentQueried),
+    judgmentUsed: Boolean(value.judgmentUsed),
+    judgmentCount: Number(value.judgmentCount || 0),
+    judgmentFromCache: Number(value.judgmentFromCache || 0),
+    judgmentFromRemote: Number(value.judgmentFromRemote || 0),
+    judgmentError: clip(String(value.judgmentError || ""), 180),
+    latencyMs: Number(value.latencyMs || 0)
+  };
+}
+
+function normalizeProcessSteps(value, source, payload) {
+  if (Array.isArray(value) && value.length) {
+    return value.map((item) => clip(String(item || ""), 60)).filter(Boolean).slice(0, 12);
+  }
+  const steps = ["检测消息"];
+  if (source.usedRuleLibrary) steps.push("匹配规则库");
+  if (source.usedDirectReply) steps.push("选择直接回复");
+  if (source.usedAi) steps.push("调用AI接口");
+  for (const action of Array.isArray(payload.actions) ? payload.actions : []) {
+    const labels = {
+      text: "发送文字",
+      image: "发送图片",
+      file: "发送文件",
+      product: /邀请下单/.test(String(action?.button || "")) ? "邀请下单" : "发送商品",
+      material: "发送素材",
+      quick_reply: "发送快捷语",
+      ignore: "忽略消息"
+    };
+    steps.push(labels[String(action?.type || "")] || "执行页面动作");
+  }
+  if (!payload.actions?.length) steps.push(payload.status || payload.reply ? "发送文字" : "完成处理");
+  return steps.slice(0, 12);
 }
 
 function classifyReplySource(stageValue, payload = {}) {
@@ -3883,7 +4027,8 @@ function stopWatchdogs() {
 
 async function checkAiHealth({ notifyOk = false } = {}) {
   try {
-    const data = await fetchJson(`http://127.0.0.1:${PORT}/health`, 5000);
+    const data = await fetchJson(localAiUrl("/health"), 5000);
+    if (!isCompatibleAiService(data)) throw new Error("LOCAL_AI_SERVICE_INCOMPATIBLE: 本地服务版本或路由不匹配");
     lastAiHealth = {
       ok: Boolean(data.ok),
       hasKey: Boolean(data.hasKey),
@@ -3927,7 +4072,7 @@ async function testAiReply(payload = {}) {
   if (!message) return { ok: false, message: "测试消息不能为空" };
 
   try {
-    const response = await fetch(`http://127.0.0.1:${PORT}/reply`, {
+    const response = await fetch(localAiUrl("/reply"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -3948,6 +4093,9 @@ async function testAiReply(payload = {}) {
     return {
       ok: true,
       reply: String(data.reply || ""),
+      judgments: data.judgments || null,
+      trace: data.trace || null,
+      latencyMs: Number(data.trace?.latencyMs || 0) || null,
       message: "AI 测试回复成功"
     };
   } catch (error) {
@@ -3955,10 +4103,270 @@ async function testAiReply(payload = {}) {
   }
 }
 
+async function testRuleTrigger(payload = {}) {
+  const message = String(payload.message || "").trim();
+  const execute = payload.execute === true;
+  if (!message) return { ok: false, matched: false, message: "测试消息不能为空" };
+
+  const match = findRuleTrigger(message, config.bot || {});
+  if (!match) {
+    return {
+      ok: true,
+      matched: false,
+      execute,
+      message: "没有命中规则，将进入 AI/兜底链路",
+      processSteps: ["输入消息", "匹配规则库", "未命中"]
+    };
+  }
+
+  const processSteps = [
+    "输入消息",
+    match.sourceType === "action_rule" ? "命中动作规则" : match.sourceType === "image_rule" ? "命中图片规则" : "命中文字规则"
+  ];
+  if (!execute) {
+    return {
+      ok: true,
+      matched: true,
+      execute: false,
+      sourceType: match.sourceType,
+      sourceLabel: match.sourceLabel,
+      ruleName: match.ruleName,
+      reply: match.reply || "",
+      actions: match.actions || [],
+      message: `已命中：${match.ruleName}`,
+      processSteps
+    };
+  }
+
+  updateFloatingStatus("匹配规则", {
+    code: "matching_rule",
+    detail: `手动测试命中：${match.ruleName}`,
+    customer: message
+  });
+
+  const results = [];
+  if (match.sourceType === "text_rule") {
+    processSteps.push("发送文字");
+    results.push(await runPageAction({
+      type: "send_text",
+      text: match.reply,
+      customer: message,
+      manual: true,
+      audit: true,
+      name: match.ruleName,
+      rule: match.ruleName
+    }));
+  } else if (match.sourceType === "image_rule") {
+    if (match.reply) {
+      processSteps.push("发送说明");
+      results.push(await runPageAction({
+        type: "send_text",
+        text: match.reply,
+        customer: message,
+        manual: true,
+        audit: true,
+        name: match.ruleName,
+        rule: match.ruleName
+      }));
+    }
+    processSteps.push("发送图片");
+    results.push(await runPageAction({
+      type: "image",
+      path: match.actions[0]?.path || "",
+      customer: message,
+      fromAction: true,
+      manual: true,
+      audit: true,
+      name: match.ruleName,
+      rule: match.ruleName
+    }));
+  } else {
+    for (const action of match.rawActions || match.actions || []) {
+      const result = await executeManualRuleAction(action, message, match.ruleName, processSteps);
+      results.push(result);
+      if (!result?.ok && !result?.sent && !result?.ignored && !result?.skipped) break;
+    }
+  }
+
+  const ok = results.length > 0 && results.every((item) => Boolean(item?.ok || item?.sent || item?.ignored || item?.skipped));
+  processSteps.push(ok ? "执行完成" : "执行失败");
+  await recordReplyEvent(ok ? "sent" : "failed", {
+    stage: "manual_rule_test",
+    sourceType: match.sourceType,
+    usedRuleLibrary: true,
+    customer: message,
+    rule: match.ruleName,
+    status: ok ? "手动规则测试执行完成" : results.find((item) => item?.message)?.message || "手动规则测试执行失败",
+    reply: match.reply || "",
+    actions: match.actions || [],
+    processSteps
+  });
+  return {
+    ok,
+    matched: true,
+    execute: true,
+    sourceType: match.sourceType,
+    sourceLabel: match.sourceLabel,
+    ruleName: match.ruleName,
+    reply: match.reply || "",
+    actions: match.actions || [],
+    results,
+    message: ok ? "命中规则已真实执行" : "命中规则执行失败",
+    processSteps
+  };
+}
+
+async function executeManualRuleAction(action = {}, customer = "", ruleName = "", processSteps = []) {
+  if (!action || action.enabled === false) return { ok: true, skipped: true, message: "动作已关闭" };
+  const type = String(action.type || "").trim();
+  if (type === "wait") {
+    processSteps.push("等待");
+    await sleep(clampInt(action.ms || 500, 0, 60_000));
+    return { ok: true, waited: true };
+  }
+  if (type === "ignore" || type === "noop") {
+    processSteps.push("忽略消息");
+    return { ok: true, ignored: true, message: "规则要求忽略" };
+  }
+
+  const actionPayload = {
+    ...action,
+    customer,
+    manual: true,
+    audit: true,
+    name: action.name || ruleName,
+    rule: ruleName
+  };
+  if (type === "text") {
+    processSteps.push("发送文字");
+    return runPageAction({
+      ...actionPayload,
+      type: "send_text",
+      text: action.text || action.reply || ""
+    });
+  }
+  if (type === "image") {
+    processSteps.push("发送图片");
+    return runPageAction({
+      ...actionPayload,
+      type: "image",
+      path: action.path || action.imagePath || "",
+      fromAction: true
+    });
+  }
+  if (type === "file") processSteps.push("发送文件");
+  else if (type === "product" && /邀请下单/.test(String(action.button || ""))) processSteps.push("邀请下单");
+  else if (type === "product") processSteps.push("发送商品");
+  else if (type === "material") processSteps.push("发送素材");
+  else if (type === "quick_reply") processSteps.push("发送快捷语");
+  else if (type === "capture_structure") processSteps.push("捕捉结构");
+  else processSteps.push("执行动作");
+  return runPageAction(actionPayload);
+}
+
+function findRuleTrigger(message, bot = {}) {
+  const searchText = ruleSearchText(message);
+  const actionRule = (Array.isArray(bot.actionRules) ? bot.actionRules : []).find((rule) => {
+    if (!rule || rule.enabled === false || !Array.isArray(rule.actions) || !rule.actions.length) return false;
+    return ruleMatchesSearchText(rule, searchText);
+  });
+  if (actionRule) {
+    return {
+      sourceType: "action_rule",
+      sourceLabel: "动作规则库",
+      ruleName: String(actionRule.name || "未命名动作规则"),
+      actions: summarizeRuleActions(actionRule.actions),
+      rawActions: cloneJson(actionRule.actions || []),
+      reply: summarizeRuleReply(actionRule.actions)
+    };
+  }
+
+  const imageRule = (Array.isArray(bot.imageReplies) ? bot.imageReplies : []).find((rule) => {
+    if (!rule || rule.enabled === false) return false;
+    if (!String(rule.path || rule.imagePath || "").trim()) return false;
+    return ruleMatchesSearchText(rule, searchText);
+  });
+  if (imageRule) {
+    return {
+      sourceType: "image_rule",
+      sourceLabel: "图片规则库",
+      ruleName: String(imageRule.name || "未命名图片规则"),
+      reply: String(imageRule.caption || "").trim(),
+      actions: [{ type: "image", path: String(imageRule.path || imageRule.imagePath || "") }],
+      rawActions: [{ type: "image", path: String(imageRule.path || imageRule.imagePath || ""), caption: String(imageRule.caption || "") }]
+    };
+  }
+
+  const textRule = (Array.isArray(bot.rules) ? bot.rules : []).find((rule) => {
+    if (!rule || rule.enabled === false) return false;
+    return ruleMatchesSearchText(rule, searchText);
+  });
+  if (textRule) {
+    return {
+      sourceType: "text_rule",
+      sourceLabel: "文本规则库",
+      ruleName: String(textRule.name || "未命名文字规则"),
+      reply: String(textRule.reply || "").trim(),
+      actions: [{ type: "text", text: String(textRule.reply || "").trim() }]
+    };
+  }
+
+  return null;
+}
+
+function ruleMatchesSearchText(rule = {}, searchText = "") {
+  return normalizeList(rule.keywords).some((keyword) => keyword && searchText.includes(normalizeRuleText(keyword)));
+}
+
+function ruleSearchText(message) {
+  const text = String(message || "");
+  const type = inferRuleMessageType(text);
+  const aliases = {
+    image: "图片 照片 截图 非文本 客户发图片 收到图片",
+    emoji: "表情 图片表情 非文本 客户发表情 收到表情",
+    product: "商品 商品卡 商品链接 链接 非文本 客户发商品 收到商品",
+    file: "文件 附件 非文本 客户发文件 收到文件",
+    video: "视频 非文本 客户发视频 收到视频"
+  };
+  return normalizeRuleText([text, aliases[type] || "", type !== "text" ? "非文本 媒体消息" : ""].filter(Boolean).join(" "));
+}
+
+function inferRuleMessageType(text) {
+  const value = String(text || "").trim();
+  if (/^\[图片\]/.test(value)) return "image";
+  if (/^\[表情\]/.test(value)) return "emoji";
+  if (/^\[商品卡\]/.test(value)) return "product";
+  if (/^\[文件\]/.test(value)) return "file";
+  if (/^\[视频\]/.test(value)) return "video";
+  return "text";
+}
+
+function normalizeRuleText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function summarizeRuleActions(actions = []) {
+  return (Array.isArray(actions) ? actions : []).map((action) => ({
+    type: String(action?.type || "action"),
+    text: clip(String(action?.text || action?.reply || ""), 120),
+    path: String(action?.path || action?.imagePath || action?.filePath || ""),
+    productId: String(action?.productId || ""),
+    productName: String(action?.productName || ""),
+    button: String(action?.button || "")
+  }));
+}
+
+function summarizeRuleReply(actions = []) {
+  return (Array.isArray(actions) ? actions : [])
+    .map((action) => String(action?.text || action?.reply || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function getJudgmentLibraryStatus() {
   const env = readEnvValues();
   try {
-    const data = await fetchJson(`http://127.0.0.1:${PORT}/judgments/status`, 5000);
+    const data = await fetchJson(localAiUrl("/judgments/status"), 5000);
     return {
       ok: true,
       ...data,
@@ -4349,7 +4757,7 @@ async function performRunyuConnectionVerification(options = {}) {
     notify: false
   });
   if (result.ok) {
-    const cacheStatus = await fetchJson(`http://127.0.0.1:${PORT}/judgments/status`, 5000).catch(() => ({ records: 0 }));
+    const cacheStatus = await fetchJson(localAiUrl("/judgments/status"), 5000).catch(() => ({ records: 0 }));
     const records = Number(cacheStatus.records || 0);
     const state = setRunyuAuthState(records > 0 ? "ready" : "connected", `Cookie 自检通过，远端返回 ${result.results?.length || 0} 条，本地缓存 ${records} 条`, {
       source: options.source || runyuAuthState.source || "saved",
@@ -4432,7 +4840,7 @@ async function bootstrapRunyuJudgmentLibrary(options = {}) {
     if (options.notify !== false) await notifyRunyuAuthFailure(state);
     return state;
   }
-  const cacheStatus = await fetchJson(`http://127.0.0.1:${PORT}/judgments/status`, 5000).catch(() => ({ records: 0 }));
+  const cacheStatus = await fetchJson(localAiUrl("/judgments/status"), 5000).catch(() => ({ records: 0 }));
   const records = Number(cacheStatus.records || 0);
   if (!records) {
     const state = setRunyuAuthState("error", "远端查询成功，但没有下载到可引用记录", {
@@ -4465,7 +4873,8 @@ function diagnoseRunyuError(input) {
   const httpMatch = message.match(/(?:API|HTTP|状态)\s*(401|403|404|408|429|5\d\d)/i);
   const httpStatus = Number(httpMatch?.[1] || 0);
   let errorCode = "RUNYU_VERIFY_FAILED";
-  if (/404/.test(message)) errorCode = "RUNYU_API_404";
+  if (/LOCAL_AI_ROUTE_404|LOCAL_AI_SERVICE_INCOMPATIBLE/.test(message)) errorCode = "LOCAL_AI_SERVICE_INCOMPATIBLE";
+  else if (/404/.test(message)) errorCode = "RUNYU_API_404";
   else if (/401|未登录|过期|UNAUTHORIZED/i.test(message)) errorCode = "RUNYU_AUTH_EXPIRED";
   else if (/403|没有.*权限|FORBIDDEN/i.test(message)) errorCode = "RUNYU_PERMISSION_DENIED";
   else if (/超时|timeout|ETIMEDOUT|408/i.test(message)) errorCode = "RUNYU_REQUEST_TIMEOUT";
@@ -4501,13 +4910,17 @@ async function clearRunyuLogin() {
 async function testJudgmentLibrary(payload = {}) {
   const query = String(payload.query || payload.keyword || "会员").trim();
   if (!query) return { ok: false, message: "测试关键词不能为空" };
-  const result = await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/search`, {
+  const result = await fetchJsonPost(localAiUrl("/judgments/search"), {
     query,
     limit: clampInt(payload.limit || 10, 1, 30),
     remoteOnly: payload.remoteOnly === true
   }, Number(config?.judgmentLibrary?.timeoutMs || 12000) + 5000).catch((error) => ({
     ok: false,
-    message: String(error?.message || error),
+    errorCode: error?.code || "JUDGMENT_SEARCH_FAILED",
+    httpStatus: Number(error?.status || 0),
+    message: error?.code === "LOCAL_AI_ROUTE_404"
+      ? "本机 AI 服务缺少判断库路由，程序将切换到兼容服务端口"
+      : String(error?.message || error),
     results: []
   }));
   if (result.ok && payload.notify !== false) {
@@ -4527,7 +4940,7 @@ async function refreshJudgmentLibrary(payload = {}) {
     ...config.judgmentLibrary,
     ...(payload || {})
   });
-  const result = await fetchJsonPost(`http://127.0.0.1:${PORT}/judgments/refresh`, {
+  const result = await fetchJsonPost(localAiUrl("/judgments/refresh"), {
     keywords: normalizeList(payload.keywords || library.refreshKeywords),
     sources: normalizeList(payload.sources || library.sources),
     searchTypes: normalizeList(payload.searchTypes || library.searchTypes),
@@ -4787,6 +5200,11 @@ async function inspectBotHeartbeat() {
   if (!wc) return;
   const url = wc.getURL();
   if (!url.includes("/shop/kf")) return;
+
+  const pageHeartbeatAt = await wc.executeJavaScript("Number(window.__wechatShopKfBotHeartbeatAt || 0)", true).catch(() => 0);
+  if (pageHeartbeatAt && Date.now() - pageHeartbeatAt < config.watchdog.botHeartbeatMs) {
+    lastBotHeartbeatAt = Math.max(Number(lastBotHeartbeatAt || 0), Number(pageHeartbeatAt));
+  }
 
   const age = Date.now() - Number(lastBotHeartbeatAt || 0);
   if (age < config.watchdog.botHeartbeatMs) return;
@@ -5318,7 +5736,7 @@ async function fetchJson(url, timeoutMs) {
   try {
     const response = await fetch(url, { signal: controller.signal });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    if (!response.ok) throw httpResponseError(url, response.status, data.message);
     return data;
   } finally {
     clearTimeout(timer);
@@ -5336,11 +5754,19 @@ async function fetchJsonPost(url, payload, timeoutMs) {
       signal: controller.signal
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    if (!response.ok) throw httpResponseError(url, response.status, data.message);
     return data;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function httpResponseError(url, status, message = "") {
+  const error = new Error(message || `HTTP ${status}`);
+  error.status = Number(status || 0);
+  error.url = String(url || "");
+  error.code = isLocalHttpUrl(url) && Number(status) === 404 ? "LOCAL_AI_ROUTE_404" : "HTTP_ERROR";
+  return error;
 }
 
 function applyLoginItemSetting() {

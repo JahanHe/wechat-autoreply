@@ -42,6 +42,7 @@ const state = {
   runyuCountdownTimer: null,
   setupChecks: [],
   setupRunning: false,
+  ruleTestResult: null,
   apiKeyShown: false,
   runyuCookieShown: false,
   loading: false
@@ -539,9 +540,16 @@ function renderDashboard() {
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
-        <h3>最近步骤</h3>
-        <div class="runtime-trail">${runtimeTrailHtml(status.botHistory || [])}</div>
-        <p class="hint">悬浮窗与这里使用同一状态源，检测、AI、发送和完成会实时同步。</p>
+        <h3>当前状态</h3>
+        <div class="runtime-current">
+          <i class="dot ${runtimeTone(runtime.tone) === "ok" ? "" : runtimeTone(runtime.tone)}"></i>
+          <div>
+            <strong>${escapeHtml(shortStatus(runtime.label || runtime.status || "检测中"))}</strong>
+            <span>${escapeHtml(runtime.detail || "等待运行状态")}</span>
+          </div>
+          <time>${escapeHtml(formatFullTime(runtime.at || Date.now()))}</time>
+        </div>
+        <p class="hint">控制台和悬浮窗使用同一状态源，实时显示当前处理阶段。</p>
       </div>
       <div class="card cream">
         <h3>快捷操作</h3>
@@ -955,6 +963,7 @@ function renderRules() {
       <button data-rule-tab="rules" class="${state.ruleTab === "rules" ? "active" : ""}">文字规则</button>
       <button data-rule-tab="imageReplies" class="${state.ruleTab === "imageReplies" ? "active" : ""}">图片规则</button>
     </div>
+    ${renderRuleTestPanel()}
     <div id="ruleList" class="grid">
       ${list.length ? list.map((rule, index) => renderRuleCard(state.ruleTab, rule, index)).join("") : `<div class="empty">当前没有规则，点击“新增规则”创建。</div>`}
     </div>
@@ -974,6 +983,55 @@ function renderRules() {
     });
   });
   bindRuleActions();
+  hydrateRulePreviews();
+}
+
+function renderRuleTestPanel() {
+  const result = state.ruleTestResult;
+  return `
+    <section class="card rule-test-panel">
+      <h3>手动激发测试</h3>
+      <div class="form-grid">
+        ${textareaField("ruleTestMessage", "客户消息", "会员专区怎么使用", "输入一条真实客户消息，先看会命中哪条规则。", "span-2")}
+      </div>
+      <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
+        <button id="testRuleMatch" type="button">只测试匹配</button>
+        <button id="executeRuleMatch" type="button" class="primary">真实执行命中规则</button>
+      </div>
+      <div id="ruleTestResult" class="rule-test-result">
+        ${result ? renderRuleTestResult(result) : `<div class="hint">建议先点“只测试匹配”。真实执行会直接对当前客服会话发送文字、图片、商品卡片或邀请下单。</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderRuleTestResult(result) {
+  const source = sourceLabels[result.sourceType] || sourceLabels.unknown;
+  const badges = [
+    result.matched ? `命中 ${result.ruleName || ""}` : "未命中",
+    result.execute ? "真实执行" : "仅匹配",
+    result.sourceType ? source.label : ""
+  ].filter(Boolean);
+  return `
+    <div class="badge-row" style="margin-top:10px">
+      ${badges.map((text) => `<span class="badge ${source.className || ""}">${escapeHtml(text)}</span>`).join("")}
+      <span class="badge ${result.ok ? "" : "fail"}">${escapeHtml(result.message || (result.ok ? "正常" : "失败"))}</span>
+    </div>
+    ${result.reply ? `<div class="field" style="margin-top:10px"><label>将发送文字</label><div class="readonly-box">${escapeHtml(result.reply)}</div></div>` : ""}
+    ${Array.isArray(result.actions) && result.actions.length ? `<div class="badge-row" style="margin-top:10px">${result.actions.map((action) => `<span class="badge">${escapeHtml(actionSummary([action]) || action.type || "动作")}</span>`).join("")}</div>` : ""}
+    ${Array.isArray(result.results) && result.results.length ? `<div class="rule-test-results">${result.results.map(renderRuleExecutionResult).join("")}</div>` : ""}
+    ${Array.isArray(result.processSteps) && result.processSteps.length ? `<div class="process-chain">${result.processSteps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>` : ""}
+  `;
+}
+
+function renderRuleExecutionResult(item = {}) {
+  const ok = Boolean(item.ok || item.sent || item.ignored || item.skipped);
+  return `
+    <div class="mini-status">
+      <span class="signal"><i class="dot ${ok ? "" : "bad"}"></i>${ok ? "完成" : "失败"}</span>
+      <span>${escapeHtml(item.message || (item.sent ? "已发送" : item.pasted ? "已粘贴待确认" : item.skipped ? "已跳过" : ""))}</span>
+    </div>
+  `;
 }
 
 function renderRuleCard(type, rule, index) {
@@ -1034,7 +1092,14 @@ function renderRuleSpecificEditor(type, rule) {
 function renderActionRow(action, index) {
   const type = String(action.type || "text");
   return `
-    <div class="card cream action-row" data-action-index="${index}">
+    <div class="action-row action-module" data-action-index="${index}" data-action-type="${attr(type)}">
+      <div class="action-module-head">
+        <div>
+          <span class="badge rule">动作 ${index + 1}</span>
+          <strong>${escapeHtml(actionTypeLabel(type))}</strong>
+        </div>
+        <button type="button" data-rule-command="remove-action" class="danger">删除</button>
+      </div>
       <div class="form-grid">
         ${selectField("", "动作类型", type, [
           ["text", "发送文字"],
@@ -1047,18 +1112,66 @@ function renderActionRow(action, index) {
           ["click", "点击页面"],
           ["capture_structure", "捕捉结构"],
           ["ignore", "忽略"]
-        ], "动作执行类型。", "", "data-action-field=\"type\"")}
-        ${field("", "按钮/标签", action.button || action.label || action.tab || "", "商品动作可填“发商品”或“邀请下单”；素材和快捷语一般填“发送”。", "", "data-action-field=\"button\"")}
-        ${textareaField("", "文本/匹配内容", action.text || action.reply || action.query || action.match || "", "文字动作填回复；商品/素材/快捷语可填匹配词。", "", "data-action-field=\"text\"")}
-        ${pathField("", "文件/图片路径", action.path || action.filePath || action.imagePath || "", "图片/文件动作的本地路径。可选择文件、替换路径或打开所在位置。", "", "data-action-field=\"path\"", "auto")}
-        ${field("", "商品码", action.productId || "", "微信小店商品卡片匹配用的商品 ID。", "", "data-action-field=\"productId\"")}
-        ${field("", "商品名", action.productName || "", "商品卡片匹配用的名称，可与商品码配合。", "", "data-action-field=\"productName\"")}
-      </div>
-      <div class="toolbar" style="justify-content:flex-start;margin-top:8px">
-        <button type="button" data-rule-command="remove-action" class="danger">删除动作</button>
+        ], "切换后只显示这个动作需要的配置。", "", "data-action-field=\"type\"")}
+        ${renderActionFields(type, action)}
       </div>
     </div>
   `;
+}
+
+function actionTypeLabel(type) {
+  return ({
+    text: "发送文字",
+    image: "发送图片",
+    file: "发送文件",
+    product: "商品/邀请下单",
+    material: "发送素材",
+    quick_reply: "发送快捷语",
+    wait: "等待",
+    click: "点击页面",
+    capture_structure: "捕捉结构",
+    ignore: "忽略消息"
+  })[type] || "执行动作";
+}
+
+function renderActionFields(type, action) {
+  const text = action.text || action.reply || action.query || action.match || "";
+  const path = action.path || action.filePath || action.imagePath || "";
+  if (type === "text") {
+    return textareaField("", "发送内容", text, "命中规则后发送给客户的文字。", "span-2", "data-action-field=\"text\"");
+  }
+  if (type === "image") {
+    return `
+      ${pathField("", "回复图片", path, "选择后可直接预览、替换或打开图片所在位置。", "span-2", "data-action-field=\"path\"", "image")}
+      <div class="image-preview span-2" data-preview-path="${attr(path)}">
+        <div class="image-preview-frame"><span>正在读取图片</span></div>
+        <div class="hint image-preview-meta">${escapeHtml(path || "尚未选择图片")}</div>
+      </div>
+    `;
+  }
+  if (type === "file") {
+    return pathField("", "回复文件", path, "选择要发送的文件，也可以打开所在位置直接替换。", "span-2", "data-action-field=\"path\"", "file");
+  }
+  if (type === "product") {
+    return `
+      ${selectField("", "发送方式", action.button || "发商品", [["发商品", "发送商品卡片"], ["邀请下单", "邀请客户下单"]], "选择微信小店页面中的实际动作。", "", "data-action-field=\"button\"")}
+      ${field("", "商品码", action.productId || "", "优先使用商品 ID 精确匹配。", "", "data-action-field=\"productId\"")}
+      ${field("", "商品名", action.productName || "", "商品码匹配不到时用商品名辅助匹配。", "span-2", "data-action-field=\"productName\"")}
+    `;
+  }
+  if (type === "material" || type === "quick_reply") {
+    return `
+      ${field("", type === "material" ? "素材匹配词" : "快捷语匹配词", text, "用于在右侧素材库或快捷语列表中定位内容。", "span-2", "data-action-field=\"text\"")}
+      <input type="hidden" value="${attr(action.button || "发送")}" data-action-field="button">
+    `;
+  }
+  if (type === "wait") {
+    return numberField("", "等待毫秒", Number(action.ms || text || 500), "执行下一动作前等待的时间。", "span-2", "min=\"0\" step=\"100\" data-action-field=\"text\"");
+  }
+  if (type === "click") {
+    return field("", "按钮文字或选择器", text, "填写要点击的页面按钮文字或 CSS 选择器。", "span-2", "data-action-field=\"text\"");
+  }
+  return `<div class="action-note span-2">${type === "ignore" ? "命中后不发送任何内容，并结束本次处理。" : "命中后保存当前页面结构，供页面动作排查使用。"}</div>`;
 }
 
 function renderLogs() {
@@ -1119,8 +1232,33 @@ function renderLogRow(item) {
       <div>
         <div>${escapeHtml(item.reply || actionSummary(item.actions) || "")}</div>
         ${item.actions?.length ? `<div class="badge-row" style="margin-top:8px">${item.actions.map((action) => `<span class="badge">${escapeHtml(action.type || "action")}</span>`).join("")}</div>` : ""}
+        ${renderLogTrace(item)}
       </div>
     </article>
+  `;
+}
+
+function renderLogTrace(item) {
+  const trace = item.aiTrace || null;
+  const steps = Array.isArray(item.processSteps) ? item.processSteps : [];
+  if (!trace && !steps.length) return "";
+  const badges = [];
+  if (trace?.model) badges.push(`模型 ${trace.model}`);
+  if (trace) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
+  if (trace?.judgmentQueried) {
+    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
+    if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
+    if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
+  } else if (trace) {
+    badges.push("未查询判断库");
+  }
+  if (trace?.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
+  const latency = Number(item.latencyMs || trace?.latencyMs || 0);
+  if (latency) badges.push(`耗时 ${(latency / 1000).toFixed(1)} 秒`);
+  return `
+    ${badges.length ? `<div class="badge-row log-trace-badges">${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}</div>` : ""}
+    ${steps.length ? `<div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>` : ""}
+    ${trace?.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 
@@ -1717,11 +1855,44 @@ async function checkAi() {
 async function testAiReply() {
   const box = $("#aiTestResult");
   box.textContent = "正在请求 AI...";
-  const result = await window.mainShell.testAiReply({ message: value("aiTestMessage") });
+  const result = await window.mainShell.testAiReply({ message: value("aiTestMessage"), mode: "deep" });
   box.innerHTML = result.ok
-    ? `<strong>回复：</strong><div style="white-space:pre-wrap;margin-top:8px">${escapeHtml(result.reply || "")}</div>`
+    ? `<strong>回复：</strong><div style="white-space:pre-wrap;margin-top:8px">${escapeHtml(result.reply || "")}</div>${renderAiTestTrace(result)}`
     : `<strong>失败：</strong><div class="hint">${escapeHtml(result.message || "")}</div>`;
   showFlash(result.ok ? "AI 测试成功" : result.message, result.ok ? "ok" : "error");
+}
+
+function renderAiTestTrace(result = {}) {
+  const trace = result.trace || {};
+  const badges = [];
+  if (trace.model) badges.push(`模型 ${trace.model}`);
+  if (trace.thinking) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
+  if (trace.judgmentQueried) {
+    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
+    if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
+    if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
+  } else {
+    badges.push("未查询判断库");
+  }
+  if (trace.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
+  const latency = Number(result.latencyMs || trace.latencyMs || 0);
+  if (latency) badges.push(`耗时 ${(latency / 1000).toFixed(1)} 秒`);
+  const steps = [
+    "发送测试",
+    "收集上下文",
+    trace.judgmentQueried ? (trace.judgmentUsed ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中") : "未查询判断库",
+    "调用AI接口",
+    trace.thinking === "disabled" ? "Thinking关闭" : "Thinking开启",
+    trace.reviewEnabled ? (trace.reviewApplied ? "审核改写" : "审核通过") : "",
+    "返回结果"
+  ].filter(Boolean);
+  return `
+    <div class="badge-row log-trace-badges" style="margin-top:10px">
+      ${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}
+    </div>
+    <div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>
+    ${trace.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+  `;
 }
 
 async function testWebhook() {
@@ -1740,6 +1911,8 @@ async function loadLogsFromFilters() {
 }
 
 function bindRuleActions() {
+  $("#testRuleMatch")?.addEventListener("click", () => runRuleTriggerTest(false));
+  $("#executeRuleMatch")?.addEventListener("click", () => runRuleTriggerTest(true));
   $("#saveRules").addEventListener("click", () => {
     try {
       saveRules();
@@ -1790,6 +1963,7 @@ function bindRuleActions() {
       const picked = await window.mainShell.chooseFile({ kind });
       if (picked && input) {
         input.value = picked;
+        await hydrateRulePreviews(event.target.closest(".action-row") || event.target.closest(".rule-card"));
         showFlash(kind === "image" ? "图片路径已更新，记得保存规则库" : "文件路径已更新，记得保存规则库", "ok");
       }
       return;
@@ -1826,6 +2000,53 @@ function bindRuleActions() {
       row?.remove();
     }
   });
+  $("#ruleList").addEventListener("change", (event) => {
+    if (!event.target?.matches?.("[data-action-field='type']")) return;
+    state.settings.config.bot[state.ruleTab] = collectRulesFromDom(state.ruleTab);
+    renderRules();
+  });
+}
+
+async function runRuleTriggerTest(execute) {
+  const message = value("ruleTestMessage");
+  if (!message) {
+    showFlash("请先输入客户消息", "error");
+    return;
+  }
+  showFlash(execute ? "正在真实执行命中规则..." : "正在测试规则匹配...");
+  try {
+    state.ruleTestResult = await window.mainShell.testRuleTrigger({ message, execute });
+    $("#ruleTestResult").innerHTML = renderRuleTestResult(state.ruleTestResult);
+    showFlash(state.ruleTestResult.ok ? (execute ? "规则已执行" : "匹配测试完成") : state.ruleTestResult.message, state.ruleTestResult.ok ? "ok" : "error");
+  } catch (error) {
+    state.ruleTestResult = { ok: false, matched: false, message: String(error?.message || error), processSteps: ["输入消息", "测试失败"] };
+    $("#ruleTestResult").innerHTML = renderRuleTestResult(state.ruleTestResult);
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+async function hydrateRulePreviews(scope = document) {
+  const previews = Array.from(scope.querySelectorAll?.(".image-preview") || []);
+  await Promise.all(previews.map(async (preview) => {
+    const row = preview.closest(".action-row, .rule-card");
+    const path = inputValue($("[data-action-field='path']", row));
+    const frame = $(".image-preview-frame", preview);
+    const meta = $(".image-preview-meta", preview);
+    if (!path) {
+      frame.innerHTML = "<span>尚未选择图片</span>";
+      meta.textContent = "选择图片后会在这里显示缩略图";
+      return;
+    }
+    frame.innerHTML = "<span>正在读取图片</span>";
+    meta.textContent = path;
+    const result = await window.mainShell.getFilePreview(path).catch((error) => ({ ok: false, message: String(error?.message || error) }));
+    if (!result?.ok) {
+      frame.innerHTML = `<span>${escapeHtml(result?.message || "图片无法预览")}</span>`;
+      return;
+    }
+    frame.innerHTML = `<img src="${attr(result.dataUrl)}" alt="规则回复图片预览">`;
+    meta.textContent = result.path || path;
+  }));
 }
 
 function collectRulesFromDom(type) {

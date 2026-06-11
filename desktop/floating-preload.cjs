@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("desktopFloat", {
   openMain() {
     return ipcRenderer.invoke("float-open-main");
   },
+  openPage() {
+    return ipcRenderer.invoke("float-open-page");
+  },
   toggleEnabled() {
     return ipcRenderer.invoke("float-toggle-enabled");
   },

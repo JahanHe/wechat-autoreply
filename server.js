@@ -18,6 +18,18 @@ loadDotEnv(ROOT);
 loadDotEnv(CONFIG_ROOT, { override: true });
 
 const PORT = Number(process.env.PORT || 8787);
+export const AI_SERVICE_NAME = "xiaodian-ai-service";
+export const AI_SERVICE_PROTOCOL = 2;
+export const AI_SERVICE_ROUTES = [
+  "/health",
+  "/reply",
+  "/quick-reply",
+  "/waiting-reply",
+  "/knowledge/search",
+  "/judgments/status",
+  "/judgments/search",
+  "/judgments/refresh"
+];
 const QUICK_REPLIES_PATH = resolve(ROOT, "config/quick-replies.json");
 const WAITING_REPLIES_PATH = resolve(ROOT, "config/waiting-replies.json");
 const KNOWLEDGE_DIR = resolve(ROOT, "knowledge-base");
@@ -98,6 +110,10 @@ export function createAiServer() {
     const judgmentStatus = await getJudgmentCacheStatus();
     json(res, 200, {
       ok: true,
+      serviceName: AI_SERVICE_NAME,
+      protocolVersion: AI_SERVICE_PROTOCOL,
+      routes: AI_SERVICE_ROUTES,
+      pid: process.pid,
       model: aiConfig.model,
       baseUrl: aiConfig.baseUrl,
       hasKey: Boolean(aiConfig.apiKey),
@@ -310,6 +326,7 @@ function addPromptSection(sections, title, value) {
 }
 
 async function askDeepSeek({ message, context, mode, sideContext }) {
+  const startedAt = Date.now();
   const aiConfig = getAiConfig();
   const profile = loadAssistantProfile();
   const knowledge = profile.knowledgeFilesEnabled === false
@@ -358,18 +375,36 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
       fromCache: judgmentSearch.fromCache || 0,
       fromRemote: judgmentSearch.fromRemote || 0,
       error: judgmentSearch.error || ""
+    },
+    trace: {
+      model: aiConfig.model,
+      thinking: aiConfig.thinking,
+      reasoningEffort: aiConfig.reasoningEffort,
+      reviewEnabled: Boolean(aiConfig.reviewEnabled && profile.reviewEnabled !== false),
+      reviewApplied: reviewed !== reply,
+      knowledgeCount: knowledge.length,
+      judgmentQueried: Boolean(judgmentSearch.queried),
+      judgmentUsed: judgmentSearch.results.length > 0,
+      judgmentCount: judgmentSearch.results.length,
+      judgmentFromCache: judgmentSearch.fromCache || 0,
+      judgmentFromRemote: judgmentSearch.fromRemote || 0,
+      judgmentError: judgmentSearch.error || "",
+      latencyMs: Date.now() - startedAt
     }
   };
 }
 
 async function maybeSearchJudgments({ message, mode }) {
   const config = getRunyuJudgmentConfig();
-  if (!config.enabled) return { results: [] };
-  if (!shouldUseJudgmentLibrary(message, mode)) return { results: [] };
-  return await searchJudgmentLibrary(message, { config }).catch((error) => ({
-    results: [],
-    error: String(error?.message || error)
-  }));
+  if (!config.enabled) return { results: [], queried: false, reason: "disabled" };
+  if (!shouldUseJudgmentLibrary(message, mode)) return { results: [], queried: false, reason: "not_needed" };
+  return await searchJudgmentLibrary(message, { config })
+    .then((result) => ({ ...result, queried: true }))
+    .catch((error) => ({
+      results: [],
+      queried: true,
+      error: String(error?.message || error)
+    }));
 }
 
 function shouldUseJudgmentLibrary(message, mode) {

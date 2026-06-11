@@ -2,6 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
 import { _electron as electron } from "playwright";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -15,9 +16,13 @@ const screenshots = {
 const statuses = [
   ["detecting", "检测消息", "active", "检测", "正在检查当前会话的最新消息"],
   ["message_found", "已检测消息", "active", "检测", "已检测到客户最新消息"],
+  ["image_found", "收到图片", "active", "检测", "已检测到客户发送的图片"],
+  ["product_found", "收到商品", "active", "检测", "已检测到客户发送的商品卡片"],
   ["last_kf", "客服最后", "ok", "等待", "当前会话最后一条消息来自客服"],
   ["matching_rule", "匹配规则", "active", "匹配", "正在匹配回复规则"],
   ["querying_judgment", "查询判断库", "active", "AI", "正在检索判断库"],
+  ["api_calling", "调用API", "active", "AI", "正在请求本地AI服务"],
+  ["async_api", "异步API", "active", "AI", "后台继续生成详细回复"],
   ["ai_thinking", "AI思考中", "active", "AI", "AI正在生成回复"],
   ["sending_text", "发送文字", "active", "发送", "正在发送文字回复"],
   ["text_sent", "文字已发", "ok", "完成", "文字回复已经发送"],
@@ -38,7 +43,20 @@ const statuses = [
 }));
 
 let app;
+const legacyService = createServer((req, res) => {
+  res.setHeader("content-type", "application/json");
+  if (req.url === "/health") {
+    res.end(JSON.stringify({ ok: true, hasKey: true, model: "legacy-service" }));
+    return;
+  }
+  res.statusCode = 404;
+  res.end(JSON.stringify({ error: "not_found" }));
+});
 try {
+  await new Promise((resolveListen, rejectListen) => {
+    legacyService.once("error", rejectListen);
+    legacyService.listen(19787, "127.0.0.1", resolveListen);
+  });
   app = await electron.launch({
     args: ["."],
     cwd: root,
@@ -46,13 +64,14 @@ try {
       ...process.env,
       WECHAT_KF_ALLOW_MULTIPLE: "1",
       WECHAT_KF_DESKTOP_USER_DATA: userData,
-      PORT: "18787",
-      DESKTOP_CONTROL_PORT: "18797"
+      PORT: "19787",
+      DESKTOP_CONTROL_PORT: "19797"
     }
   });
 
   const main = await waitForWindow(app, "小店AI客服控制台");
   const floating = await waitForWindow(app, "小店AI客服状态");
+  await assertLegacyAiServiceFallback(main);
   const payload = buildPayload(statuses.at(-2), statuses.slice(-6));
 
   await main.evaluate((status) => {
@@ -85,6 +104,8 @@ try {
   await assertMainDashboard(main, statuses.at(-2).label);
   await floating.screenshot({ path: screenshots.floating });
   await assertNoOverflow(floating, "展开悬浮窗");
+  await assertFloatingControls(floating);
+  await assertControlWindowCanReopen(app, floating);
 
   await floating.locator("#minimizeFloat").click();
   await floating.waitForTimeout(250);
@@ -94,6 +115,7 @@ try {
   console.log(JSON.stringify({ ok: true, testedStatuses: statuses.length, screenshots }, null, 2));
 } finally {
   if (app) await app.close().catch(() => {});
+  await new Promise((resolveClose) => legacyService.close(resolveClose));
 }
 
 function buildPayload(bot, history) {
@@ -124,7 +146,8 @@ async function waitForWindow(electronApp, title) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     for (const page of electronApp.windows()) {
-      if ((await page.title().catch(() => "")) === title) return page;
+      const actual = await page.title().catch(() => "");
+      if (actual === title || (title === "小店AI客服控制台" && actual === "小店AI客服")) return page;
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
@@ -142,13 +165,64 @@ async function assertMainDashboard(page, expectedStatus) {
   const result = await page.evaluate(() => ({
     heading: document.querySelector(".page-head h2")?.textContent || "",
     current: Array.from(document.querySelectorAll(".metric strong")).map((node) => node.textContent),
-    trailCount: document.querySelectorAll(".runtime-step").length,
+    currentCount: document.querySelectorAll(".runtime-current").length,
+    recentTitleCount: Array.from(document.querySelectorAll("h3")).filter((node) => node.textContent === "最近步骤").length,
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
   }));
   if (result.heading !== "总览状态") throw new Error(`主面板未打开: ${result.heading}`);
   if (!result.current.includes(expectedStatus)) throw new Error(`主面板未显示当前步骤: ${expectedStatus}`);
-  if (!result.trailCount) throw new Error("主面板未显示最近步骤");
+  if (!result.currentCount) throw new Error("主面板未显示当前状态");
+  if (result.recentTitleCount) throw new Error("主面板仍显示最近步骤");
   if (result.overflow) throw new Error("主面板发生横向溢出");
+}
+
+async function assertControlWindowCanReopen(electronApp, floatingPage) {
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((item) => item.getTitle().includes("小店AI客服") && !item.getTitle().includes("状态"));
+    window?.close();
+  });
+  await floatingPage.waitForTimeout(150);
+  const hidden = await electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((item) => item.getTitle().includes("小店AI客服") && !item.getTitle().includes("状态"));
+    return Boolean(window && !window.isVisible());
+  });
+  if (!hidden) throw new Error("控制台关闭后没有进入后台隐藏状态");
+  await floatingPage.locator("#openMain").click();
+  await floatingPage.waitForTimeout(150);
+  const visible = await electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((item) => item.getTitle().includes("小店AI客服") && !item.getTitle().includes("状态"));
+    return Boolean(window?.isVisible());
+  });
+  if (!visible) throw new Error("悬浮窗无法重新打开控制台");
+}
+
+async function assertFloatingControls(page) {
+  await page.getByRole("button", { name: "打开控制台", exact: true }).waitFor();
+  await page.getByRole("button", { name: "暂停 Bot", exact: true }).waitFor();
+  await page.getByRole("button", { name: /^(去登录|查看客服页|打开客服页)$/ }).waitFor();
+  const before = await page.locator("#liveClock").textContent();
+  await page.waitForTimeout(1100);
+  const after = await page.locator("#liveClock").textContent();
+  if (!before || before === after) throw new Error(`悬浮窗时间未实时更新: ${before} -> ${after}`);
+  const layout = await page.evaluate(() => {
+    const process = document.querySelector(".process")?.getBoundingClientRect();
+    const lamp = document.querySelector("#runtimeLamp")?.getBoundingClientRect();
+    const heading = document.querySelector(".process-heading")?.getBoundingClientRect();
+    const buttons = Array.from(document.querySelectorAll(".command-button")).map((node) => node.getBoundingClientRect());
+    return {
+      processCenter: process ? process.top + process.height / 2 : 0,
+      lampCenter: lamp ? lamp.top + lamp.height / 2 : 0,
+      headingCenter: heading ? heading.top + heading.height / 2 : 0,
+      buttonHeights: buttons.map((rect) => rect.height),
+      buttonTops: buttons.map((rect) => rect.top)
+    };
+  });
+  if (Math.abs(layout.lampCenter - layout.headingCenter) > 2) {
+    throw new Error(`状态指示灯未与主状态标题对齐: ${JSON.stringify(layout)}`);
+  }
+  if (new Set(layout.buttonHeights).size !== 1 || new Set(layout.buttonTops).size !== 1) {
+    throw new Error(`操作按钮尺寸或基线不统一: ${JSON.stringify(layout)}`);
+  }
 }
 
 async function assertNoOverflow(page, name) {
@@ -162,5 +236,13 @@ async function assertNoOverflow(page, name) {
   }));
   if (result.scrollWidth > result.width || result.scrollHeight > result.height || result.bodyWidth > result.width || result.bodyHeight > result.height) {
     throw new Error(`${name}内容溢出: ${JSON.stringify(result)}`);
+  }
+}
+
+async function assertLegacyAiServiceFallback(page) {
+  const settings = await page.evaluate(() => window.mainShell.getSettings());
+  const endpoint = String(settings?.config?.bot?.aiEndpoint || "");
+  if (!endpoint.includes("127.0.0.1:19788/reply")) {
+    throw new Error(`旧本地服务占用端口时未自动切换: ${endpoint}`);
   }
 }

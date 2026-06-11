@@ -101,6 +101,7 @@
   const state = {
     observer: null,
     debounceTimer: null,
+    heartbeatTimer: null,
     noResponseTimer: null,
     busy: false,
     lastReplyAt: 0,
@@ -129,8 +130,22 @@
     watchRoute();
     watchPageResume();
     watchNoResponseTimeout();
+    startHeartbeat();
     maybeStartForCurrentRoute("boot");
     log("installed route watcher");
+  }
+
+  function startHeartbeat() {
+    window.clearInterval(state.heartbeatTimer);
+    window.__wechatShopKfBotHeartbeatAt = Date.now();
+    state.heartbeatTimer = window.setInterval(() => {
+      if (!location.href.includes("/shop/kf")) return;
+      window.__wechatShopKfBotHeartbeatAt = Date.now();
+      reportStatus(state.lastStatus || (CONFIG.enabled ? "检测中" : "暂停中"), {
+        ...(state.lastStatusMeta || {}),
+        heartbeat: true
+      });
+    }, 10_000);
   }
 
   function watchRoute() {
@@ -276,7 +291,11 @@
 
     const sessionKey = currentSessionKey();
     const key = messageReplyKey(latest, sessionKey);
-    setStep("message_found", "已检测消息", "已检测到客户最新消息", { customer: latest.text });
+    const detectedStatus = runtimeStatusForIncomingMessage(latest);
+    setStep(detectedStatus.code, detectedStatus.label, detectedStatus.detail, {
+      customer: latest.text,
+      messageType: latest.type
+    });
     if (state.replied.has(key)) {
       setStep("reply_done", "回复完成", "该条客户消息已经完成回复", { customer: latest.text });
       return;
@@ -293,7 +312,7 @@
     let responseSent = false;
 
     try {
-      const actionRule = matchActionRule(latest.text);
+      const actionRule = matchActionRule(latest);
       if (actionRule) {
         setStep("matching_rule", "匹配规则", `已匹配动作规则：${actionRule.name || "未命名"}`, { customer: latest.text });
         const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "", sessionKey);
@@ -325,7 +344,7 @@
         return;
       }
 
-      const imageReply = matchImageReply(latest.text);
+      const imageReply = matchImageReply(latest);
       if (imageReply) {
         setStep("matching_image", "匹配图片", `已匹配图片规则：${imageReply.name || "未命名"}`, { customer: latest.text });
         const caption = String(imageReply.caption || "我发你图片看下").trim();
@@ -398,7 +417,7 @@
         }
       }
 
-      const ruleReply = matchRuleReply(latest.text);
+      const ruleReply = matchRuleReply(latest);
       if (ruleReply) {
         setStep("matching_rule", "匹配规则", "已匹配文字回复规则", { customer: latest.text });
         if (hasSessionReply(sessionKey, ruleReply)) {
@@ -473,7 +492,7 @@
           state.quickAckedSessions.add(sessionKey);
           persistQuickAckedSessions();
           state.lastReplyAt = Date.now();
-          setStep("waiting_ai", "等待AI", "承接语已发送，继续等待AI详细回复", { customer: latest.text });
+          setStep("async_api", "异步API", "承接语已发送，后台继续调用AI生成详细回复", { customer: latest.text });
           reportReplySent({
             stage: "quick_ack",
             sourceType: "quick_ack",
@@ -623,7 +642,9 @@
           customer: latest.text,
           status: usedJudgmentLibrary ? "判断库/AI 已发送" : "AI 已发送",
           reply: aiReply,
-          latencyMs: aiResult?.latencyMs || null
+          latencyMs: aiResult?.latencyMs || null,
+          aiTrace: aiResult?.trace || null,
+          processSteps: aiProcessSteps(aiResult?.trace, usedJudgmentLibrary)
         });
       } else {
         fallbackAfterSendFailure = fallbackSent || await startFallbackReply("ai_send_failed", true);
@@ -787,15 +808,99 @@
   }
 
   function latestMessage() {
-    const nodes = visibleElements(".text-msg.bg-user, .text-msg.bg-kf");
-    const node = nodes.at(-1);
-    if (!node) return null;
+    return messageNodes().map(parseMessageNode).filter(Boolean).at(-1) || null;
+  }
 
+  function messageNodes() {
+    const rows = visibleElements(".msg")
+      .filter((node) => !node.classList.contains("no-content"))
+      .filter((node) => node.querySelector(".message-item, .text-msg, .product-msg-block, img, video, [class*='emoji'], [class*='sticker'], [class*='file']"));
+    if (rows.length) return rows;
+    return visibleElements(".message-item");
+  }
+
+  function parseMessageNode(row) {
+    const item = row.matches(".message-item") ? row : row.querySelector(".message-item") || row;
+    const textNode = item.querySelector(".text-msg");
+    const productNode = item.querySelector(".product-msg-block, [class*='product-msg'], [class*='product-card']");
+    const fileNode = item.querySelector("[class*='file-msg'], [class*='file-card'], [class*='file-item']");
+    const videoNode = item.querySelector("video, [class*='video-msg'], [class*='video-card']");
+    const emojiNode = item.querySelector("[class*='emoji'], [class*='sticker'], img[alt*='表情'], img[title*='表情']");
+    const imageNode = item.querySelector("img, canvas, [class*='image-msg'], [class*='image-message'], [class*='pic-msg']");
+    const from = inferMessageSide(item, textNode);
+
+    let type = "text";
+    let text = textOf(textNode);
+    if (productNode) {
+      type = "product";
+      text = messagePlaceholder("商品卡", textOf(productNode));
+    } else if (fileNode) {
+      type = "file";
+      text = messagePlaceholder("文件", mediaLabel(fileNode));
+    } else if (videoNode) {
+      type = "video";
+      text = messagePlaceholder("视频", mediaLabel(videoNode));
+    } else if (emojiNode) {
+      type = "emoji";
+      text = messagePlaceholder("表情", mediaLabel(emojiNode));
+    } else if (!text && imageNode) {
+      type = "image";
+      text = messagePlaceholder("图片", mediaLabel(imageNode));
+    }
+
+    if (!text) return null;
     return {
-      from: node.classList.contains("bg-user") ? "customer" : "kf",
-      id: node.closest(".msg")?.id || "",
-      text: textOf(node)
+      from,
+      type,
+      id: row.id || row.getAttribute("data-msgid") || row.getAttribute("data-id") || stableMessageId(row, text, from),
+      text
     };
+  }
+
+  function inferMessageSide(item, textNode) {
+    if (textNode?.classList.contains("bg-user")) return "customer";
+    if (textNode?.classList.contains("bg-kf")) return "kf";
+    const classes = `${safeClassName(item)} ${safeClassName(item.parentElement)}`;
+    return /(?:^|\s)(?:justify-end|is-self|from-kf|msg-kf|right)(?:\s|$)/i.test(classes) ? "kf" : "customer";
+  }
+
+  function mediaLabel(node) {
+    const values = [
+      node?.getAttribute?.("alt"),
+      node?.getAttribute?.("title"),
+      node?.getAttribute?.("aria-label"),
+      node?.getAttribute?.("data-name"),
+      textOf(node)
+    ].map((value) => String(value || "").trim()).filter(Boolean);
+    return values.find((value) => !/^(图片|image|表情|emoji)$/i.test(value)) || "";
+  }
+
+  function messagePlaceholder(kind, detail = "") {
+    const clean = String(detail || "").replace(/\s+/g, " ").trim();
+    return clean ? `[${kind}] ${clean}` : `[${kind}]`;
+  }
+
+  function stableMessageId(row, text, from) {
+    const index = messageNodes().indexOf(row);
+    return `${from}-${index}-${simpleHash(text)}`;
+  }
+
+  function simpleHash(value) {
+    let hash = 0;
+    for (const char of String(value || "")) hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+    return Math.abs(hash).toString(36);
+  }
+
+  function runtimeStatusForIncomingMessage(message) {
+    const definitions = {
+      image: ["image_found", "收到图片", "已检测到客户发送的图片，正在进入处理流程"],
+      emoji: ["emoji_found", "收到表情", "已检测到客户发送的表情，正在进入处理流程"],
+      product: ["product_found", "收到商品", "已检测到客户发送的商品卡片，正在读取商品信息"],
+      file: ["file_found", "收到文件", "已检测到客户发送的文件，正在进入处理流程"],
+      video: ["video_found", "收到视频", "已检测到客户发送的视频，正在进入处理流程"]
+    };
+    const definition = definitions[message?.type] || ["message_found", "已检测消息", "已检测到客户最新消息"];
+    return { code: definition[0], label: definition[1], detail: definition[2] };
   }
 
   function currentSessionKey() {
@@ -827,11 +932,11 @@
   }
 
   function messageReplyKey(message, sessionKey = currentSessionKey()) {
-    return `${sessionKey}:${message?.id || ""}:${message?.text || ""}`;
+    return `${sessionKey}:${message?.id || ""}:${message?.type || "text"}:${message?.text || ""}`;
   }
 
   function matchRuleReply(message) {
-    const text = normalize(message);
+    const text = messageSearchText(message);
     const rules = Array.isArray(CONFIG.rules) && CONFIG.rules.length > 0 ? CONFIG.rules : DEFAULT_RULES;
     for (const rule of rules) {
       if (!rule) continue;
@@ -846,7 +951,7 @@
 
   function matchActionRule(message) {
     const rules = Array.isArray(CONFIG.actionRules) ? CONFIG.actionRules : [];
-    const text = normalize(message);
+    const text = messageSearchText(message);
     return rules.find((rule) => {
       if (!rule || rule.enabled === false || !Array.isArray(rule.actions) || rule.actions.length === 0) return false;
       const keywords = Array.isArray(rule.keywords) ? rule.keywords : splitKeywords(rule.keywords);
@@ -1009,7 +1114,7 @@
 
   function matchImageReply(message) {
     if (!CONFIG.imageRepliesEnabled || !Array.isArray(CONFIG.imageReplies)) return null;
-    const text = normalize(message);
+    const text = messageSearchText(message);
     return CONFIG.imageReplies.find((rule) => {
       if (!rule || rule.enabled === false) return false;
       const path = String(rule.path || rule.imagePath || "").trim();
@@ -1017,6 +1122,31 @@
       const keywords = Array.isArray(rule.keywords) ? rule.keywords : splitKeywords(rule.keywords);
       return keywords.some((keyword) => keyword && text.includes(normalize(keyword)));
     }) || null;
+  }
+
+  function messageSearchText(message) {
+    const messageObject = message && typeof message === "object" ? message : null;
+    const text = String(messageObject ? messageObject.text : message || "");
+    const type = String(messageObject?.type || inferMessageTypeFromText(text) || "text");
+    const aliases = {
+      image: "图片 照片 截图 非文本 客户发图片 收到图片",
+      emoji: "表情 图片表情 非文本 客户发表情 收到表情",
+      product: "商品 商品卡 商品链接 链接 非文本 客户发商品 收到商品",
+      file: "文件 附件 非文本 客户发文件 收到文件",
+      video: "视频 非文本 客户发视频 收到视频",
+      media: "非文本 媒体消息"
+    };
+    return normalize([text, aliases[type] || "", type !== "text" ? aliases.media : ""].filter(Boolean).join(" "));
+  }
+
+  function inferMessageTypeFromText(text) {
+    const value = String(text || "").trim();
+    if (/^\[图片\]/.test(value)) return "image";
+    if (/^\[表情\]/.test(value)) return "emoji";
+    if (/^\[商品卡\]/.test(value)) return "product";
+    if (/^\[文件\]/.test(value)) return "file";
+    if (/^\[视频\]/.test(value)) return "video";
+    return "";
   }
 
   async function requestImageReply(imageReply, customer) {
@@ -1354,8 +1484,8 @@
     try {
       setStep("collecting", "收集上下文", "正在读取最近消息和客服页上下文", { customer: message });
       const sideContext = await collectSidebarContext(message);
-      setStep("ai_thinking", "AI思考中", "AI正在结合判断库和会话上下文生成回复", { customer: message });
-      const response = await fetch(CONFIG.aiEndpoint, {
+      setStep("api_calling", "调用API", "正在请求本地AI服务和外部判断库", { customer: message });
+      const request = fetch(CONFIG.aiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1365,6 +1495,8 @@
           sideContext
         })
       });
+      setStep("ai_thinking", "AI思考中", "AI正在结合判断库和会话上下文生成回复", { customer: message });
+      const response = await request;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       const reply = String(data.reply || "").trim();
@@ -1372,6 +1504,7 @@
       return {
         reply,
         judgments: data.judgments || null,
+        trace: data.trace || null,
         latencyMs: Date.now() - startedAt
       };
     } catch (error) {
@@ -1522,12 +1655,11 @@
   }
 
   function recentMessages() {
-    return visibleElements(".text-msg.bg-user, .text-msg.bg-kf")
+    return messageNodes()
       .slice(-8)
-      .map((node) => ({
-        from: node.classList.contains("bg-user") ? "customer" : "kf",
-        text: textOf(node)
-      }))
+      .map(parseMessageNode)
+      .filter(Boolean)
+      .map(({ from, text, type }) => ({ from, text, type }))
       .filter((item) => item.text);
   }
 
@@ -1865,6 +1997,7 @@
         category: String(extra.category || ""),
         customer: clip(String(extra.customer || ""), 80),
         actionType: String(extra.actionType || ""),
+        messageType: String(extra.messageType || ""),
         enabled: CONFIG.enabled,
         busy: Boolean(state.busy),
         takeover: Boolean(extra.takeover || (CONFIG.enabled && state.busy)),
@@ -1922,6 +2055,20 @@
       .map((action) => String(action?.text || action?.reply || "").trim())
       .filter(Boolean)
       .join("\n");
+  }
+
+  function aiProcessSteps(trace = {}, usedJudgmentLibrary = false) {
+    const steps = ["检测消息", "收集上下文"];
+    if (trace?.judgmentQueried) {
+      steps.push(usedJudgmentLibrary ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中");
+    } else {
+      steps.push("未查询判断库");
+    }
+    steps.push("调用AI接口");
+    steps.push(trace?.thinking === "disabled" ? "Thinking关闭" : "Thinking开启");
+    if (trace?.reviewEnabled) steps.push(trace?.reviewApplied ? "审核并改写" : "审核通过");
+    steps.push("发送文字");
+    return steps;
   }
 
   function loadReplied() {
