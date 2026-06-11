@@ -4704,8 +4704,8 @@ async function inspectRunyuLoginCookie(source = "browser_login") {
   }
   const normalized = normalizeRunyuCookie(cookie);
   const saved = normalizeRunyuCookie(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "");
-  if (runyuAuthState.status === "expired" && normalized === saved) {
-    return setRunyuAuthState("monitoring", "登录页已打开，当前凭证已过期；请完成网页登录，程序会自动验证新凭证", {
+  if (normalized === saved) {
+    return setRunyuAuthState("monitoring", "已检测到本机保存的凭证，正在后台验证；如提示过期请完成网页登录，程序会自动验证新凭证", {
       source,
       cookieDetected: true
     });

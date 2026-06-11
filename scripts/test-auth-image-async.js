@@ -186,8 +186,8 @@ function assertRunyuAutoCapture(source) {
   const inspectStart = source.indexOf("async function inspectRunyuLoginCookie");
   const inspectEnd = source.indexOf("async function captureAndVerifyRunyuCookie", inspectStart);
   const inspectBlock = source.slice(inspectStart, inspectEnd);
-  if (!inspectBlock.includes('runyuAuthState.status === "expired" && normalized === saved') || !inspectBlock.includes("程序会自动验证新凭证")) {
-    throw new Error("判断库登录页仍会把已知过期 Cookie 误报为待捕捉的新凭证");
+  if (!inspectBlock.includes("if (normalized === saved)") || !inspectBlock.includes("正在后台验证") || !inspectBlock.includes("程序会自动验证新凭证")) {
+    throw new Error("判断库登录页仍会把已保存 Cookie 误报为待手工捕捉的新凭证");
   }
 }
 
