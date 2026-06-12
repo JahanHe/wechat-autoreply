@@ -26,7 +26,11 @@
         --sidebar-expanded: 268px;
         --sidebar-collapsed: 64px;
         --sidebar: var(--sidebar-expanded);
-        --contextbar: 54px;
+        --contextbar: 46px;
+        --chrome-control-size: 26px;
+        --chrome-control-top: 10px;
+        --chrome-control-left: 92px;
+        --chrome-control-gap: 8px;
       }
 
       * {
@@ -172,9 +176,9 @@
       }
 
       .collapse-button {
-        width: 24px;
-        height: 24px;
-        min-height: 24px;
+        width: var(--chrome-control-size);
+        height: var(--chrome-control-size);
+        min-height: var(--chrome-control-size);
         display: inline-grid;
         place-items: center;
         padding: 0;
@@ -186,9 +190,9 @@
       }
 
       .top-collapse-button {
-        width: 28px;
-        height: 28px;
-        min-height: 28px;
+        width: var(--chrome-control-size);
+        height: var(--chrome-control-size);
+        min-height: var(--chrome-control-size);
         display: none;
         place-items: center;
         padding: 0;
@@ -240,15 +244,15 @@
       }
 
       .platform-darwin .sidebar-window-controls {
-        min-height: 38px;
+        min-height: calc(var(--chrome-control-top) + var(--chrome-control-size));
         justify-content: flex-start;
-        padding: 12px 0 0 92px;
+        padding: var(--chrome-control-top) 0 0 var(--chrome-control-left);
       }
 
       .platform-darwin.window-fullscreen .sidebar-window-controls {
-        min-height: 0;
-        padding: 8px 12px 0;
-        justify-content: flex-end;
+        min-height: calc(var(--chrome-control-top) + var(--chrome-control-size));
+        padding: var(--chrome-control-top) 0 0 18px;
+        justify-content: flex-start;
       }
 
       .brand {
@@ -614,9 +618,9 @@
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        gap: 12px;
+        gap: var(--chrome-control-gap);
         min-height: var(--contextbar);
-        padding: 10px 18px;
+        padding: var(--chrome-control-top) 18px;
         border-bottom: 1px solid var(--hairline);
         background: rgba(250, 249, 245, .94);
         -webkit-app-region: drag;
@@ -626,7 +630,7 @@
         grid-column: 1 / -1;
         grid-row: 1;
         padding-left: 54px;
-        gap: 6px;
+        gap: var(--chrome-control-gap);
       }
 
       .workspace-body {
@@ -693,7 +697,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
-        padding: 3px;
+        padding: 0;
         border: 0;
         border-width: 0;
         border-style: none;
@@ -703,7 +707,7 @@
       }
 
       .section-tabs button {
-        min-height: 28px;
+        min-height: var(--chrome-control-size);
         padding: 0 10px;
         border-color: transparent;
         background: transparent;
@@ -1427,7 +1431,7 @@
       }
 
       body.sidebar-collapsed.platform-darwin .context-bar {
-        padding-left: 78px;
+        padding-left: var(--chrome-control-left);
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .context-bar {
@@ -1562,6 +1566,9 @@
             <div class="floating-actions">
               <button id="expandFloatDock" class="float-action" type="button" title="展开悬浮窗" aria-label="展开悬浮窗">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+              </button>
+              <button id="miniFloatDock" class="float-action" type="button" title="以最小号打开悬浮窗" aria-label="以最小号打开悬浮窗">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="8" width="14" height="8" rx="2"/><path d="M9 12h6"/></svg>
               </button>
               <button id="hideFloatDock" class="float-action close" type="button" title="隐藏悬浮窗" aria-label="隐藏悬浮窗">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>

@@ -197,6 +197,8 @@ async function assertNavigationStructure(page) {
     const contextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
     const tabsStyle = getComputedStyle(document.querySelector(".section-tabs"));
     const activeTabStyle = getComputedStyle(document.querySelector(".section-tabs button.active"));
+    const floatingActionIds = Array.from(document.querySelectorAll(".floating-actions button")).map((node) => node.id);
+    const expandedCollapseBox = document.querySelector("#sidebarCollapse")?.getBoundingClientRect();
     document.querySelector("#sidebarCollapse")?.click();
     await new Promise((resolve) => setTimeout(resolve, 150));
     const collapsedContextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
@@ -216,10 +218,13 @@ async function assertNavigationStructure(page) {
       tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40),
       tabsContainerBorderless: tabsStyle.borderTopStyle === "none" || tabsStyle.borderTopWidth === "0px",
       activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
+      floatingActionIds,
+      compactContextBar: Boolean(contextBox && contextBox.height <= 48),
       collapsedTopFullWidth: Boolean(collapsedContextBox && Math.round(collapsedContextBox.left) === 0 && Math.round(collapsedContextBox.width) >= window.innerWidth - 2),
       collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1),
       collapseButtonHit: Boolean(collapseHit),
       collapseButtonMatchesTabs: Boolean(collapseBox && activeTabBox && Math.abs(collapseBox.height - activeTabBox.height) < 1 && Math.abs(collapseBox.top - activeTabBox.top) < 1),
+      collapseButtonKeepsPosition: Boolean(collapseBox && expandedCollapseBox && Math.abs(collapseBox.left - expandedCollapseBox.left) < 1 && Math.abs(collapseBox.top - expandedCollapseBox.top) < 1),
       expandedAfterTopClick: !document.body.classList.contains("sidebar-collapsed")
     };
   });
@@ -239,10 +244,15 @@ async function assertNavigationStructure(page) {
   }
   if (result.contextSubtitleCount) throw new Error(`Context Bar 仍显示说明小字: ${JSON.stringify(result)}`);
   if (!result.tabsLeftAligned) throw new Error(`二级页签没有左置: ${JSON.stringify(result)}`);
+  if (JSON.stringify(result.floatingActionIds) !== JSON.stringify(["expandFloatDock", "miniFloatDock", "hideFloatDock"])) {
+    throw new Error(`侧栏悬浮窗操作不符合预期: ${JSON.stringify(result)}`);
+  }
+  if (!result.compactContextBar) throw new Error(`Context Bar 仍然过高: ${JSON.stringify(result)}`);
   if (!result.tabsContainerBorderless || !result.activeTabHasFrame) throw new Error(`二级页签边框规则不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapseButtonHit) throw new Error(`折叠按钮被其他层遮挡: ${JSON.stringify(result)}`);
   if (!result.collapseButtonMatchesTabs) throw new Error(`折叠按钮没有和页签按钮同层对齐: ${JSON.stringify(result)}`);
+  if (!result.collapseButtonKeepsPosition) throw new Error(`折叠按钮展开/折叠位置不一致: ${JSON.stringify(result)}`);
   if (!result.expandedAfterTopClick) throw new Error(`折叠按钮无法恢复展开: ${JSON.stringify(result)}`);
 }
 

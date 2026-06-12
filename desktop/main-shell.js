@@ -253,6 +253,11 @@ function bindGlobalActions() {
     renderChrome();
     await refreshMenuModel();
   });
+  $("#miniFloatDock")?.addEventListener("click", async () => {
+    state.status = await window.mainShell.openFloating("mini");
+    renderChrome();
+    await refreshMenuModel();
+  });
   $("#hideFloatDock")?.addEventListener("click", async () => {
     state.status = await window.mainShell.hideFloating();
     renderChrome();
