@@ -30,6 +30,7 @@
     "test:security-config": "node scripts/test-security-config.js",
     "test:extension-modules": "node scripts/test-extension-modules.js",
     "test:lifecycle": "node scripts/test-lifecycle.js",
+    "test:release-readiness": "node scripts/test-release-readiness.js",
     "test:regressions": "node scripts/test-auth-image-async.js",
     "test:status-ui": "node scripts/test-runtime-status-ui.js",
     "test:webhook": "node scripts/test-wecom-webhook.js",
