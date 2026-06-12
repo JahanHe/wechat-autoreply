@@ -57,6 +57,7 @@ const state = {
   settings: null,
   records: null,
   judgments: null,
+  workbench: null,
   runyuAuth: null,
   judgmentDownload: null,
   judgmentPollTimer: null,
@@ -66,10 +67,14 @@ const state = {
   ruleTestResult: null,
   apiKeyShown: false,
   runyuCookieShown: false,
-  loading: false
+  loading: false,
+  detail: null
 };
+window.state = state;
 
 const content = $("#content");
+const contextBar = $("#contextBar");
+const detailPanel = $("#detailPanel");
 const flash = $("#flash");
 
 init().catch((error) => {
@@ -97,17 +102,19 @@ async function init() {
     if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
     renderChrome();
   });
-  const [settings, status, records, judgments, judgmentDownload] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
-    window.mainShell.getJudgmentsDownloadStatus()
+    window.mainShell.getJudgmentsDownloadStatus(),
+    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null)
   ]);
   state.settings = settings;
   state.status = status;
   state.records = records;
   state.judgments = judgments;
+  state.workbench = workbench;
   state.runyuAuth = judgments?.auth || status?.runyuAuth || null;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
@@ -151,6 +158,7 @@ function bindGlobalActions() {
 
 async function switchView(view) {
   state.view = view || "page";
+  state.detail = null;
   renderChrome();
   renderView();
   try {
@@ -178,6 +186,18 @@ function renderChrome() {
   $("#notifyMini").textContent = notifyConfigured ? `通知 ${status.notify?.outboxCount || 0}` : "未配置";
   $("#pageMini").textContent = page.loading ? "客服页加载中" : page.title || "客服页映射";
   $("#toggleBot").textContent = botEnabled ? "暂停 Bot" : "开启 Bot";
+  $("#toggleBot").classList.toggle("primary", !botEnabled);
+
+  const runtime = status.bot || {};
+  const topTone = runtimeTone(runtime.tone);
+  $("#topRuntimeDot").className = `dot ${topTone === "ok" ? "" : topTone}`;
+  $("#topRuntimeLabel").textContent = shortStatus(runtime.label || runtime.status || "检测中");
+  $("#topRuntimeDetail").textContent = runtime.detail || runtime.status || "等待运行状态";
+  const topStates = buildTopStates(status);
+  setTopLamp("Ai", topStates.ai);
+  setTopLamp("Local", topStates.local);
+  setTopLamp("Script", topStates.script);
+  setTopLamp("Login", topStates.login);
 
   $$("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
@@ -206,6 +226,7 @@ function renderView() {
   else if (state.view === "floating") renderFloating();
   else renderHelp();
   renderSectionTabs();
+  renderDetailPanel();
 }
 
 function topNavIdFor(view) {
@@ -214,13 +235,19 @@ function topNavIdFor(view) {
 
 function renderSectionTabs() {
   const group = sectionGroups[topNavIdFor(state.view)] || [];
-  if (group.length <= 1) return;
-  content.insertAdjacentHTML("afterbegin", `
-    <div class="section-tabs" aria-label="二级功能导航">
-      ${group.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
+  const nav = navItems.find((item) => item.id === topNavIdFor(state.view));
+  contextBar.innerHTML = `
+    <div class="context-title">
+      <strong>${escapeHtml(viewLabels[state.view] || nav?.title || "工作台")}</strong>
+      <span>${escapeHtml(nav?.description || "当前页面上下文")}</span>
     </div>
-  `);
-  $$('[data-subview]').forEach((button) => button.addEventListener("click", () => switchView(button.dataset.subview)));
+    ${group.length > 1 ? `
+      <div class="section-tabs" aria-label="二级功能导航">
+        ${group.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
+      </div>
+    ` : `<div class="badge-row"><span class="badge">${escapeHtml(nav?.hint || "当前")}</span></div>`}
+  `;
+  $$("[data-subview]", contextBar).forEach((button) => button.addEventListener("click", () => switchView(button.dataset.subview)));
 }
 
 function renderPageView() {
@@ -228,8 +255,132 @@ function renderPageView() {
     <div class="page-placeholder">
       <div class="card">
         <h3>客服页映射已打开</h3>
-        <p class="muted">右侧区域由微信小店客服页接管。左侧按钮仍可随时打开悬浮窗、暂停 Bot、重载页面或捕捉页面结构。</p>
+        <p class="muted">微信小店客服页显示在当前工作区。顶部状态栏始终保留，可随时打开悬浮窗、暂停 Bot、重载页面或捕捉页面结构。</p>
       </div>
+    </div>
+  `;
+}
+
+function buildTopStates(payload) {
+  const page = payload.page || {};
+  const ai = payload.ai || {};
+  const needsLogin = ["need_login", "waiting_qr"].includes(String(payload.bot?.code || "")) || /redirect_url=%2Fkf/.test(String(page.url || ""));
+  const loggedIn = Boolean(page.authenticated) && !needsLogin;
+  return {
+    ai: ai.ok
+      ? { tone: "ok", text: "AI正常" }
+      : ai.hasKey
+        ? { tone: "warn", text: "AI待测" }
+        : { tone: "bad", text: "缺Key" },
+    local: payload.now ? { tone: "ok", text: "本地已接" } : { tone: "bad", text: "本地异常" },
+    script: page.scriptHealthy
+      ? { tone: "ok", text: "脚本就绪" }
+      : page.loading
+        ? { tone: "warn", text: "页面加载" }
+        : { tone: "bad", text: "脚本待定" },
+    login: loggedIn
+      ? { tone: "ok", text: "登录正常" }
+      : needsLogin
+        ? { tone: "warn", text: "待扫码" }
+        : { tone: page.ready ? "warn" : "bad", text: page.ready ? "待确认" : "未打开" }
+  };
+}
+
+function setTopLamp(key, item) {
+  const tone = runtimeTone(item?.tone);
+  $(`#top${key}Dot`).className = `dot ${tone === "ok" ? "" : tone}`;
+  $(`#top${key}Text`).textContent = shortStatus(item?.text || key);
+}
+
+function setDetail(type, payload = {}) {
+  state.detail = { type, payload };
+  renderDetailPanel();
+}
+
+function renderDetailPanel() {
+  if (!detailPanel) return;
+  const detail = state.detail;
+  detailPanel.classList.toggle("open", Boolean(detail));
+  if (detail?.type === "rule") {
+    detailPanel.innerHTML = renderRuleDetail(detail.payload);
+    return;
+  }
+  if (detail?.type === "log") {
+    detailPanel.innerHTML = renderLogDetail(detail.payload);
+    return;
+  }
+  detailPanel.innerHTML = renderDefaultDetail();
+}
+
+function renderDefaultDetail() {
+  const status = state.status || {};
+  const workbench = state.workbench || {};
+  const issues = Array.isArray(workbench.healthIssues) ? workbench.healthIssues : [];
+  const outbox = Array.isArray(workbench.notifyOutbox) ? workbench.notifyOutbox : state.records?.outbox || [];
+  const runtime = status.bot || {};
+  return `
+    <h3>工作台详情</h3>
+    <div class="hint">选中规则、日志或异常后，这里显示可追踪信息。</div>
+    <div class="detail-block">
+      <strong>当前状态</strong>
+      <span class="signal"><i class="dot ${runtimeTone(runtime.tone) === "ok" ? "" : runtimeTone(runtime.tone)}"></i>${escapeHtml(shortStatus(runtime.label || runtime.status || "检测中"))}</span>
+      <div class="hint">${escapeHtml(runtime.detail || "等待运行状态")}</div>
+    </div>
+    <div class="detail-block">
+      <strong>异常队列</strong>
+      ${issues.length ? issues.slice(0, 4).map((item) => `<div><span class="badge fail">${escapeHtml(item.key || "异常")}</span><div class="hint">${escapeHtml(item.title || item.body || "")}</div></div>`).join("") : `<div class="hint">暂无健康异常。</div>`}
+    </div>
+    <div class="detail-block">
+      <strong>Webhook 队列</strong>
+      ${outbox.length ? outbox.slice(0, 4).map((item) => `<div><span class="badge">${escapeHtml(item.title || "通知")}</span><div class="hint">${escapeHtml(item.error || item.body || "")}</div></div>`).join("") : `<div class="hint">暂无待补发通知。</div>`}
+    </div>
+  `;
+}
+
+function renderRuleDetail(rule = {}) {
+  const actions = Array.isArray(rule.actions) ? rule.actions : [];
+  return `
+    <h3>${escapeHtml(rule.name || "规则详情")}</h3>
+    <div class="hint">规则仍在主工作区编辑，这里用于快速检查命中条件和动作。</div>
+    <div class="detail-block">
+      <strong>状态</strong>
+      <span class="badge ${rule.enabled === false ? "fail" : "rule"}">${rule.enabled === false ? "已关闭" : "已启用"}</span>
+    </div>
+    <div class="detail-block">
+      <strong>关键词</strong>
+      <div class="badge-row">${splitKeywords(rule.keywords).map((item) => `<span class="badge">${escapeHtml(item)}</span>`).join("") || `<span class="hint">未填写关键词</span>`}</div>
+    </div>
+    <div class="detail-block">
+      <strong>执行动作</strong>
+      ${actions.length ? actions.map((action) => `<div class="mini-status"><span>${escapeHtml(actionTypeLabel(action.type || "text"))}</span><span>${escapeHtml(actionSummary([action]) || action.path || action.productName || "")}</span></div>`).join("") : `<div class="hint">${escapeHtml(rule.reply || rule.path || "没有动作详情")}</div>`}
+    </div>
+  `;
+}
+
+function renderLogDetail(item = {}) {
+  const source = sourceLabels[item.sourceType] || { label: item.sourceLabel || item.sourceType || "未分类", className: "" };
+  return `
+    <h3>${escapeHtml(item.rule || item.stage || "日志详情")}</h3>
+    <div class="hint">${escapeHtml(formatFullTime(item.at || Date.now()))}</div>
+    <div class="detail-block">
+      <strong>来源</strong>
+      <div class="badge-row">
+        <span class="badge ${item.kind === "failed" ? "fail" : item.kind === "timeout" ? "direct" : "rule"}">${escapeHtml(item.kind || "记录")}</span>
+        <span class="badge ${source.className}">${escapeHtml(source.label)}</span>
+      </div>
+    </div>
+    <div class="detail-block">
+      <strong>客户消息</strong>
+      <div class="readonly-box">${escapeHtml(item.customer || "")}</div>
+    </div>
+    <div class="detail-block">
+      <strong>回复和动作</strong>
+      <div class="readonly-box">${escapeHtml(item.reply || actionSummary(item.actions) || item.status || "")}</div>
+      ${item.actions?.length ? `<div class="badge-row">${item.actions.map((action) => `<span class="badge">${escapeHtml(action.type || "action")}</span>`).join("")}</div>` : ""}
+    </div>
+    <div class="detail-block">
+      <strong>Trace</strong>
+      ${renderLogTrace(item) || `<div class="hint">没有 Trace 记录。</div>`}
     </div>
   `;
 }
@@ -1242,19 +1393,22 @@ function renderLogs() {
       ${metricCard("超时", String(stats.timeout || 0), "超过等待阈值", stats.timeout ? "warn" : "ok")}
     </div>
     <div class="grid" style="margin-top:14px">
-      ${records.length ? records.map(renderLogRow).join("") : `<div class="empty">还没有回复日志。</div>`}
+      ${records.length ? records.map((item, index) => renderLogRow(item, index)).join("") : `<div class="empty">还没有回复日志。</div>`}
     </div>
   `;
   $("#refreshLogs").addEventListener("click", loadLogsFromFilters);
   $("#logKind").addEventListener("change", loadLogsFromFilters);
   $("#logSource").addEventListener("change", loadLogsFromFilters);
+  $$(".log-row").forEach((row) => {
+    row.addEventListener("click", () => setDetail("log", records[Number(row.dataset.logIndex || 0)] || {}));
+  });
 }
 
-function renderLogRow(item) {
+function renderLogRow(item, index = 0) {
   const source = sourceLabels[item.sourceType] || { label: item.sourceLabel || item.sourceType || "未分类", className: "" };
   const kindClass = item.kind === "sent" ? "" : item.kind === "timeout" ? "direct" : "fail";
   return `
-    <article class="log-row">
+    <article class="log-row" data-log-index="${index}" tabindex="0" role="button" aria-label="查看日志详情">
       <div>
         <div class="log-time">${formatTime(item.at)}</div>
         <div class="badge-row" style="margin-top:6px">
@@ -1857,6 +2011,7 @@ async function saveSettings(payload, okMessage) {
   try {
     state.settings = await window.mainShell.saveSettings(payload);
     state.status = state.settings.status || await window.mainShell.getStatus();
+    state.workbench = window.mainShell.getWorkbenchSnapshot ? await window.mainShell.getWorkbenchSnapshot() : state.workbench;
     renderChrome();
     showFlash(okMessage || "设置已保存", "ok");
   } catch (error) {
@@ -1866,18 +2021,20 @@ async function saveSettings(payload, okMessage) {
 }
 
 async function refreshAll() {
-  const [settings, status, records, judgments, judgmentDownload] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
-    window.mainShell.getJudgmentsDownloadStatus()
+    window.mainShell.getJudgmentsDownloadStatus(),
+    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(state.workbench)
   ]);
   state.settings = settings;
   state.status = status;
   state.records = records;
   state.judgments = judgments;
   state.judgmentDownload = judgmentDownload;
+  state.workbench = workbench;
   renderChrome();
   renderView();
   showFlash("已刷新", "ok");
@@ -1990,7 +2147,14 @@ function bindRuleActions() {
   });
   $("#ruleList").addEventListener("click", async (event) => {
     const command = event.target?.dataset?.ruleCommand;
-    if (!command) return;
+    if (!command) {
+      const card = event.target.closest(".rule-card");
+      if (card && !event.target.closest("input, textarea, select, button")) {
+        const list = state.settings.config.bot[state.ruleTab] || [];
+        setDetail("rule", list[Number(card.dataset.index || 0)] || {});
+      }
+      return;
+    }
     if (command === "choose-path") {
       event.preventDefault();
       const fieldNode = event.target.closest(".path-field");

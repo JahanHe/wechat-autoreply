@@ -23,18 +23,55 @@ MOUNT_DIR="$TEMP_ROOT/mount"
 INSTALL_DIR="$TEMP_ROOT/Applications"
 USER_DATA="$TEMP_ROOT/user-data"
 LOG_PATH="$TEMP_ROOT/app.log"
-CONTROL_PORT="${MACOS_PACKAGE_CONTROL_PORT:-19497}"
-AI_PORT="${MACOS_PACKAGE_AI_PORT:-19487}"
 APP_PID=""
+
+detach_mount_dir() {
+  local dir="$1"
+  local canonical
+  [[ -n "$dir" ]] || return 0
+  hdiutil detach "$dir" >/dev/null 2>&1 && return 0
+  canonical="$(cd "$dir" 2>/dev/null && pwd -P || true)"
+  if [[ -n "$canonical" && "$canonical" != "$dir" ]]; then
+    hdiutil detach "$canonical" >/dev/null 2>&1 && return 0
+  fi
+  hdiutil detach -force "$dir" >/dev/null 2>&1 && return 0
+  if [[ -n "$canonical" && "$canonical" != "$dir" ]]; then
+    hdiutil detach -force "$canonical" >/dev/null 2>&1 || true
+  fi
+}
+
+detach_stale_test_mounts() {
+  local mount_dir
+  while IFS= read -r mount_dir; do
+    detach_mount_dir "$mount_dir"
+  done < <(mount | awk '/xiaodian-macos-package/ {print $3}')
+}
+
+pick_port() {
+  local port
+  for _ in $(seq 1 50); do
+    port=$((20000 + RANDOM % 20000))
+    if ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "$port"
+      return 0
+    fi
+  done
+  echo "无法找到空闲端口" >&2
+  exit 1
+}
+
+CONTROL_PORT="${MACOS_PACKAGE_CONTROL_PORT:-$(pick_port)}"
+AI_PORT="${MACOS_PACKAGE_AI_PORT:-$(pick_port)}"
+if [[ "$AI_PORT" == "$CONTROL_PORT" ]]; then
+  AI_PORT="$(pick_port)"
+fi
 
 cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null || true
     sleep 1
   fi
-  if mount | grep -Fq " on $MOUNT_DIR "; then
-    hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || hdiutil detach -force "$MOUNT_DIR" >/dev/null 2>&1 || true
-  fi
+  detach_mount_dir "$MOUNT_DIR"
 }
 trap cleanup EXIT
 
@@ -57,6 +94,7 @@ wait_for_json() {
   return 1
 }
 
+detach_stale_test_mounts
 mkdir -p "$MOUNT_DIR" "$INSTALL_DIR" "$USER_DATA"
 hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_DIR" >/dev/null
 APP_IN_DMG="$(find "$MOUNT_DIR" -maxdepth 1 -type d -name '*.app' | sort | head -1)"
@@ -70,12 +108,12 @@ cp -R "$APP_IN_DMG" "$INSTALL_DIR/"
 APP_PATH="$INSTALL_DIR/$(basename "$APP_IN_DMG")"
 EXECUTABLE="$APP_PATH/Contents/MacOS/小店AI客服"
 ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
-node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.4.0
+node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.4.1
 
 DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Contents/Info.plist")"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
 [[ "$DISPLAY_NAME" == "小店AI客服" ]] || { echo "应用名称异常: $DISPLAY_NAME" >&2; exit 1; }
-[[ "$VERSION" == "0.4.0" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
+[[ "$VERSION" == "0.4.1" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
 
 WECHAT_KF_ALLOW_MULTIPLE=1 \
 WECHAT_KF_DESKTOP_USER_DATA="$USER_DATA" \

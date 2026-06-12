@@ -1,7 +1,7 @@
 # 小店AI客服
 
 [![Build installers](https://github.com/JahanHe/wechat-autoreply/actions/workflows/build-installers.yml/badge.svg)](https://github.com/JahanHe/wechat-autoreply/actions/workflows/build-installers.yml)
-[![Release v0.4.0](https://img.shields.io/badge/release-v0.4.0-111827)](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.4.0)
+[![Release v0.4.1](https://img.shields.io/badge/release-v0.4.1-111827)](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.4.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-cc785c)](LICENSE)
 
 小店AI客服是一个微信小店客服桌面自动回复工具。它把微信小店客服页映射到 Electron 桌面应用里，并提供规则库、AI 回复、Runyu 判断库、商品卡片/邀请下单、图片/文件发送、Webhook 通知、悬浮窗和长期运行守护。
@@ -14,26 +14,26 @@
 
 | 系统 | 文件 |
 | --- | --- |
-| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.0/xiaodian-ai-kefu-macos-arm64.dmg) |
-| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.0/xiaodian-ai-kefu-windows-setup.exe) |
-| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.0/xiaodian-ai-kefu-windows-portable.exe) |
+| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.1/xiaodian-ai-kefu-macos-arm64.dmg) |
+| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.1/xiaodian-ai-kefu-windows-setup.exe) |
+| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.1/xiaodian-ai-kefu-windows-portable.exe) |
 
-发布说明：[docs/release-notes/v0.4.0.md](docs/release-notes/v0.4.0.md)
+发布说明：[docs/release-notes/v0.4.1.md](docs/release-notes/v0.4.1.md)
 
 历史变更：[CHANGELOG.md](CHANGELOG.md)
 
 macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md)。
 
-## v0.4.0 重点
+## v0.4.1 重点
 
 | 方向 | 内容 |
 | --- | --- |
+| 工作台 UI | 主控台升级为 Sidebar、Top Bar、Context Bar、Main Workspace、Detail Panel |
+| 客服页映射 | BrowserView 给顶部状态栏留出空间，客服页不再覆盖全局控制入口 |
+| 详情面板 | 规则和日志可以在右侧查看摘要、动作、AI Trace、判断库和失败原因 |
 | 规则匹配 | 真实会话和手动测试共用同一套规则匹配逻辑，减少“测试能命中、实际不回复”的问题 |
 | 回复动作 | 支持文字、图片、文件、商品卡片、邀请下单、忽略、AI 后续回复 |
 | 状态可见 | 主控台和悬浮窗同步显示检测、规则、判断库、AI、发送和失败状态 |
-| 悬浮窗 | 展开态固定排版，最小化态保留打开控制台、展开、隐藏三个按钮 |
-| 安装包 | macOS/Windows 资源完整性和启动冒烟测试进入发布门禁 |
-| 开源材料 | 新增 README、CHANGELOG、LICENSE、CONTRIBUTING 作为开源入口 |
 
 ## 首次初始化
 
@@ -137,7 +137,7 @@ npm run dist:win
 | 运行状态词典 | [docs/runtime-statuses.md](docs/runtime-statuses.md) |
 | macOS 安装疑难 | [docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md) |
 | 项目历程 | [docs/project-journey.md](docs/project-journey.md) |
-| v0.4.0 发布说明 | [docs/release-notes/v0.4.0.md](docs/release-notes/v0.4.0.md) |
+| v0.4.1 发布说明 | [docs/release-notes/v0.4.1.md](docs/release-notes/v0.4.1.md) |
 | 变更记录 | [CHANGELOG.md](CHANGELOG.md) |
 | 贡献指南 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 开源协议 | [LICENSE](LICENSE) |

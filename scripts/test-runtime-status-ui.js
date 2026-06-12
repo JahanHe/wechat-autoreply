@@ -75,10 +75,10 @@ try {
   const payload = buildPayload(statuses.at(-2), statuses.slice(-6));
 
   await main.evaluate((status) => {
-    state.status = status;
-    state.judgments = { enabled: true, hasCookie: true, records: 94 };
-    state.view = "dashboard";
-    renderDashboard();
+    window.state.status = status;
+    window.state.judgments = { enabled: true, hasCookie: true, records: 94 };
+    window.state.view = "dashboard";
+    window.renderDashboard();
   }, payload);
 
   for (const current of statuses) {

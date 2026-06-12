@@ -24,6 +24,8 @@
         --radius: 8px;
         --control-radius: 8px;
         --sidebar: 236px;
+        --topbar: 64px;
+        --detail: 340px;
       }
 
       * {
@@ -329,12 +331,153 @@
         min-width: 0;
         height: 100vh;
         overflow: hidden;
+        display: grid;
+        grid-template-rows: var(--topbar) auto minmax(0, 1fr);
+      }
+
+      .top-bar {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(260px, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        height: var(--topbar);
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--hairline);
+        background: rgba(255, 255, 255, .86);
+      }
+
+      .top-status {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .top-status-main {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .top-status-main strong,
+      .top-status-main span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .top-status-main strong {
+        font-size: 15px;
+      }
+
+      .top-status-main span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .top-lamps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        align-items: center;
+      }
+
+      .top-lamp {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 8px;
+        border: 1px solid var(--hairline);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--body);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .top-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+        min-width: 0;
+      }
+
+      .top-actions button {
+        min-width: 88px;
+        padding: 0 10px;
+        white-space: nowrap;
+      }
+
+      .context-bar {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--hairline);
+        background: rgba(250, 249, 245, .94);
+      }
+
+      .context-title {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .context-title strong,
+      .context-title span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .context-title span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .workspace-body {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) var(--detail);
+        overflow: hidden;
       }
 
       .content {
         height: 100%;
         overflow: auto;
         padding: 22px 28px 32px;
+      }
+
+      .detail-panel {
+        min-width: 0;
+        height: 100%;
+        overflow: auto;
+        border-left: 1px solid var(--hairline);
+        background: rgba(255, 255, 255, .78);
+        padding: 18px;
+      }
+
+      .detail-panel h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .detail-panel .detail-block {
+        display: grid;
+        gap: 8px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: #fff;
+        padding: 12px;
+        margin-top: 12px;
       }
 
       .page-head {
@@ -349,7 +492,6 @@
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-bottom: 14px;
         padding: 6px;
         border: 1px solid var(--hairline);
         border-radius: var(--radius);
@@ -1040,7 +1182,7 @@
       .page-placeholder {
         height: 100%;
         display: grid;
-        place-items: center;
+        align-items: end;
         padding: 24px;
         background: var(--canvas);
       }
@@ -1068,6 +1210,59 @@
       }
 
       @media (max-width: 1180px) {
+        :root {
+          --sidebar: 84px;
+          --detail: 0px;
+        }
+
+        .brand {
+          grid-template-columns: 42px;
+          justify-content: center;
+        }
+
+        .brand div,
+        .status-strip,
+        .nav-copy,
+        .nav small {
+          display: none;
+        }
+
+        .nav button {
+          grid-template-columns: 1fr;
+          justify-items: center;
+        }
+
+        .workspace-body {
+          grid-template-columns: 1fr;
+        }
+
+        .detail-panel {
+          position: fixed;
+          right: 16px;
+          top: 88px;
+          bottom: 16px;
+          z-index: 30;
+          width: min(360px, calc(100vw - 116px));
+          display: none;
+          box-shadow: 0 20px 48px rgba(20, 20, 19, .18);
+        }
+
+        .detail-panel.open {
+          display: block;
+        }
+
+        .top-bar {
+          grid-template-columns: 1fr;
+          height: auto;
+          min-height: var(--topbar);
+          align-items: start;
+        }
+
+        .top-actions {
+          justify-content: flex-start;
+          overflow-x: auto;
+        }
+
         .grid.cols-3,
         .grid.cols-4,
         .grid.cols-2,
@@ -1116,19 +1311,35 @@
         </div>
 
         <nav id="nav" class="nav" aria-label="控制台导航"></nav>
-
-        <div class="side-actions">
-          <button id="openFloat" class="primary">打开悬浮窗</button>
-          <div class="two">
-            <button id="toggleBot">暂停 Bot</button>
-            <button id="reloadPage">重载客服页</button>
-          </div>
-          <button id="captureStructure">捕捉页面结构</button>
-        </div>
       </aside>
 
       <section class="workspace">
-        <main id="content" class="content" aria-live="polite"></main>
+        <header id="topBar" class="top-bar">
+          <div class="top-status">
+            <i id="topRuntimeDot" class="dot active"></i>
+            <div class="top-status-main">
+              <strong id="topRuntimeLabel">启动中</strong>
+              <span id="topRuntimeDetail">正在启动客服工作台</span>
+            </div>
+            <div class="top-lamps" aria-label="工作台状态">
+              <span class="top-lamp"><i id="topAiDot" class="dot warn"></i><span id="topAiText">AI</span></span>
+              <span class="top-lamp"><i id="topLocalDot" class="dot warn"></i><span id="topLocalText">本地</span></span>
+              <span class="top-lamp"><i id="topScriptDot" class="dot warn"></i><span id="topScriptText">脚本</span></span>
+              <span class="top-lamp"><i id="topLoginDot" class="dot warn"></i><span id="topLoginText">登录</span></span>
+            </div>
+          </div>
+          <div class="top-actions">
+            <button id="openFloat" class="primary">打开悬浮窗</button>
+            <button id="toggleBot">暂停 Bot</button>
+            <button id="reloadPage">重载客服页</button>
+            <button id="captureStructure">捕捉结构</button>
+          </div>
+        </header>
+        <div id="contextBar" class="context-bar" aria-label="页面上下文"></div>
+        <div class="workspace-body">
+          <main id="content" class="content" aria-live="polite"></main>
+          <aside id="detailPanel" class="detail-panel" aria-label="详情面板"></aside>
+        </div>
       </section>
     </div>
 

@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld("mainShell", {
   getStatus() {
     return ipcRenderer.invoke("main-get-status");
   },
+  getWorkbenchSnapshot() {
+    return ipcRenderer.invoke("main-get-workbench-snapshot");
+  },
   onStatus(callback) {
     ipcRenderer.on("main-status", (_event, payload) => {
       if (typeof callback === "function") callback(payload || {});

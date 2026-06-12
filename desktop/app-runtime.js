@@ -38,6 +38,7 @@ const APP_USER_DATA_DIR_NAME = "小店AI客服";
 const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
+const MAIN_SHELL_TOP_BAR_HEIGHT = 64;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
 const RUNYU_LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -1079,9 +1080,9 @@ function layoutKfView() {
   const [width, height] = mainWindow.getContentSize();
   kfView.setBounds({
     x: MAIN_SHELL_SIDEBAR_WIDTH,
-    y: 0,
+    y: MAIN_SHELL_TOP_BAR_HEIGHT,
     width: Math.max(0, width - MAIN_SHELL_SIDEBAR_WIDTH),
-    height: Math.max(0, height)
+    height: Math.max(0, height - MAIN_SHELL_TOP_BAR_HEIGHT)
   });
   kfView.setAutoResize({ width: true, height: true });
 }
@@ -1396,6 +1397,7 @@ function registerIpc() {
   ipcMain.handle("page-run-action", (_event, action) => runPageAction(action || {}));
 
   ipcMain.handle("main-get-status", () => statusPayload());
+  ipcMain.handle("main-get-workbench-snapshot", () => workbenchSnapshotPayload());
   ipcMain.handle("main-get-settings", () => settingsPayload());
   ipcMain.handle("main-save-settings", (_event, payload) => saveDesktopSettings(payload || {}));
   ipcMain.handle("main-set-mode", (_event, mode) => setMainMode(mode));
@@ -1623,6 +1625,46 @@ function statusPayload() {
     localServiceOk: Boolean(aiServer && controlServer)
   });
   return payload;
+}
+
+async function workbenchSnapshotPayload() {
+  const status = statusPayload();
+  const env = readEnvValues();
+  const recentRecords = replyRecordsPayload({ limit: 12 });
+  const lastTrace = recentRecords.items.find((item) => item.aiTrace || Array.isArray(item.processSteps)) || recentRecords.items[0] || null;
+  const healthIssueItems = Array.from(healthIssues.entries()).map(([key, value]) => ({
+    key,
+    title: value.title || key,
+    body: value.body || "",
+    firstAt: value.firstAt || 0,
+    lastAt: value.lastAt || 0
+  }));
+  const judgmentStatus = await getJudgmentLibraryStatus();
+  const settingsHealth = {
+    configValid: Boolean(configValidationState.valid),
+    configErrors: Array.isArray(configValidationState.errors) ? configValidationState.errors : [],
+    repaired: Boolean(configValidationState.repaired),
+    backupPath: configValidationState.backupPath || "",
+    deepseekConfigured: Boolean(env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY),
+    webhookConfigured: Boolean(config?.notify?.wecomWebhookUrl || env.WECOM_BOT_WEBHOOK_URL || process.env.WECOM_BOT_WEBHOOK_URL),
+    runyuConfigured: Boolean(env.RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || runyuAuthState.cookieDetected),
+    autoStart: Boolean(config?.autoStart),
+    watchdogEnabled: Boolean(config?.watchdog?.enabled)
+  };
+  return {
+    status,
+    settingsHealth,
+    recordsSummary: {
+      ...status.records,
+      recent: recentRecords.items.slice(0, 6)
+    },
+    judgmentStatus,
+    notifyOutbox: notifyOutbox.slice(-20).reverse(),
+    healthIssues: healthIssueItems,
+    lastTrace,
+    currentView: mainMode,
+    generatedAt: Date.now()
+  };
 }
 
 function syncAppContext() {

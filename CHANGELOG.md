@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 This project follows a practical Keep a Changelog style and uses semantic version tags where possible.
 
+## [0.4.1] - 2026-06-12
+
+### Added
+
+- Added the implemented workbench shell with Sidebar, Top Bar, Context Bar, Main Workspace, and Detail Panel.
+- Added the read-only workbench snapshot IPC for status, settings health, reply summaries, judgment library status, notification outbox, health issues, and last Trace.
+- Added right-side details for rule cards and reply logs.
+
+### Changed
+
+- Shifted WeChat shop BrowserView below the main Top Bar so global controls remain visible during customer-service page mapping.
+- Updated the workbench optimization document from a proposal into implementation guidance.
+- Updated release readiness and packaged resource checks for `0.4.1`.
+
+### Fixed
+
+- Reduced the chance that the mapped customer-service page hides global controls.
+- Kept floating-window mini controls unchanged while aligning main control status order with the workbench layout.
+
 ## [0.4.0] - 2026-06-12
 
 ### Added
