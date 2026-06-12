@@ -4,7 +4,7 @@
 
 ## 正常安装
 
-1. 打开 `wechat-autoreply-macos-arm64.dmg`。
+1. 打开 `xiaodian-ai-kefu-macos-arm64.dmg`。
 2. 把“小店AI客服”拖到 `Applications`。
 3. 第一次打开建议右键 App，选择“打开”，再点“打开”确认。
 4. 打开后在主控制台配置 DeepSeek API Key、企业微信 Webhook，并扫码登录微信小店客服页。
@@ -54,7 +54,7 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 
 ## 图片或文件发不出去
 
-进入主控制台 > 规则库：
+进入回复中心 > 规则库：
 
 1. 打开“动作规则”。
 2. 找到图片或文件动作。

@@ -10,19 +10,19 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.7/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.7/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.7/wechat-autoreply-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.9/xiaodian-ai-kefu-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.9/xiaodian-ai-kefu-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.9/xiaodian-ai-kefu-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 
 | 步骤 | 位置 | 用途 |
 | --- | --- | --- |
-| 1 | 主控制台 > 初始化 | 填 `DEEPSEEK_API_KEY` 和企业微信 Webhook |
-| 2 | 主控制台 > 初始化 | 点“打开登录网页”，5 分钟内完成润宇网页登录 |
-| 3 | 主控制台 > 初始化 | 点“我已登录，获取凭证”，真实查询通过后自动初始化 10 条引用缓存 |
-| 4 | 主控制台 > 初始化 | 点“保存并自检”，检查 AI、Webhook、判断库、规则库和长期运行状态 |
-| 5 | 主控制台 > 客服页映射 | 微信扫码登录小店客服 |
+| 1 | 系统设置 > 初始化 | 填 `DEEPSEEK_API_KEY` 和企业微信 Webhook |
+| 2 | 系统设置 > 初始化 | 点“打开登录网页”，5 分钟内完成润宇网页登录 |
+| 3 | 系统设置 > 初始化 | 点“我已登录，获取凭证”，真实查询通过后自动初始化 10 条引用缓存 |
+| 4 | 系统设置 > 初始化 | 点“保存并自检”，检查 AI、Webhook、判断库、规则库和长期运行状态 |
+| 5 | 客服工作台 | 微信扫码登录小店客服 |
 
 如果三项配置已经齐全，程序会直接进入客服页映射；如果换电脑后缺任意一项，会再次打开初始化页。
 
@@ -38,7 +38,7 @@
 
 | 自动生成项 | 文件或目录 | 说明 |
 | --- | --- | --- |
-| 运行配置 | `desktop-config.json` | 开关、规则、通知、悬浮窗大小 |
+| 运行配置 | `desktop-config.json` | 开关、规则、通知、悬浮窗显示状态 |
 | 助手资料 | `assistant-profile.json` | 回复风格、知识库、边界和审核提示 |
 | 回复图片 | `config/reply-images/` | 图文规则所需图片 |
 | 文字规则 | `bot.rules` | FAQ 类纯文字回复 |
@@ -123,7 +123,7 @@ flowchart TD
 
 ## 页面动作规格
 
-规则优先在主控制台 > 规则库里用卡片编辑；高级 JSON 只作为批量迁移和排查入口。
+规则优先在主控制台 > 回复中心 > 规则库里用卡片编辑；高级 JSON 只作为批量迁移和排查入口。
 
 ```json
 {
@@ -157,7 +157,7 @@ flowchart TD
 | `quick_reply` | `query` | 发后台快捷语 |
 | `ignore` | 无 | 命中后不发送 |
 
-图片和文件路径在主控制台 > 规则库里可直接操作：手动编辑路径，点“选择/替换”改成新图片或文件，点“打开位置”直达当前文件所在目录。
+图片和文件路径在主控制台 > 回复中心 > 规则库里可直接操作：手动编辑路径，点“选择/替换”改成新图片或文件，点“打开位置”直达当前文件所在目录。
 
 ## 通知和汇总
 
@@ -189,12 +189,12 @@ flowchart TD
 | 现象 | 最可能原因 | 处理 |
 | --- | --- | --- |
 | 发图片/发商品都失败 | 还停在扫码页，没进 `/shop/kf` 客服工作台 | 扫码登录并选中测试会话 |
-| AI 不回复 | 未填 DeepSeek API Key | 主控制台 > API 接入 填写后保存 |
-| Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 主控制台 > Webhook，保存后点测试 |
+| AI 不回复 | 未填 DeepSeek API Key | 回复中心 > API风格 填写后保存 |
+| Webhook 不通知 | 未填 Webhook 或企业微信机器人地址失效 | 系统设置 > Webhook，保存后点测试 |
 | 判断库显示 Cookie 过期 | 当前电脑的 `session_token` 已失效 | 点“重新登录”，登录后点“我已登录，获取凭证” |
 | 判断库显示 404 | Base URL 带了接口路径或网络解析异常 | Base URL 只保留域名，保存后点“自检 Cookie” |
 | 判断库查询成功但缓存为 0 | 首次引用数据没有落入本地缓存 | 点“初始化引用库”，复制错误码和最近记录反馈 |
-| 规则看起来没加载 | 旧运行配置覆盖过新版规则 | 新版会自动补齐；也可在主控制台 > 规则库检查 |
+| 规则看起来没加载 | 旧运行配置覆盖过新版规则 | 新版会自动补齐；也可在回复中心 > 规则库检查 |
 | macOS 提示无法打开 | 未签名本地应用的系统提示 | 右键打开，或在系统设置安全性里允许 |
 | Windows 提示未知发布者 | 当前安装包未代码签名 | 选择仍要运行，后续可接入证书签名 |
 
@@ -202,7 +202,7 @@ flowchart TD
 
 安装后至少检查这些项：
 
-- 悬浮窗能打开设置页。
+- 悬浮窗能打开主控制台；系统设置 > 悬浮窗可重新显示或隐藏固定状态窗。
 - API 页能保存 DeepSeek API Key。
 - 通知页能保存并测试 Webhook。
 - 回复页能看到默认文字规则和页面动作规则。

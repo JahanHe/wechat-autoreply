@@ -13,9 +13,41 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: Verify release readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension bundle
+        run: npm run build-extension
+
+      - name: Run non-UI gates
+        run: |
+          npm run test:baseline
+          npm run test:desktop-modules
+          npm run test:ai-knowledge
+          npm run test:security-config
+          npm run test:extension-modules
+          npm run test:notify-outbox
+          npm run check:secrets
+          npm run test:release-readiness
+
   build-mac:
     name: Build macOS installer
     runs-on: macos-15
+    needs:
+      - verify
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,7 +73,7 @@ jobs:
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wechat-autoreply-macos
+          name: xiaodian-ai-kefu-macos
           if-no-files-found: error
           path: |
             dist/*.dmg
@@ -50,6 +82,8 @@ jobs:
   build-windows:
     name: Build Windows installer
     runs-on: windows-latest
+    needs:
+      - verify
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,7 +109,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wechat-autoreply-windows
+          name: xiaodian-ai-kefu-windows
           if-no-files-found: error
           path: |
             dist/*.exe
@@ -104,12 +138,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          cp release-artifacts/wechat-autoreply-macos/*.dmg release-assets/wechat-autoreply-macos-arm64.dmg
-          cp release-artifacts/wechat-autoreply-windows/*Setup*.exe release-assets/wechat-autoreply-windows-setup.exe
-          find release-artifacts/wechat-autoreply-windows -maxdepth 1 -type f -name '*.exe' ! -name '*Setup*' -exec cp {} release-assets/wechat-autoreply-windows-portable.exe \;
-          test -f release-assets/wechat-autoreply-macos-arm64.dmg
-          test -f release-assets/wechat-autoreply-windows-setup.exe
-          test -f release-assets/wechat-autoreply-windows-portable.exe
+          cp release-artifacts/xiaodian-ai-kefu-macos/*.dmg release-assets/xiaodian-ai-kefu-macos-arm64.dmg
+          cp release-artifacts/xiaodian-ai-kefu-windows/*Setup*.exe release-assets/xiaodian-ai-kefu-windows-setup.exe
+          find release-artifacts/xiaodian-ai-kefu-windows -maxdepth 1 -type f -name '*.exe' ! -name '*Setup*' -exec cp {} release-assets/xiaodian-ai-kefu-windows-portable.exe \;
+          test -f release-assets/xiaodian-ai-kefu-macos-arm64.dmg
+          test -f release-assets/xiaodian-ai-kefu-windows-setup.exe
+          test -f release-assets/xiaodian-ai-kefu-windows-portable.exe
           ls -lh release-assets
 
       - name: Create release
@@ -129,9 +163,9 @@ jobs:
 
           | 系统 | 文件 |
           | --- | --- |
-          | macOS Apple Silicon | `wechat-autoreply-macos-arm64.dmg` |
-          | Windows 安装版 | `wechat-autoreply-windows-setup.exe` |
-          | Windows 便携版 | `wechat-autoreply-windows-portable.exe` |
+          | macOS Apple Silicon | `xiaodian-ai-kefu-macos-arm64.dmg` |
+          | Windows 安装版 | `xiaodian-ai-kefu-windows-setup.exe` |
+          | Windows 便携版 | `xiaodian-ai-kefu-windows-portable.exe` |
 
           ## 内置能力
 
