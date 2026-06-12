@@ -269,14 +269,13 @@ function defaultConfig() {
       actionRules: replyDefaults.actionRules || []
     },
     floatWindow: {
-      uiVersion: 5,
+      uiVersion: 6,
       enabled: true,
       visible: true,
       alwaysOnTop: true,
       mode: "compact",
       bounds: null,
       compactSize: { width: 344, height: 256 },
-      miniSize: { width: 210, height: 44 },
       settingsSize: { width: 344, height: 256 }
     },
     notify: {
@@ -445,7 +444,6 @@ function mergeConfig(base, saved) {
   const savedFloatWindow = saved?.floatWindow || {};
   const resetFloatingSizes = Number(savedFloatWindow.uiVersion || 0) !== Number(base.floatWindow.uiVersion);
   const migratedCompactSize = resetFloatingSizes ? base.floatWindow.compactSize : savedFloatWindow.compactSize || {};
-  const migratedMiniSize = resetFloatingSizes ? base.floatWindow.miniSize : savedFloatWindow.miniSize || {};
   return {
     ...base,
     ...saved,
@@ -458,10 +456,6 @@ function mergeConfig(base, saved) {
       compactSize: {
         ...base.floatWindow.compactSize,
         ...normalizeFloatingSize("compact", migratedCompactSize)
-      },
-      miniSize: {
-        ...base.floatWindow.miniSize,
-        ...normalizeFloatingSize("mini", migratedMiniSize)
       },
       settingsSize: {
         ...base.floatWindow.settingsSize,
@@ -1208,18 +1202,10 @@ function persistFloatingBoundsSoon() {
   floatingBoundsTimer = setTimeout(async () => {
     if (!floatWindow || floatWindow.isDestroyed()) return;
     config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
-    const mode = normalizeFloatingMode(config.floatWindow.mode);
-    if (mode === "mini") {
-      config.floatWindow.miniSize = {
-        width: config.floatWindow.bounds.width,
-        height: config.floatWindow.bounds.height
-      };
-    } else {
-      config.floatWindow.compactSize = {
-        width: config.floatWindow.bounds.width,
-        height: config.floatWindow.bounds.height
-      };
-    }
+    config.floatWindow.compactSize = {
+      width: config.floatWindow.bounds.width,
+      height: config.floatWindow.bounds.height
+    };
     await saveConfig();
     broadcastStatus();
   }, 500);
@@ -1257,23 +1243,20 @@ async function setFloatingMode(mode) {
 }
 
 function normalizeFloatingMode(mode) {
-  return String(mode || "").trim() === "mini" ? "mini" : "compact";
+  return "compact";
 }
 
 function floatingSizeForMode(mode) {
   const normalized = normalizeFloatingMode(mode);
-  const size = normalized === "mini" ? config.floatWindow.miniSize : config.floatWindow.compactSize;
+  const size = config.floatWindow.compactSize;
   return normalizeFloatingSize(normalized, size);
 }
 
 function normalizeFloatingSize(mode, size = {}) {
-  const normalized = normalizeFloatingMode(mode);
-  const defaults = normalized === "mini"
-    ? { width: 210, height: 44 }
-    : { width: 344, height: 256 };
+  const defaults = { width: 344, height: 256 };
   return {
-    width: clampInt(size?.width || defaults.width, normalized === "mini" ? 200 : 330, normalized === "mini" ? 340 : 420),
-    height: clampInt(size?.height || defaults.height, normalized === "mini" ? 44 : 248, normalized === "mini" ? 72 : 300)
+    width: clampInt(size?.width || defaults.width, 344, 344),
+    height: clampInt(size?.height || defaults.height, 256, 256)
   };
 }
 
@@ -1778,10 +1761,6 @@ async function saveDesktopSettings(payload) {
         compactSize: {
           ...config.floatWindow.compactSize,
           ...normalizeFloatingSize("compact", payload.config.floatWindow.compactSize || {})
-        },
-        miniSize: {
-          ...config.floatWindow.miniSize,
-          ...normalizeFloatingSize("mini", payload.config.floatWindow.miniSize || {})
         },
         settingsSize: {
           ...config.floatWindow.settingsSize,

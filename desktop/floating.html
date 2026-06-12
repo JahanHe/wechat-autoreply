@@ -19,7 +19,7 @@
         --success: #5db872;
         --warning: #d4a017;
         --error: #c64545;
-        --radius: 10px;
+        --radius: 8px;
         --control-radius: 7px;
       }
 
@@ -68,8 +68,7 @@
         grid-template-rows: 46px 64px 68px 50px 28px;
       }
 
-      .top,
-      .mini-strip {
+      .top {
         -webkit-app-region: drag;
       }
 
@@ -93,8 +92,7 @@
         min-width: 0;
       }
 
-      .title strong,
-      .mini-title {
+      .title strong {
         display: block;
         overflow: hidden;
         color: var(--ink);
@@ -105,7 +103,6 @@
       }
 
       .title span,
-      .mini-subtitle,
       .meta {
         color: var(--muted);
         font-size: 11px;
@@ -124,8 +121,7 @@
         background: var(--success);
       }
 
-      .window-actions,
-      .mini-actions {
+      .window-actions {
         display: flex;
         gap: 4px;
         -webkit-app-region: no-drag;
@@ -283,7 +279,7 @@
 
       .command-bar {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px;
         align-items: center;
         padding: 7px 10px;
@@ -323,38 +319,6 @@
         background: #fff8e7;
         color: #8c6612;
       }
-
-      .mini-strip {
-        display: none;
-        height: 100%;
-        grid-template-columns: 12px minmax(0, 1fr) auto;
-        gap: 8px;
-        align-items: center;
-        padding: 6px 8px 6px 10px;
-      }
-
-      .mini-copy {
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        overflow: hidden;
-      }
-
-      .mini-title {
-        line-height: 1;
-      }
-
-      .mini-subtitle {
-        display: none;
-      }
-
-      body.mini .full {
-        display: none;
-      }
-
-      body.mini .mini-strip {
-        display: grid;
-      }
     </style>
   </head>
   <body>
@@ -367,7 +331,6 @@
             <div class="title-meta"><i class="live-dot"></i><span id="liveClock">--:--:--</span></div>
           </div>
           <div class="window-actions">
-            <button id="minimizeFloat" class="icon-button" type="button" title="最小化" aria-label="最小化">−</button>
             <button id="closeFloat" class="icon-button close" type="button" title="关闭悬浮窗" aria-label="关闭悬浮窗">×</button>
           </div>
         </header>
@@ -409,7 +372,6 @@
         <div class="command-bar" aria-label="可点击操作">
           <button id="openMain" class="command-button primary" type="button">打开控制台</button>
           <button id="toggleBot" class="command-button" type="button">暂停 Bot</button>
-          <button id="openLogin" class="command-button" type="button">登录客服</button>
         </div>
 
         <footer class="footer">
@@ -418,18 +380,6 @@
         </footer>
       </section>
 
-      <section class="mini-strip" aria-label="最小化小店AI客服状态">
-        <i id="miniLamp" class="lamp"></i>
-        <div class="mini-copy">
-          <strong id="miniTitle" class="mini-title">小店AI客服</strong>
-          <span id="miniSubtitle" class="mini-subtitle">正在连接</span>
-        </div>
-        <div class="mini-actions">
-          <button id="openMainMini" class="icon-button" type="button" title="打开控制台" aria-label="打开控制台">↗</button>
-          <button id="expandFloat" class="icon-button" type="button" title="展开" aria-label="展开">□</button>
-          <button id="closeMiniFloat" class="icon-button close" type="button" title="关闭悬浮窗" aria-label="关闭悬浮窗">×</button>
-        </div>
-      </section>
     </div>
 
     <script src="floating.js"></script>

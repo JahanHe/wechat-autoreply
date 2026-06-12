@@ -2,18 +2,39 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 const navItems = [
-  { id: "setup", title: "初始化", hint: "首次" },
-  { id: "page", title: "客服页映射", hint: "聊天" },
-  { id: "dashboard", title: "总览状态", hint: "监控" },
-  { id: "bot", title: "Bot 接管", hint: "开关" },
-  { id: "api", title: "API 接入", hint: "模型" },
-  { id: "judgments", title: "判断库", hint: "外部" },
-  { id: "webhook", title: "Webhook", hint: "通知" },
-  { id: "rules", title: "规则库", hint: "回复" },
-  { id: "logs", title: "日志库", hint: "追踪" },
-  { id: "floating", title: "悬浮窗", hint: "桌面" },
-  { id: "help", title: "说明页", hint: "文档" }
+  { id: "page", target: "page", title: "客服工作台", hint: "聊天", icon: "messages", description: "客服页映射、扫码登录和当前接管状态。" },
+  { id: "rules", target: "rules", title: "回复中心", hint: "规则", icon: "reply", description: "规则库、Bot策略、AI风格和外部判断库。" },
+  { id: "dashboard", target: "dashboard", title: "运行监控", hint: "状态", icon: "activity", description: "实时状态、回复日志和异常追踪。" },
+  { id: "settings", target: "setup", title: "系统设置", hint: "配置", icon: "settings", description: "初始化、Webhook、悬浮窗和退出设置。" }
 ];
+
+const sectionGroups = {
+  page: ["page"],
+  rules: ["rules", "bot", "api", "judgments"],
+  dashboard: ["dashboard", "logs"],
+  settings: ["setup", "webhook", "floating", "help"]
+};
+
+const viewLabels = {
+  page: "客服页",
+  rules: "规则库",
+  bot: "Bot策略",
+  api: "API风格",
+  judgments: "判断库",
+  dashboard: "总览",
+  logs: "日志",
+  webhook: "Webhook",
+  setup: "初始化",
+  floating: "悬浮窗",
+  help: "说明"
+};
+
+const icons = {
+  messages: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  reply: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>',
+  activity: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M2 14h4M10 8h4M18 16h4"/></svg>'
+};
 
 const sourceLabels = {
   action_rule: { label: "动作规则库", className: "rule" },
@@ -95,8 +116,9 @@ async function init() {
 
 function renderNav() {
   $("#nav").innerHTML = navItems.map((item) => `
-    <button type="button" data-view="${item.id}">
-      <span>${escapeHtml(item.title)}</span>
+    <button type="button" data-top="${item.id}" data-view="${item.target || item.id}" title="${attr(item.description)}">
+      <span class="nav-icon">${icons[item.icon] || ""}</span>
+      <span class="nav-copy"><span class="nav-title">${escapeHtml(item.title)}</span><span class="nav-desc">${escapeHtml(item.description)}</span></span>
       <small>${escapeHtml(item.hint)}</small>
     </button>
   `).join("");
@@ -158,7 +180,7 @@ function renderChrome() {
   $("#toggleBot").textContent = botEnabled ? "暂停 Bot" : "开启 Bot";
 
   $$("#nav button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === state.view);
+    button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
   });
 }
 
@@ -172,17 +194,33 @@ function renderView() {
     return;
   }
 
-  if (state.view === "page") return renderPageView();
-  if (state.view === "setup") return renderSetup();
-  if (state.view === "dashboard") return renderDashboard();
-  if (state.view === "bot") return renderBot();
-  if (state.view === "api") return renderApi();
-  if (state.view === "judgments") return renderJudgments();
-  if (state.view === "webhook") return renderWebhook();
-  if (state.view === "rules") return renderRules();
-  if (state.view === "logs") return renderLogs();
-  if (state.view === "floating") return renderFloating();
-  return renderHelp();
+  if (state.view === "page") renderPageView();
+  else if (state.view === "setup") renderSetup();
+  else if (state.view === "dashboard") renderDashboard();
+  else if (state.view === "bot") renderBot();
+  else if (state.view === "api") renderApi();
+  else if (state.view === "judgments") renderJudgments();
+  else if (state.view === "webhook") renderWebhook();
+  else if (state.view === "rules") renderRules();
+  else if (state.view === "logs") renderLogs();
+  else if (state.view === "floating") renderFloating();
+  else renderHelp();
+  renderSectionTabs();
+}
+
+function topNavIdFor(view) {
+  return Object.entries(sectionGroups).find(([, items]) => items.includes(view))?.[0] || "page";
+}
+
+function renderSectionTabs() {
+  const group = sectionGroups[topNavIdFor(state.view)] || [];
+  if (group.length <= 1) return;
+  content.insertAdjacentHTML("afterbegin", `
+    <div class="section-tabs" aria-label="二级功能导航">
+      ${group.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
+    </div>
+  `);
+  $$('[data-subview]').forEach((button) => button.addEventListener("click", () => switchView(button.dataset.subview)));
 }
 
 function renderPageView() {
@@ -1279,16 +1317,12 @@ function renderFloating() {
           ${toggleRow("floatEnabled", "启用悬浮窗功能", "关闭后不自动创建悬浮窗，但主控制台仍可重新启用。", floatWindow.enabled !== false)}
           ${toggleRow("alwaysOnTop", "保持置顶", "适合客服值守时防止窗口被遮挡。", Boolean(floatWindow.alwaysOnTop))}
         </div>
-        <p class="hint">当前状态：${status.floating?.visible ? "正在显示" : "已隐藏"}，${status.floating?.alwaysOnTop ? "置顶" : "不置顶"}，模式：${status.floating?.mode === "mini" ? "最小化" : "状态窗"}</p>
+        <p class="hint">当前状态：${status.floating?.visible ? "正在显示" : "已隐藏"}，${status.floating?.alwaysOnTop ? "置顶" : "不置顶"}，固定状态窗。</p>
       </div>
       <div class="card">
-        <h3>尺寸</h3>
-        <div class="form-grid">
-          ${numberField("compactWidth", "状态窗宽度", floatWindow.compactSize?.width || 276, "完整状态灯窗口宽度。", "", "min=\"260\" max=\"420\" step=\"1\"")}
-          ${numberField("compactHeight", "状态窗高度", floatWindow.compactSize?.height || 166, "完整状态灯窗口高度。", "", "min=\"160\" max=\"260\" step=\"1\"")}
-          ${numberField("miniWidth", "最小化宽度", floatWindow.miniSize?.width || 188, "最小化状态条宽度。", "", "min=\"180\" max=\"320\" step=\"1\"")}
-          ${numberField("miniHeight", "最小化高度", floatWindow.miniSize?.height || 44, "最小化状态条高度。", "", "min=\"44\" max=\"72\" step=\"1\"")}
-        </div>
+        <h3>固定版式</h3>
+        <p>悬浮窗固定为 <code>344 × 256</code> 状态窗，不再开放无级缩放，避免文字遮挡和状态灯错位。</p>
+        <p class="hint">关闭悬浮窗只是隐藏；主控台、Dock 或托盘都可以重新打开。</p>
       </div>
     </div>
   `;
@@ -1796,14 +1830,8 @@ async function saveFloatingSettings() {
         enabled: checked("floatEnabled"),
         visible: state.status?.floating?.visible || false,
         alwaysOnTop: checked("alwaysOnTop"),
-        compactSize: {
-          width: numberValue("compactWidth", 276),
-          height: numberValue("compactHeight", 166)
-        },
-        miniSize: {
-          width: numberValue("miniWidth", 188),
-          height: numberValue("miniHeight", 52)
-        }
+        mode: "compact",
+        compactSize: { width: 344, height: 256 }
       }
     }
   };

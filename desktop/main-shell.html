@@ -21,7 +21,7 @@
         --success: #5db872;
         --warning: #d4a017;
         --error: #c64545;
-        --radius: 12px;
+        --radius: 8px;
         --control-radius: 8px;
         --sidebar: 236px;
       }
@@ -229,21 +229,69 @@
 
       .nav button {
         width: 100%;
-        display: flex;
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
         align-items: center;
-        justify-content: space-between;
-        min-height: 38px;
-        padding: 0 10px;
+        gap: 8px;
+        min-height: 46px;
+        padding: 6px 10px;
         border-color: transparent;
         background: transparent;
         color: var(--body);
         text-align: left;
       }
 
+      .nav-icon {
+        width: 18px;
+        height: 18px;
+        color: var(--muted);
+      }
+
+      .nav-icon svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .nav-copy {
+        min-width: 0;
+        display: grid;
+        gap: 1px;
+      }
+
+      .nav-title {
+        overflow: hidden;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .nav-desc {
+        display: none;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .nav button:hover .nav-desc,
+      .nav button.active .nav-desc {
+        display: block;
+      }
+
       .nav button.active {
         border-color: #ead8cd;
         background: #fff5ef;
         color: var(--ink);
+      }
+
+      .nav button.active .nav-icon {
+        color: var(--primary);
       }
 
       .nav small {
@@ -295,6 +343,31 @@
         align-items: flex-start;
         gap: 18px;
         margin-bottom: 18px;
+      }
+
+      .section-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+        padding: 6px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, .68);
+      }
+
+      .section-tabs button {
+        min-height: 32px;
+        padding: 0 12px;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .section-tabs button.active {
+        border-color: #ead8cd;
+        background: #fff5ef;
+        color: var(--ink);
       }
 
       .page-head h2 {

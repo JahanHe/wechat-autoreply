@@ -9,8 +9,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-status-"));
 const screenshots = {
   dashboard: "/tmp/xiaodian-ai-kefu-dashboard-status.png",
-  floating: "/tmp/xiaodian-ai-kefu-floating-status.png",
-  mini: "/tmp/xiaodian-ai-kefu-floating-mini.png"
+  floating: "/tmp/xiaodian-ai-kefu-floating-status.png"
 };
 
 const statuses = [
@@ -102,15 +101,11 @@ try {
   await floating.locator("#runtimeLabel").getByText(statuses.at(-2).label, { exact: true }).waitFor({ timeout: 5_000 });
   await main.screenshot({ path: screenshots.dashboard });
   await assertMainDashboard(main, statuses.at(-2).label);
+  await assertNavigationStructure(main);
   await floating.screenshot({ path: screenshots.floating });
   await assertNoOverflow(floating, "展开悬浮窗");
   await assertFloatingControls(floating);
   await assertControlWindowCanReopen(app, floating);
-
-  await floating.locator("#minimizeFloat").click();
-  await floating.waitForTimeout(250);
-  await floating.screenshot({ path: screenshots.mini });
-  await assertNoOverflow(floating, "最小化悬浮窗");
 
   console.log(JSON.stringify({ ok: true, testedStatuses: statuses.length, screenshots }, null, 2));
 } finally {
@@ -176,6 +171,39 @@ async function assertMainDashboard(page, expectedStatus) {
   if (result.overflow) throw new Error("主面板发生横向溢出");
 }
 
+async function assertNavigationStructure(page) {
+  const result = await page.evaluate(async () => {
+    const navButtons = Array.from(document.querySelectorAll("#nav button"));
+    const topItems = navButtons.map((node) => ({
+      top: node.getAttribute("data-top"),
+      view: node.getAttribute("data-view"),
+      text: node.querySelector(".nav-title")?.textContent || "",
+      icon: Boolean(node.querySelector(".nav-icon svg"))
+    }));
+    document.querySelector('#nav button[data-top="rules"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const rulesTabs = Array.from(document.querySelectorAll(".section-tabs button")).map((node) => node.textContent);
+    document.querySelector('#nav button[data-top="settings"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const settingsTabs = Array.from(document.querySelectorAll(".section-tabs button")).map((node) => node.textContent);
+    return { topItems, rulesTabs, settingsTabs };
+  });
+  const expectedTop = ["客服工作台", "回复中心", "运行监控", "系统设置"];
+  if (JSON.stringify(result.topItems.map((item) => item.text)) !== JSON.stringify(expectedTop)) {
+    throw new Error(`一级导航不符合预期: ${JSON.stringify(result.topItems)}`);
+  }
+  if (result.topItems.some((item) => !item.icon)) throw new Error(`一级导航缺少本地图标: ${JSON.stringify(result.topItems)}`);
+  if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("判断库")) {
+    throw new Error(`回复中心二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
+  }
+  if (!result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {
+    throw new Error(`系统设置二级导航缺失: ${JSON.stringify(result.settingsTabs)}`);
+  }
+  if (result.settingsTabs.includes("API风格") || result.rulesTabs.includes("Webhook")) {
+    throw new Error(`二级导航仍存在重复归属: ${JSON.stringify(result)}`);
+  }
+}
+
 async function assertControlWindowCanReopen(electronApp, floatingPage) {
   await electronApp.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find((item) => item.getTitle().includes("小店AI客服") && !item.getTitle().includes("状态"));
@@ -199,7 +227,14 @@ async function assertControlWindowCanReopen(electronApp, floatingPage) {
 async function assertFloatingControls(page) {
   await page.getByRole("button", { name: "打开控制台", exact: true }).waitFor();
   await page.getByRole("button", { name: "暂停 Bot", exact: true }).waitFor();
-  await page.getByRole("button", { name: /^(去登录|查看客服页|打开客服页)$/ }).waitFor();
+  const controls = await page.evaluate(() => ({
+    commandButtons: Array.from(document.querySelectorAll(".command-button")).map((node) => node.textContent.trim()),
+    hasMiniButton: Boolean(document.querySelector("#minimizeFloat")),
+    hasLoginButton: Boolean(document.querySelector("#openLogin"))
+  }));
+  if (controls.hasMiniButton || controls.hasLoginButton || controls.commandButtons.length !== 2) {
+    throw new Error(`悬浮窗操作区不够明确: ${JSON.stringify(controls)}`);
+  }
   const before = await page.locator("#liveClock").textContent();
   await page.waitForTimeout(1100);
   const after = await page.locator("#liveClock").textContent();
