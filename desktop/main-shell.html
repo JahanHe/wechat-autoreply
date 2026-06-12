@@ -155,6 +155,7 @@
         grid-column: 1;
         grid-row: 2;
         height: calc(100vh - var(--contextbar));
+        z-index: 90;
       }
 
       body.sidebar-collapsed {
@@ -167,7 +168,7 @@
         justify-content: flex-end;
         min-height: 0;
         padding: 12px 12px 0;
-        -webkit-app-region: drag;
+        -webkit-app-region: no-drag;
       }
 
       .collapse-button {
@@ -663,6 +664,8 @@
         gap: 4px;
         padding: 3px;
         border: 0;
+        border-width: 0;
+        border-style: none;
         border-radius: var(--radius);
         background: transparent;
         -webkit-app-region: no-drag;
@@ -1392,7 +1395,7 @@
       body.sidebar-collapsed.platform-darwin .sidebar-window-controls {
         min-height: 38px;
         justify-content: flex-start;
-        padding: 12px 0 0 82px;
+        padding: 12px 0 0 74px;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .sidebar-window-controls {
@@ -1401,7 +1404,7 @@
       }
 
       body.sidebar-collapsed.platform-darwin .context-bar {
-        padding-left: 136px;
+        padding-left: 112px;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .context-bar {
@@ -1411,11 +1414,11 @@
       body.sidebar-collapsed .brand {
         grid-template-columns: 42px;
         justify-content: center;
-        padding: 48px 0 8px;
+        padding: 8px 0 8px;
       }
 
       body.sidebar-collapsed.window-fullscreen .brand {
-        padding-top: 42px;
+        padding-top: 8px;
       }
 
       body.sidebar-collapsed .brand-copy,
