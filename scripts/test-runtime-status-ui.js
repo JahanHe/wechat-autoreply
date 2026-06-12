@@ -195,12 +195,22 @@ async function assertNavigationStructure(page) {
     const contextSubtitleCount = document.querySelectorAll(".context-title span").length;
     const tabsBox = document.querySelector(".section-tabs")?.getBoundingClientRect();
     const contextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
+    const tabsStyle = getComputedStyle(document.querySelector(".section-tabs"));
+    const activeTabStyle = getComputedStyle(document.querySelector(".section-tabs button.active"));
+    document.querySelector("#sidebarCollapse")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const collapsedContextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
+    const collapsedSidebarBox = document.querySelector(".sidebar")?.getBoundingClientRect();
     return {
       topItems,
       rulesTabs,
       settingsTabs,
       contextSubtitleCount,
-      tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40)
+      tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40),
+      tabsContainerBorderless: tabsStyle.borderTopStyle === "none" || tabsStyle.borderTopWidth === "0px",
+      activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
+      collapsedTopFullWidth: Boolean(collapsedContextBox && Math.round(collapsedContextBox.left) === 0 && Math.round(collapsedContextBox.width) >= window.innerWidth - 2),
+      collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1)
     };
   });
   const expectedTop = ["工作台", "知识库", "监控", "设置"];
@@ -219,6 +229,8 @@ async function assertNavigationStructure(page) {
   }
   if (result.contextSubtitleCount) throw new Error(`Context Bar 仍显示说明小字: ${JSON.stringify(result)}`);
   if (!result.tabsLeftAligned) throw new Error(`二级页签没有左置: ${JSON.stringify(result)}`);
+  if (!result.tabsContainerBorderless || !result.activeTabHasFrame) throw new Error(`二级页签边框规则不符合预期: ${JSON.stringify(result)}`);
+  if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
 }
 
 async function assertControlWindowCanReopen(electronApp, floatingPage) {
