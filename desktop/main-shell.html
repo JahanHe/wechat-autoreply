@@ -182,6 +182,7 @@
         background: transparent;
         color: var(--muted);
         -webkit-app-region: no-drag;
+        pointer-events: auto;
       }
 
       .collapse-button:hover {
@@ -1386,16 +1387,17 @@
         position: fixed;
         top: 0;
         left: 0;
-        z-index: 80;
+        z-index: 200;
         min-height: 38px;
         justify-content: flex-start;
         padding: 12px 0 0 18px;
+        pointer-events: none;
       }
 
       body.sidebar-collapsed.platform-darwin .sidebar-window-controls {
         min-height: 38px;
         justify-content: flex-start;
-        padding: 12px 0 0 74px;
+        padding: 12px 0 0 76px;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .sidebar-window-controls {
@@ -1404,7 +1406,7 @@
       }
 
       body.sidebar-collapsed.platform-darwin .context-bar {
-        padding-left: 112px;
+        padding-left: 116px;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .context-bar {

@@ -201,6 +201,10 @@ async function assertNavigationStructure(page) {
     await new Promise((resolve) => setTimeout(resolve, 150));
     const collapsedContextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
     const collapsedSidebarBox = document.querySelector(".sidebar")?.getBoundingClientRect();
+    const collapseBox = document.querySelector("#sidebarCollapse")?.getBoundingClientRect();
+    const collapseHit = collapseBox
+      ? document.elementFromPoint(collapseBox.left + collapseBox.width / 2, collapseBox.top + collapseBox.height / 2)?.closest("#sidebarCollapse")
+      : null;
     return {
       topItems,
       rulesTabs,
@@ -210,7 +214,8 @@ async function assertNavigationStructure(page) {
       tabsContainerBorderless: tabsStyle.borderTopStyle === "none" || tabsStyle.borderTopWidth === "0px",
       activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
       collapsedTopFullWidth: Boolean(collapsedContextBox && Math.round(collapsedContextBox.left) === 0 && Math.round(collapsedContextBox.width) >= window.innerWidth - 2),
-      collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1)
+      collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1),
+      collapseButtonHit: Boolean(collapseHit)
     };
   });
   const expectedTop = ["工作台", "知识库", "监控", "设置"];
@@ -231,6 +236,7 @@ async function assertNavigationStructure(page) {
   if (!result.tabsLeftAligned) throw new Error(`二级页签没有左置: ${JSON.stringify(result)}`);
   if (!result.tabsContainerBorderless || !result.activeTabHasFrame) throw new Error(`二级页签边框规则不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
+  if (!result.collapseButtonHit) throw new Error(`折叠按钮被其他层遮挡: ${JSON.stringify(result)}`);
 }
 
 async function assertControlWindowCanReopen(electronApp, floatingPage) {
