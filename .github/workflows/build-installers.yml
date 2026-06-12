@@ -144,7 +144,7 @@ jobs:
           test -f release-assets/xiaodian-ai-kefu-windows-portable.exe
           ls -lh release-assets
 
-      - name: Create release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -178,6 +178,15 @@ jobs:
           - [图文使用说明](https://github.com/JahanHe/wechat-autoreply/blob/main/docs/rich-user-guide.md)
           EOF
           fi
-          gh release create "${GITHUB_REF_NAME}" release-assets/* \
-            --title "小店AI客服 ${GITHUB_REF_NAME}" \
-            --notes-file release-notes.md
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "小店AI客服 ${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md \
+              --draft=false \
+              --prerelease=false
+          else
+            gh release create "${GITHUB_REF_NAME}" release-assets/* \
+              --title "小店AI客服 ${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md
+          fi

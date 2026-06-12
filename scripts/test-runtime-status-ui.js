@@ -9,7 +9,8 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-status-"));
 const screenshots = {
   dashboard: "/tmp/xiaodian-ai-kefu-dashboard-status.png",
-  floating: "/tmp/xiaodian-ai-kefu-floating-status.png"
+  floating: "/tmp/xiaodian-ai-kefu-floating-status.png",
+  mini: "/tmp/xiaodian-ai-kefu-floating-mini.png"
 };
 
 const statuses = [
@@ -106,6 +107,11 @@ try {
   await assertNoOverflow(floating, "展开悬浮窗");
   await assertFloatingControls(floating);
   await assertControlWindowCanReopen(app, floating);
+  await floating.locator("#minimizeFloat").click();
+  await floating.waitForTimeout(250);
+  await floating.screenshot({ path: screenshots.mini });
+  await assertMiniFloatingControls(floating);
+  await assertNoOverflow(floating, "最小化悬浮窗");
 
   console.log(JSON.stringify({ ok: true, testedStatuses: statuses.length, screenshots }, null, 2));
 } finally {
@@ -227,12 +233,13 @@ async function assertControlWindowCanReopen(electronApp, floatingPage) {
 async function assertFloatingControls(page) {
   await page.getByRole("button", { name: "打开控制台", exact: true }).waitFor();
   await page.getByRole("button", { name: "暂停 Bot", exact: true }).waitFor();
+  await page.locator("#minimizeFloat").waitFor();
   const controls = await page.evaluate(() => ({
     commandButtons: Array.from(document.querySelectorAll(".command-button")).map((node) => node.textContent.trim()),
     hasMiniButton: Boolean(document.querySelector("#minimizeFloat")),
     hasLoginButton: Boolean(document.querySelector("#openLogin"))
   }));
-  if (controls.hasMiniButton || controls.hasLoginButton || controls.commandButtons.length !== 2) {
+  if (!controls.hasMiniButton || controls.hasLoginButton || controls.commandButtons.length !== 2) {
     throw new Error(`悬浮窗操作区不够明确: ${JSON.stringify(controls)}`);
   }
   const before = await page.locator("#liveClock").textContent();
@@ -252,11 +259,30 @@ async function assertFloatingControls(page) {
       buttonTops: buttons.map((rect) => rect.top)
     };
   });
-  if (Math.abs(layout.lampCenter - layout.headingCenter) > 2) {
-    throw new Error(`状态指示灯未与主状态标题对齐: ${JSON.stringify(layout)}`);
+  if (Math.abs(layout.lampCenter - layout.processCenter) > 2) {
+    throw new Error(`状态指示灯未与当前状态卡片居中对齐: ${JSON.stringify(layout)}`);
   }
   if (new Set(layout.buttonHeights).size !== 1 || new Set(layout.buttonTops).size !== 1) {
     throw new Error(`操作按钮尺寸或基线不统一: ${JSON.stringify(layout)}`);
+  }
+}
+
+async function assertMiniFloatingControls(page) {
+  const result = await page.evaluate(() => ({
+    isMini: document.body.classList.contains("mini"),
+    buttons: ["#openMainMini", "#expandFloat", "#closeMiniFloat"].map((selector) => Boolean(document.querySelector(selector))),
+    visibleButtons: Array.from(document.querySelectorAll(".mini-actions button")).map((node) => node.getAttribute("aria-label")),
+    width: window.innerWidth,
+    height: window.innerHeight
+  }));
+  if (!result.isMini || result.buttons.some((item) => !item)) {
+    throw new Error(`最小化悬浮窗缺少三按钮: ${JSON.stringify(result)}`);
+  }
+  if (JSON.stringify(result.visibleButtons) !== JSON.stringify(["打开控制台", "展开", "关闭悬浮窗"])) {
+    throw new Error(`最小化按钮语义异常: ${JSON.stringify(result.visibleButtons)}`);
+  }
+  if (result.width !== 244 || result.height !== 52) {
+    throw new Error(`最小化尺寸异常: ${JSON.stringify(result)}`);
   }
 }
 

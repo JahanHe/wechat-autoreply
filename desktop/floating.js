@@ -5,11 +5,20 @@ const lamps = {
   local: $("#localLamp"),
   script: $("#scriptLamp"),
   login: $("#loginLamp"),
-  runtime: $("#runtimeLamp")
+  runtime: $("#runtimeLamp"),
+  mini: $("#miniLamp")
+};
+
+const cards = {
+  ai: $("#aiCard"),
+  local: $("#localCard"),
+  script: $("#scriptCard"),
+  login: $("#loginCard")
 };
 
 const texts = {
   liveClock: $("#liveClock"),
+  topState: $("#topState"),
   ai: $("#aiText"),
   local: $("#localText"),
   script: $("#scriptText"),
@@ -18,14 +27,21 @@ const texts = {
   runtimeCategory: $("#runtimeCategory"),
   runtimeDetail: $("#runtimeDetail"),
   botMode: $("#botMode"),
-  updatedAt: $("#updatedAt")
+  updatedAt: $("#updatedAt"),
+  miniTitle: $("#miniTitle"),
+  miniSubtitle: $("#miniSubtitle")
 };
 
 let latestPayload = null;
 let latestStatusAt = Date.now();
+let currentMode = "compact";
 
+$("#minimizeFloat").addEventListener("click", () => setMiniMode(true));
+$("#expandFloat").addEventListener("click", () => setMiniMode(false));
 $("#closeFloat").addEventListener("click", hideFloatingWindow);
+$("#closeMiniFloat").addEventListener("click", hideFloatingWindow);
 $("#openMain").addEventListener("click", () => window.desktopFloat.openMain());
+$("#openMainMini").addEventListener("click", () => window.desktopFloat.openMain());
 $("#toggleBot").addEventListener("click", async () => render(await window.desktopFloat.toggleEnabled()));
 
 window.desktopFloat.onStatus(render);
@@ -35,6 +51,13 @@ window.setInterval(updateLiveTime, 1000);
 
 async function hideFloatingWindow() {
   await window.desktopFloat.hide();
+}
+
+async function setMiniMode(value) {
+  const mode = value ? "mini" : "compact";
+  currentMode = mode;
+  document.body.classList.toggle("mini", value);
+  await window.desktopFloat.setMode(mode);
 }
 
 function render(payload) {
@@ -48,7 +71,13 @@ function render(payload) {
   setLamp(lamps.script, states.script.tone);
   setLamp(lamps.login, states.login.tone);
   setLamp(lamps.runtime, states.runtime.tone);
+  setLamp(lamps.mini, states.overall.tone);
+  setCardTone(cards.ai, states.ai.tone);
+  setCardTone(cards.local, states.local.tone);
+  setCardTone(cards.script, states.script.tone);
+  setCardTone(cards.login, states.login.tone);
 
+  texts.topState.textContent = states.overall.title;
   texts.ai.textContent = states.ai.text;
   texts.local.textContent = states.local.text;
   texts.script.textContent = states.script.text;
@@ -59,6 +88,14 @@ function render(payload) {
   texts.botMode.textContent = payload.enabled ? "Bot 正在接管" : "Bot 已暂停";
   $("#toggleBot").textContent = payload.enabled ? "暂停 Bot" : "开启 Bot";
   $("#toggleBot").classList.toggle("warn", payload.enabled);
+  texts.miniTitle.textContent = states.overall.title;
+  texts.miniSubtitle.textContent = shortText(states.overall.summary);
+
+  const mode = payload.floating?.mode === "mini" ? "mini" : "compact";
+  if (mode !== currentMode) {
+    currentMode = mode;
+    document.body.classList.toggle("mini", mode === "mini");
+  }
 }
 
 function updateLiveTime() {
@@ -66,6 +103,9 @@ function updateLiveTime() {
   texts.liveClock.textContent = formatTime(now);
   const seconds = Math.max(0, Math.floor((now - latestStatusAt) / 1000));
   texts.updatedAt.textContent = seconds < 2 ? "状态刚刚更新" : seconds < 60 ? `状态 ${seconds} 秒前更新` : `状态 ${Math.floor(seconds / 60)} 分钟前更新`;
+  if (currentMode === "mini") {
+    texts.miniSubtitle.textContent = `${formatTime(now)} · ${shortText(latestPayload?.bot?.detail || "状态同步")}`;
+  }
 }
 
 function buildStates(payload) {
@@ -119,6 +159,11 @@ function buildStates(payload) {
 
 function setLamp(node, tone) {
   node.className = `lamp ${tone || ""}`.trim();
+}
+
+function setCardTone(node, tone) {
+  if (!node) return;
+  node.className = `status-row ${tone || ""}`.trim();
 }
 
 function normalizeTone(value) {

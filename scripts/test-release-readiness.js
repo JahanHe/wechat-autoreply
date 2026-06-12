@@ -135,6 +135,8 @@ expect(workflow.includes("xiaodian-ai-kefu-macos-arm64.dmg"), "CI 未产出 macO
 expect(workflow.includes("xiaodian-ai-kefu-windows-setup.exe"), "CI 未产出 Windows 安装版目标资产名");
 expect(workflow.includes("xiaodian-ai-kefu-windows-portable.exe"), "CI 未产出 Windows 便携版目标资产名");
 expect(workflow.includes(`docs/release-notes/${tag}.md`) || workflow.includes("docs/release-notes/${GITHUB_REF_NAME}.md"), "CI 未读取标签对应 Release Notes");
+expect(workflow.includes("gh release upload") && workflow.includes("--clobber"), "CI 未支持覆盖已有 Release 安装资产");
+expect(workflow.includes("gh release edit"), "CI 未支持更新已有 Release 说明");
 
 if (failures.length) {
   console.error(JSON.stringify({ ok: false, failures }, null, 2));

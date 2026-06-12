@@ -1317,12 +1317,12 @@ function renderFloating() {
           ${toggleRow("floatEnabled", "启用悬浮窗功能", "关闭后不自动创建悬浮窗，但主控制台仍可重新启用。", floatWindow.enabled !== false)}
           ${toggleRow("alwaysOnTop", "保持置顶", "适合客服值守时防止窗口被遮挡。", Boolean(floatWindow.alwaysOnTop))}
         </div>
-        <p class="hint">当前状态：${status.floating?.visible ? "正在显示" : "已隐藏"}，${status.floating?.alwaysOnTop ? "置顶" : "不置顶"}，固定状态窗。</p>
+        <p class="hint">当前状态：${status.floating?.visible ? "正在显示" : "已隐藏"}，${status.floating?.alwaysOnTop ? "置顶" : "不置顶"}，${status.floating?.mode === "mini" ? "最小化条" : "展开状态窗"}。</p>
       </div>
       <div class="card">
         <h3>固定版式</h3>
-        <p>悬浮窗固定为 <code>344 × 256</code> 状态窗，不再开放无级缩放，避免文字遮挡和状态灯错位。</p>
-        <p class="hint">关闭悬浮窗只是隐藏；主控台、Dock 或托盘都可以重新打开。</p>
+        <p>展开态固定为 <code>344 × 256</code>，最小化态固定为 <code>244 × 52</code>，不开放无级缩放，避免文字遮挡和状态灯错位。</p>
+        <p class="hint">最小化条保留三个按钮：打开控制台、展开、关闭/隐藏。关闭只是隐藏；主控台、Dock 或托盘都可以重新打开。</p>
       </div>
     </div>
   `;
@@ -1830,8 +1830,9 @@ async function saveFloatingSettings() {
         enabled: checked("floatEnabled"),
         visible: state.status?.floating?.visible || false,
         alwaysOnTop: checked("alwaysOnTop"),
-        mode: "compact",
-        compactSize: { width: 344, height: 256 }
+        mode: state.status?.floating?.mode === "mini" ? "mini" : "compact",
+        compactSize: { width: 344, height: 256 },
+        miniSize: { width: 244, height: 52 }
       }
     }
   };
