@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 function Assert-File([string]$Path, [string]$Label) {
-  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label 不存在: $Path" }
-  if ((Get-Item -LiteralPath $Path).Length -le 0) { throw "$Label 是空文件: $Path" }
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label does not exist: $Path" }
+  if ((Get-Item -LiteralPath $Path).Length -le 0) { throw "$Label is empty: $Path" }
 }
 
 function Test-AppLaunch([string]$ExePath, [string]$Label, [int]$ControlPort, [int]$AiPort) {
@@ -25,18 +25,18 @@ function Test-AppLaunch([string]$ExePath, [string]$Label, [int]$ControlPort, [in
       Start-Sleep -Milliseconds 500
       try {
         $health = Invoke-RestMethod -Uri "http://127.0.0.1:$ControlPort/health" -TimeoutSec 2
-        if ($health.ok -and $health.app -eq "小店AI客服") { break }
+        if ($health.ok -and $health.tokenConfigured) { break }
       } catch {
         $health = $null
       }
     }
     if (-not $health) {
-      $exit = if ($launcher.HasExited) { "，启动器退出码 $($launcher.ExitCode)" } else { "" }
-      throw "$Label 未在规定时间内启动本机控制服务$exit"
+      $exit = if ($launcher.HasExited) { "; launcher exit code $($launcher.ExitCode)" } else { "" }
+      throw "$Label did not start the local control service in time$exit"
     }
 
     $connection = Get-NetTCPConnection -LocalPort $ControlPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $connection) { throw "$Label 已响应健康检查但未找到监听进程" }
+    if (-not $connection) { throw "$Label health responded but no listener process was found" }
     & taskkill.exe /PID $connection.OwningProcess /T /F | Out-Null
   } finally {
     $env:WECHAT_KF_ALLOW_MULTIPLE = $oldAllowMultiple
@@ -50,7 +50,10 @@ function Test-AppLaunch([string]$ExePath, [string]$Label, [int]$ControlPort, [in
 $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root "dist"
 $version = "0.3.9"
-$unpackedExe = Join-Path $dist "win-unpacked\小店AI客服.exe"
+$unpackedExe = Get-ChildItem -Path (Join-Path $dist "win-unpacked") -File -Filter "*.exe" |
+  Where-Object { $_.Name -notmatch "Uninstall" } |
+  Sort-Object Length -Descending |
+  Select-Object -First 1
 $unpackedAsar = Join-Path $dist "win-unpacked\resources\app.asar"
 $setup = Get-ChildItem -Path $dist -File -Filter "*.exe" |
   Where-Object { $_.Name -match "Setup" } |
@@ -61,30 +64,34 @@ $portable = Get-ChildItem -Path $dist -File -Filter "*.exe" |
   Sort-Object Length -Descending |
   Select-Object -First 1
 
-Assert-File $unpackedExe "Windows 解包版主程序"
+if (-not $unpackedExe) { throw "Windows unpacked executable was not found" }
+Assert-File $unpackedExe.FullName "Windows unpacked executable"
 Assert-File $unpackedAsar "Windows app.asar"
-if (-not $setup) { throw "未找到 Windows Setup 安装包" }
-if (-not $portable) { throw "未找到 Windows portable 安装包" }
+if (-not $setup) { throw "Windows Setup package was not found" }
+if (-not $portable) { throw "Windows portable package was not found" }
 
 node (Join-Path $root "scripts\check-packaged-resources.js") $unpackedAsar $version
-if ($LASTEXITCODE -ne 0) { throw "Windows 解包版资源检查失败" }
+if ($LASTEXITCODE -ne 0) { throw "Windows unpacked resource check failed" }
 
-Test-AppLaunch $unpackedExe "解包版" 19197 19187
+Test-AppLaunch $unpackedExe.FullName "unpacked" 19197 19187
 
 $installDir = Join-Path $env:RUNNER_TEMP "xiaodian-ai-kefu-installed"
 Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
 $setupProcess = Start-Process -FilePath $setup.FullName -ArgumentList "/S", "/D=$installDir" -PassThru -Wait
-if ($setupProcess.ExitCode -ne 0) { throw "Windows 安装包静默安装失败，退出码 $($setupProcess.ExitCode)" }
+if ($setupProcess.ExitCode -ne 0) { throw "Windows silent install failed with exit code $($setupProcess.ExitCode)" }
 
-$installedExe = Get-ChildItem -Path $installDir -Recurse -File -Filter "小店AI客服.exe" | Select-Object -First 1
-if (-not $installedExe) { throw "安装后未找到 小店AI客服.exe: $installDir" }
+$installedExe = Get-ChildItem -Path $installDir -Recurse -File -Filter "*.exe" |
+  Where-Object { $_.Name -notmatch "Uninstall" } |
+  Sort-Object Length -Descending |
+  Select-Object -First 1
+if (-not $installedExe) { throw "Installed application executable was not found: $installDir" }
 $installedAsar = Join-Path $installedExe.DirectoryName "resources\app.asar"
-Assert-File $installedAsar "安装版 app.asar"
+Assert-File $installedAsar "Installed app.asar"
 node (Join-Path $root "scripts\check-packaged-resources.js") $installedAsar $version
-if ($LASTEXITCODE -ne 0) { throw "Windows 安装版资源检查失败" }
-Test-AppLaunch $installedExe.FullName "安装版" 19297 19287
+if ($LASTEXITCODE -ne 0) { throw "Windows installed resource check failed" }
+Test-AppLaunch $installedExe.FullName "installed" 19297 19287
 
-Test-AppLaunch $portable.FullName "便携版" 19397 19387
+Test-AppLaunch $portable.FullName "portable" 19397 19387
 
 $uninstaller = Get-ChildItem -Path $installDir -Recurse -File -Filter "Uninstall*.exe" | Select-Object -First 1
 if ($uninstaller) {
@@ -94,8 +101,8 @@ Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Output (@{
   ok = $true
-  unpacked = $unpackedExe
+  unpacked = $unpackedExe.FullName
   setup = $setup.FullName
   portable = $portable.FullName
-  checks = @("asar资源", "解包版启动", "安装版安装与启动", "便携版启动")
+  checks = @("asar-resources", "unpacked-launch", "installed-launch", "portable-launch")
 } | ConvertTo-Json -Depth 3)
