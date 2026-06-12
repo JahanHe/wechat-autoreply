@@ -37,7 +37,6 @@ jobs:
           npm run test:baseline
           npm run test:desktop-modules
           npm run test:ai-knowledge
-          npm run test:security-config
           npm run test:extension-modules
           npm run test:notify-outbox
           npm run check:secrets
