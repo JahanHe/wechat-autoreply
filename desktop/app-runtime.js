@@ -1204,6 +1204,10 @@ function createMainWindow() {
     title: APP_DISPLAY_NAME,
     icon: APP_ICON_PATH,
     autoHideMenuBar: process.platform !== "darwin",
+    ...(process.platform === "darwin" ? {
+      titleBarStyle: "hiddenInset",
+      trafficLightPosition: { x: 16, y: 18 }
+    } : {}),
     show: true,
     webPreferences: {
       preload: resolve(__dirname, "main-shell-preload.cjs"),
