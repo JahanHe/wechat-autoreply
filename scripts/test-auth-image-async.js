@@ -10,7 +10,9 @@ const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-regression-"));
 const mainSource = ["desktop/main.js", "desktop/app-runtime.js"]
   .map((path) => readFileSync(resolve(root, path), "utf8"))
   .join("\n");
-const contentSource = readFileSync(resolve(root, "extension/content.js"), "utf8");
+const contentSource = ["extension/source/index.js", "extension/content.js"]
+  .map((path) => readFileSync(resolve(root, path), "utf8"))
+  .join("\n");
 const judgmentSource = readFileSync(resolve(root, "src/runyu-judgments.js"), "utf8");
 const replies = JSON.parse(readFileSync(resolve(root, "config/replies.json"), "utf8"));
 const authScreenshot = "/tmp/xiaodian-ai-kefu-runyu-auth.png";
@@ -223,6 +225,7 @@ async function testHiddenImageInput(page, functionSource) {
 
 async function testIncomingMediaParser(page, source) {
   const functions = [
+    "function buildMessagePlaceholder(kind, detail = '') { const clean = String(detail || '').replace(/\\s+/g, ' ').trim(); return clean ? `[${kind}] ${clean}` : `[${kind}]`; }",
     extractFunction(source, "parseMessageNode", "inferMessageSide"),
     extractFunction(source, "inferMessageSide", "mediaLabel"),
     extractFunction(source, "mediaLabel", "messagePlaceholder"),
