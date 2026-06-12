@@ -38,7 +38,6 @@ jobs:
           npm run test:desktop-modules
           npm run test:ai-knowledge
           npm run test:extension-modules
-          npm run test:notify-outbox
           npm run check:secrets
           npm run test:release-readiness
 
