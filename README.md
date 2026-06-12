@@ -331,8 +331,8 @@ GitHub Actions 工作流：[.github/workflows/build-installers.yml](.github/work
 
 | 触发 | 行为 |
 | --- | --- |
-| 推送 `main` | 运行无头门禁并构建 macOS/Windows artifacts |
-| 推送 `v*` 标签 | 构建 macOS DMG、Windows 安装版、Windows 便携版，并创建 GitHub Release |
+| 推送 `main` | 运行无头门禁，构建并启动检查 macOS/Windows artifacts |
+| 推送 `v*` 标签 | 构建 macOS DMG、Windows 安装版、Windows 便携版，三者冒烟通过后创建 GitHub Release |
 | Release Notes | 优先读取 `docs/release-notes/<tag>.md` |
 | 资产名 | `xiaodian-ai-kefu-macos-arm64.dmg`、`xiaodian-ai-kefu-windows-setup.exe`、`xiaodian-ai-kefu-windows-portable.exe` |
 
@@ -344,7 +344,7 @@ GitHub Actions 工作流：[.github/workflows/build-installers.yml](.github/work
 
 - 行为基线：文字、图片、文件、商品、邀请下单、规则、AI、判断库、异步回复、Webhook、窗口生命周期
 - 桌面模块、AI/知识库、安全配置、扩展模块、生命周期、状态 UI、核心回归、通知补发、密钥扫描、doctor、release-readiness
-- macOS 本地 DMG 生成、挂载检查、asar 资源检查和打包 `.app` 临时用户目录启动烟测
+- Release DMG 全新目录启动、asar 资源、知识库查询和首次图片初始化通过；Windows CI 会实际启动解包版、安装版和便携版
 
 仍需要在真实微信小店会话中复核的动作：
 

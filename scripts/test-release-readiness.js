@@ -59,6 +59,9 @@ const requiredScripts = [
   "test:status-ui",
   "test:regressions",
   "test:notify-outbox",
+  "test:packaged-resources",
+  "test:macos-package",
+  "test:windows-packages",
   "test:release-readiness"
 ];
 
@@ -145,6 +148,13 @@ expect(workflow.includes("actions/checkout@v6"), "CI 未升级到 checkout@v6");
 expect(workflow.includes("actions/setup-node@v6"), "CI 未升级到 setup-node@v6");
 expect(workflow.includes("actions/upload-artifact@v7"), "CI 未升级到 upload-artifact@v7");
 expect(workflow.includes("actions/download-artifact@v8"), "CI 未升级到 download-artifact@v8");
+expect(workflow.includes("Smoke test Windows packages"), "CI 未执行 Windows 安装资产冒烟测试");
+expect(workflow.includes("test-windows-packages.ps1"), "CI 未接入 Windows 安装版和便携版启动测试");
+expect(workflow.includes("Smoke test macOS package"), "CI 未执行 macOS DMG 冒烟测试");
+expect(workflow.includes("test-macos-package.sh"), "CI 未接入 macOS 安装包启动测试");
+expect(pathExists("scripts/check-packaged-resources.js"), "缺少安装包资源完整性检查脚本");
+expect(pathExists("scripts/test-windows-packages.ps1"), "缺少 Windows 安装资产冒烟脚本");
+expect(pathExists("scripts/test-macos-package.sh"), "缺少 macOS 安装资产冒烟脚本");
 
 if (failures.length) {
   console.error(JSON.stringify({ ok: false, failures }, null, 2));
