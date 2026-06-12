@@ -194,16 +194,16 @@ async function assertNavigationStructure(page) {
     const settingsTabs = Array.from(document.querySelectorAll(".section-tabs button")).map((node) => node.textContent);
     return { topItems, rulesTabs, settingsTabs };
   });
-  const expectedTop = ["客服工作台", "回复中心", "运行监控", "系统设置"];
+  const expectedTop = ["工作台", "知识库", "监控", "设置"];
   if (JSON.stringify(result.topItems.map((item) => item.text)) !== JSON.stringify(expectedTop)) {
     throw new Error(`一级导航不符合预期: ${JSON.stringify(result.topItems)}`);
   }
   if (result.topItems.some((item) => !item.icon)) throw new Error(`一级导航缺少本地图标: ${JSON.stringify(result.topItems)}`);
   if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("判断库")) {
-    throw new Error(`回复中心二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
+    throw new Error(`知识库二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
   }
   if (!result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {
-    throw new Error(`系统设置二级导航缺失: ${JSON.stringify(result.settingsTabs)}`);
+    throw new Error(`设置二级导航缺失: ${JSON.stringify(result.settingsTabs)}`);
   }
   if (result.settingsTabs.includes("API风格") || result.rulesTabs.includes("Webhook")) {
     throw new Error(`二级导航仍存在重复归属: ${JSON.stringify(result)}`);

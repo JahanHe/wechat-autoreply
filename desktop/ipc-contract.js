@@ -1,6 +1,6 @@
 export const MAIN_IPC_CHANNELS = Object.freeze([
   "main-get-status", "main-get-settings", "main-save-settings", "main-set-mode",
-  "main-open-floating", "main-hide-floating", "main-toggle-enabled", "main-request-quit", "main-reload",
+  "main-set-sidebar-width", "main-open-floating", "main-hide-floating", "main-toggle-enabled", "main-request-quit", "main-reload",
   "main-check-ai", "main-test-webhook", "main-capture-structure", "main-run-action",
   "main-choose-image", "main-choose-file", "main-reveal-path", "main-get-file-preview",
   "main-get-reply-records", "main-test-ai-reply", "main-test-rule-trigger",

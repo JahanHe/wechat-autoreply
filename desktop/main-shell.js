@@ -2,10 +2,10 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 const navItems = [
-  { id: "page", target: "page", title: "客服工作台", hint: "聊天", icon: "messages", description: "客服页映射、扫码登录和当前接管状态。" },
-  { id: "rules", target: "rules", title: "回复中心", hint: "规则", icon: "reply", description: "规则库、Bot策略、AI风格和外部判断库。" },
-  { id: "dashboard", target: "dashboard", title: "运行监控", hint: "状态", icon: "activity", description: "实时状态、回复日志和异常追踪。" },
-  { id: "settings", target: "setup", title: "系统设置", hint: "配置", icon: "settings", description: "初始化、Webhook、悬浮窗和退出设置。" }
+  { id: "page", target: "page", title: "工作台", icon: "messages", description: "客服页映射、扫码登录和当前接管状态。" },
+  { id: "rules", target: "rules", title: "知识库", icon: "reply", description: "规则库、Bot策略、AI风格和外部判断库。" },
+  { id: "dashboard", target: "dashboard", title: "监控", icon: "activity", description: "实时状态、回复日志和异常追踪。" },
+  { id: "settings", target: "setup", title: "设置", icon: "settings", description: "初始化、Webhook、悬浮窗和退出设置。" }
 ];
 
 const sectionGroups = {
@@ -69,7 +69,8 @@ const state = {
   apiKeyShown: false,
   runyuCookieShown: false,
   loading: false,
-  detail: null
+  detail: null,
+  sidebarCollapsed: window.localStorage?.getItem("mainShellSidebarCollapsed") === "1"
 };
 window.state = state;
 
@@ -84,6 +85,7 @@ init().catch((error) => {
 });
 
 async function init() {
+  applySidebarState();
   renderNav();
   bindGlobalActions();
   window.mainShell.onStatus((payload) => {
@@ -136,8 +138,7 @@ function renderNav() {
   $("#nav").innerHTML = navItems.map((item) => `
     <button type="button" data-top="${item.id}" data-view="${item.target || item.id}" title="${attr(item.description)}">
       <span class="nav-icon">${icons[item.icon] || ""}</span>
-      <span class="nav-copy"><span class="nav-title">${escapeHtml(item.title)}</span><span class="nav-desc">${escapeHtml(item.description)}</span></span>
-      <small>${escapeHtml(item.hint)}</small>
+      <span class="nav-copy"><span class="nav-title">${escapeHtml(item.title)}</span></span>
     </button>
   `).join("");
   $$("#nav button").forEach((button) => {
@@ -241,6 +242,12 @@ function formatAccelerator(value) {
 
 function bindGlobalActions() {
   $("#desktopMenuButton").addEventListener("click", () => toggleDesktopMenu());
+  $("#sidebarCollapse")?.addEventListener("click", () => setSidebarCollapsed(!state.sidebarCollapsed));
+  $("#openFloatDock")?.addEventListener("click", async () => {
+    state.status = await window.mainShell.openFloating("compact");
+    renderChrome();
+    await refreshMenuModel();
+  });
   document.addEventListener("click", (event) => {
     if (!$("#desktopMenu")?.classList.contains("open")) return;
     if (event.target.closest("#desktopMenu") || event.target.closest("#desktopMenuButton")) return;
@@ -248,6 +255,25 @@ function bindGlobalActions() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeDesktopMenu();
+  });
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = Boolean(collapsed);
+  window.localStorage?.setItem("mainShellSidebarCollapsed", state.sidebarCollapsed ? "1" : "0");
+  applySidebarState();
+}
+
+function applySidebarState() {
+  document.body.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
+  const button = $("#sidebarCollapse");
+  if (button) {
+    button.setAttribute("aria-expanded", String(!state.sidebarCollapsed));
+    button.title = state.sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏";
+    button.setAttribute("aria-label", button.title);
+  }
+  window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 76 : 268).catch((error) => {
+    console.warn("[shell] sidebar width sync failed", error);
   });
 }
 
@@ -267,20 +293,27 @@ async function switchView(view) {
 function renderChrome() {
   const status = state.status || {};
   document.body.classList.toggle("platform-darwin", status.platform === "darwin" || state.menuModel?.platform === "darwin");
+  document.body.classList.toggle("window-fullscreen", Boolean(status.fullscreen));
   const botEnabled = Boolean(status.enabled);
   const aiOk = Boolean(status.ai?.ok && status.ai?.hasKey);
   const aiHasKey = Boolean(status.ai?.hasKey);
   const notifyConfigured = Boolean(status.notify?.configured || status.notifyEnabled);
   const page = status.page || {};
+  const floating = status.floating || {};
+  const storeName = page.authenticated ? (page.title || "微信小店") : "微信小店";
   const botTone = runtimeTone(status.bot?.tone);
 
   $("#botDot").className = `dot ${botEnabled ? botTone : "warn"}`;
   $("#aiDot").className = `dot ${aiOk ? "" : aiHasKey ? "warn" : "bad"}`;
+  $("#floatDot").className = `dot ${floating.visible ? "" : "warn"}`;
+  $("#floatMini").textContent = floating.visible ? "悬浮窗显示中" : "悬浮窗已隐藏";
+  $("#openFloatDock").title = floating.visible ? "打开悬浮窗" : "显示悬浮窗";
+  $("#openFloatDock").setAttribute("aria-label", $("#openFloatDock").title);
   $("#botMini").textContent = shortStatus(status.bot?.label || status.bot?.status || "检测中");
   $("#botModeMini").textContent = botEnabled ? "开启" : "暂停";
   $("#aiMini").textContent = aiOk ? "AI 正常" : aiHasKey ? "AI 待测" : "缺 Key";
   $("#notifyMini").textContent = notifyConfigured ? `通知 ${status.notify?.outboxCount || 0}` : "未配置";
-  $("#pageMini").textContent = page.loading ? "客服页加载中" : page.title || "客服页映射";
+  $("#storeName").textContent = page.loading ? "客服页加载中" : storeName;
   $$("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
   });

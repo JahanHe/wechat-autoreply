@@ -56,7 +56,7 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 
 ## 图片或文件发不出去
 
-进入回复中心 > 规则库：
+进入知识库 > 规则库：
 
 1. 打开“动作规则”。
 2. 找到图片或文件动作。

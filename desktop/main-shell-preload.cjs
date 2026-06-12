@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld("mainShell", {
   setMode(mode) {
     return ipcRenderer.invoke("main-set-mode", mode || "page");
   },
+  setSidebarWidth(width) {
+    return ipcRenderer.invoke("main-set-sidebar-width", width);
+  },
   openFloating(mode) {
     return ipcRenderer.invoke("main-open-floating", mode || "compact");
   },

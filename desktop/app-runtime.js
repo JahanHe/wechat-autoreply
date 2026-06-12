@@ -37,7 +37,8 @@ const APP_DISPLAY_NAME = "小店AI客服";
 const APP_USER_DATA_DIR_NAME = "小店AI客服";
 const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
-const MAIN_SHELL_SIDEBAR_WIDTH = 236;
+const MAIN_SHELL_SIDEBAR_WIDTH = 268;
+const MAIN_SHELL_SIDEBAR_COLLAPSED_WIDTH = 76;
 const MAIN_SHELL_CONTEXT_BAR_HEIGHT = 54;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
@@ -128,6 +129,7 @@ let runyuAuthState = {
 };
 let watchdogTimers = [];
 let configValidationState = { valid: true, version: DESKTOP_CONFIG_SCHEMA_VERSION, errors: [], backupPath: "" };
+let mainShellSidebarWidth = MAIN_SHELL_SIDEBAR_WIDTH;
 
 const gotLock = process.env.WECHAT_KF_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -931,10 +933,10 @@ function desktopMenuModel() {
         label: "工作台设定",
         items: [
           commandItem("workbench.open", "打开工作台", { accelerator: "CmdOrCtrl+1" }),
-          commandItem("workbench.page", "客服工作台"),
-          commandItem("workbench.rules", "回复中心"),
-          commandItem("workbench.dashboard", "运行监控"),
-          commandItem("workbench.settings", "系统设置"),
+          commandItem("workbench.page", "工作台"),
+          commandItem("workbench.rules", "知识库"),
+          commandItem("workbench.dashboard", "监控"),
+          commandItem("workbench.settings", "设置"),
           separatorItem(),
           commandItem("workbench.reload", "重载客服页", { accelerator: "CmdOrCtrl+R" }),
           commandItem("workbench.capture", "捕捉页面结构")
@@ -1250,6 +1252,14 @@ function createMainWindow() {
   mainWindow.on("resize", layoutKfView);
   mainWindow.on("maximize", layoutKfView);
   mainWindow.on("unmaximize", layoutKfView);
+  mainWindow.on("enter-full-screen", () => {
+    layoutKfView();
+    broadcastStatus();
+  });
+  mainWindow.on("leave-full-screen", () => {
+    layoutKfView();
+    broadcastStatus();
+  });
 
   mainWindow.webContents.on("did-fail-load", (_event, code, description, url) => {
     sendNotification("shell_load_failed", "控制台加载失败", `${description || code}\n${url || ""}`, {
@@ -1441,12 +1451,22 @@ function layoutKfView() {
   if (!mainWindow || mainWindow.isDestroyed() || !kfView || !kfViewAttached) return;
   const [width, height] = mainWindow.getContentSize();
   kfView.setBounds({
-    x: MAIN_SHELL_SIDEBAR_WIDTH,
+    x: mainShellSidebarWidth,
     y: MAIN_SHELL_CONTEXT_BAR_HEIGHT,
-    width: Math.max(0, width - MAIN_SHELL_SIDEBAR_WIDTH),
+    width: Math.max(0, width - mainShellSidebarWidth),
     height: Math.max(0, height - MAIN_SHELL_CONTEXT_BAR_HEIGHT)
   });
   kfView.setAutoResize({ width: true, height: true });
+}
+
+function setMainShellSidebarWidth(width) {
+  const numeric = Number(width);
+  const next = numeric <= 120 ? MAIN_SHELL_SIDEBAR_COLLAPSED_WIDTH : MAIN_SHELL_SIDEBAR_WIDTH;
+  if (mainShellSidebarWidth !== next) {
+    mainShellSidebarWidth = next;
+    layoutKfView();
+  }
+  return { ok: true, width: mainShellSidebarWidth, status: statusPayload() };
 }
 
 async function setMainMode(mode) {
@@ -1765,6 +1785,7 @@ function registerIpc() {
   ipcMain.handle("main-get-settings", () => settingsPayload());
   ipcMain.handle("main-save-settings", (_event, payload) => saveDesktopSettings(payload || {}));
   ipcMain.handle("main-set-mode", (_event, mode) => setMainMode(mode));
+  ipcMain.handle("main-set-sidebar-width", (_event, width) => setMainShellSidebarWidth(width));
   ipcMain.handle("main-open-floating", async (_event, mode = "compact") => {
     showFloatingWindow();
     if (mode === "settings") await setFloatingMode("settings");
@@ -1946,6 +1967,7 @@ function statusPayload() {
   const payload = {
     appName: APP_DISPLAY_NAME,
     platform: process.platform,
+    fullscreen: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen()),
     bot: lastBotStatus,
     botHistory: botStatusHistory,
     ai: lastAiHealth,

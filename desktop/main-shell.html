@@ -23,9 +23,10 @@
         --error: #c64545;
         --radius: 8px;
         --control-radius: 8px;
-        --sidebar: 236px;
+        --sidebar-expanded: 268px;
+        --sidebar-collapsed: 76px;
+        --sidebar: var(--sidebar-expanded);
         --contextbar: 54px;
-        --detail: 340px;
       }
 
       * {
@@ -135,6 +136,7 @@
       }
 
       .sidebar {
+        position: relative;
         height: 100vh;
         background: rgba(255, 255, 255, .72);
         color: var(--ink);
@@ -144,8 +146,59 @@
         z-index: 5;
       }
 
+      body.sidebar-collapsed {
+        --sidebar: var(--sidebar-collapsed);
+      }
+
+      .sidebar-window-controls {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        min-height: 0;
+        padding: 10px 12px 0;
+      }
+
+      .collapse-button,
+      .float-action {
+        width: 34px;
+        height: 34px;
+        min-height: 34px;
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        border-color: var(--hairline);
+        background: #fff;
+      }
+
+      .collapse-button svg,
+      .float-action svg {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      body.sidebar-collapsed .collapse-button svg {
+        transform: rotate(180deg);
+      }
+
+      .platform-darwin .sidebar-window-controls {
+        min-height: 38px;
+        justify-content: flex-start;
+        padding: 11px 0 0 96px;
+      }
+
+      .platform-darwin.window-fullscreen .sidebar-window-controls {
+        min-height: 0;
+        padding: 10px 12px 0;
+        justify-content: flex-end;
+      }
+
       .brand {
-        padding: 14px 16px 12px;
+        padding: 10px 16px 12px;
         display: grid;
         grid-template-columns: 34px 42px minmax(0, 1fr);
         gap: 10px;
@@ -181,15 +234,6 @@
         display: none;
       }
 
-      .platform-darwin .brand {
-        grid-template-columns: 42px minmax(0, 1fr);
-        gap: 12px;
-      }
-
-      .platform-darwin .sidebar {
-        padding-top: 38px;
-      }
-
       .brand img {
         width: 42px;
         height: 42px;
@@ -212,6 +256,11 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .platform-darwin .brand {
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 12px;
       }
 
       .desktop-menu {
@@ -309,9 +358,27 @@
       }
 
       .status-strip {
-        padding: 0 14px 12px;
+        padding: 0 14px 10px;
         display: grid;
         gap: 8px;
+      }
+
+      .floating-strip {
+        padding: 0 14px 10px;
+      }
+
+      .floating-status {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 34px;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 0 6px 0 10px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        background: #fff;
+        color: var(--body);
+        font-size: 12px;
       }
 
       .mini-status {
@@ -364,10 +431,10 @@
       .nav button {
         width: 100%;
         display: grid;
-        grid-template-columns: 22px minmax(0, 1fr) auto;
+        grid-template-columns: 22px minmax(0, 1fr);
         align-items: center;
         gap: 8px;
-        min-height: 46px;
+        min-height: 42px;
         padding: 6px 10px;
         border-color: transparent;
         background: transparent;
@@ -404,20 +471,6 @@
         white-space: nowrap;
       }
 
-      .nav-desc {
-        display: none;
-        overflow: hidden;
-        color: var(--muted);
-        font-size: 11px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .nav button:hover .nav-desc,
-      .nav button.active .nav-desc {
-        display: block;
-      }
-
       .nav button.active {
         border-color: #ead8cd;
         background: #fff5ef;
@@ -426,36 +479,6 @@
 
       .nav button.active .nav-icon {
         color: var(--primary);
-      }
-
-      .nav small {
-        color: inherit;
-        opacity: .65;
-      }
-
-      .side-actions {
-        margin-top: auto;
-        padding: 12px;
-        border-top: 1px solid var(--hairline);
-        display: grid;
-        gap: 8px;
-      }
-
-      .side-actions .two {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-      }
-
-      .side-actions button {
-        border-color: var(--hairline);
-        background: #fff;
-        color: var(--ink);
-      }
-
-      .side-actions button.primary {
-        border-color: var(--primary);
-        background: var(--primary);
       }
 
       .workspace {
@@ -502,7 +525,7 @@
         min-width: 0;
         min-height: 0;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) var(--detail);
+        grid-template-columns: minmax(0, 1fr);
         overflow: hidden;
       }
 
@@ -513,17 +536,20 @@
       }
 
       .detail-panel {
+        flex: 1 1 auto;
         min-width: 0;
-        height: 100%;
+        min-height: 0;
         overflow: auto;
-        border-left: 1px solid var(--hairline);
+        margin: 0 12px 12px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
         background: rgba(255, 255, 255, .78);
-        padding: 18px;
+        padding: 12px;
       }
 
       .detail-panel h3 {
         margin: 0 0 8px;
-        font-size: 15px;
+        font-size: 14px;
       }
 
       .detail-panel .detail-block {
@@ -534,6 +560,12 @@
         background: #fff;
         padding: 12px;
         margin-top: 12px;
+      }
+
+      .detail-panel .hint,
+      .detail-panel .badge,
+      .detail-panel .mini-status {
+        font-size: 11px;
       }
 
       .page-head {
@@ -1265,60 +1297,88 @@
         padding: 1px 5px;
       }
 
+      body.sidebar-collapsed .sidebar-window-controls {
+        justify-content: center;
+        padding: 10px 0 0;
+      }
+
+      body.sidebar-collapsed.platform-darwin .sidebar-window-controls {
+        min-height: 38px;
+        padding: 11px 0 0 0;
+        justify-content: center;
+      }
+
+      body.sidebar-collapsed.platform-darwin.window-fullscreen .sidebar-window-controls {
+        min-height: 0;
+        padding-top: 10px;
+      }
+
+      body.sidebar-collapsed .brand {
+        grid-template-columns: 34px;
+        justify-content: center;
+        padding: 10px 0 8px;
+      }
+
+      body.sidebar-collapsed .brand-copy,
+      body.sidebar-collapsed .floating-status .signal span,
+      body.sidebar-collapsed .status-strip .mini-status span span,
+      body.sidebar-collapsed .status-strip .mini-status > span:last-child,
+      body.sidebar-collapsed .nav-copy,
+      body.sidebar-collapsed .detail-panel {
+        display: none;
+      }
+
+      body.sidebar-collapsed .brand img {
+        display: none;
+      }
+
+      body.sidebar-collapsed.platform-darwin .brand {
+        grid-template-columns: 42px;
+      }
+
+      body.sidebar-collapsed.platform-darwin .brand img {
+        display: block;
+      }
+
+      body.sidebar-collapsed .floating-strip,
+      body.sidebar-collapsed .status-strip {
+        padding-left: 0;
+        padding-right: 0;
+        justify-items: center;
+      }
+
+      body.sidebar-collapsed .floating-status {
+        width: 50px;
+        grid-template-columns: 1fr;
+        justify-items: center;
+        padding: 5px 0;
+      }
+
+      body.sidebar-collapsed .float-action {
+        width: 32px;
+        height: 32px;
+        min-height: 32px;
+      }
+
+      body.sidebar-collapsed .mini-status {
+        width: 50px;
+        justify-content: center;
+        padding: 0;
+      }
+
+      body.sidebar-collapsed .nav {
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+
+      body.sidebar-collapsed .nav button {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        min-height: 42px;
+        padding: 6px 0;
+      }
+
       @media (max-width: 1180px) {
-        :root {
-          --sidebar: 84px;
-          --detail: 0px;
-        }
-
-        .brand {
-          grid-template-columns: 34px;
-          justify-content: center;
-        }
-
-        .brand div,
-        .status-strip,
-        .nav-copy,
-        .nav small {
-          display: none;
-        }
-
-        .brand img {
-          display: none;
-        }
-
-        .platform-darwin .brand {
-          grid-template-columns: 42px;
-        }
-
-        .platform-darwin .brand img {
-          display: block;
-        }
-
-        .nav button {
-          grid-template-columns: 1fr;
-          justify-items: center;
-        }
-
-        .workspace-body {
-          grid-template-columns: 1fr;
-        }
-
-        .detail-panel {
-          position: fixed;
-          right: 16px;
-          top: 88px;
-          bottom: 16px;
-          z-index: 30;
-          width: min(360px, calc(100vw - 116px));
-          display: none;
-          box-shadow: 0 20px 48px rgba(20, 20, 19, .18);
-        }
-
-        .detail-panel.open {
-          display: block;
-        }
-
         .grid.cols-3,
         .grid.cols-4,
         .grid.cols-2,
@@ -1347,6 +1407,11 @@
   <body>
     <div class="app">
       <aside class="sidebar">
+        <div class="sidebar-window-controls">
+          <button id="sidebarCollapse" class="collapse-button" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"/><path d="M15 8l-4 4 4 4"/></svg>
+          </button>
+        </div>
         <div class="brand">
           <button id="desktopMenuButton" class="menu-button" type="button" title="打开菜单" aria-label="打开菜单" aria-expanded="false">
             <span></span>
@@ -1354,12 +1419,21 @@
             <span></span>
           </button>
           <img src="assets/logo.png" alt="">
-          <div>
+          <div class="brand-copy">
             <h1>小店AI客服控制台</h1>
-            <p id="pageMini">客服页映射</p>
+            <p id="storeName">微信小店</p>
           </div>
         </div>
         <div id="desktopMenu" class="desktop-menu" aria-label="全局菜单"></div>
+
+        <div class="floating-strip">
+          <div class="floating-status">
+            <span class="signal"><i id="floatDot" class="dot warn"></i><span id="floatMini">悬浮窗</span></span>
+            <button id="openFloatDock" class="float-action" type="button" title="打开悬浮窗" aria-label="打开悬浮窗">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
+            </button>
+          </div>
+        </div>
 
         <div class="status-strip">
           <div class="mini-status">
@@ -1373,13 +1447,13 @@
         </div>
 
         <nav id="nav" class="nav" aria-label="控制台导航"></nav>
+        <aside id="detailPanel" class="detail-panel" aria-label="工作台详情"></aside>
       </aside>
 
       <section class="workspace">
         <div id="contextBar" class="context-bar" aria-label="页面上下文"></div>
         <div class="workspace-body">
           <main id="content" class="content" aria-live="polite"></main>
-          <aside id="detailPanel" class="detail-panel" aria-label="详情面板"></aside>
         </div>
       </section>
     </div>
