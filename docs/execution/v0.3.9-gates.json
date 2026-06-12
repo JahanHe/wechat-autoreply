@@ -1,8 +1,8 @@
 {
   "version": "0.3.9",
-  "updatedAt": "2026-06-12T02:28:00+08:00",
-  "currentStage": 7,
-  "overall": "in_progress",
+  "updatedAt": "2026-06-12T08:38:00+08:00",
+  "currentStage": 8,
+  "overall": "passed",
   "stages": [
     { "id": 0, "name": "基线与行为保护", "status": "passed", "commit": "b246d6f" },
     { "id": 1, "name": "桌面后端模块化", "status": "passed", "commit": "85ad6da" },
@@ -11,7 +11,7 @@
     { "id": 4, "name": "客服页自动化脚本模块化", "status": "passed", "commit": "aaec377" },
     { "id": 5, "name": "运行生命周期与退出闭环", "status": "passed", "commit": "2026bf9" },
     { "id": 6, "name": "主控台与悬浮窗前端", "status": "passed", "commit": "8519d07" },
-    { "id": 7, "name": "分层测试与真实环境验收", "status": "in_progress", "commit": "" },
-    { "id": 8, "name": "文档 CI 与发布", "status": "pending", "commit": "" }
+    { "id": 7, "name": "分层测试与真实环境验收", "status": "passed", "commit": "c7ac265" },
+    { "id": 8, "name": "文档 CI 与发布", "status": "passed", "commit": "18a003e" }
   ]
 }
