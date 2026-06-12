@@ -137,6 +137,14 @@ expect(workflow.includes("xiaodian-ai-kefu-windows-portable.exe"), "CI 未产出
 expect(workflow.includes(`docs/release-notes/${tag}.md`) || workflow.includes("docs/release-notes/${GITHUB_REF_NAME}.md"), "CI 未读取标签对应 Release Notes");
 expect(workflow.includes("gh release upload") && workflow.includes("--clobber"), "CI 未支持覆盖已有 Release 安装资产");
 expect(workflow.includes("gh release edit"), "CI 未支持更新已有 Release 说明");
+expect(!workflow.includes("actions/checkout@v4"), "CI 仍使用基于 Node 20 的 checkout@v4");
+expect(!workflow.includes("actions/setup-node@v4"), "CI 仍使用基于 Node 20 的 setup-node@v4");
+expect(!workflow.includes("actions/upload-artifact@v4"), "CI 仍使用基于 Node 20 的 upload-artifact@v4");
+expect(!workflow.includes("actions/download-artifact@v4"), "CI 仍使用基于 Node 20 的 download-artifact@v4");
+expect(workflow.includes("actions/checkout@v6"), "CI 未升级到 checkout@v6");
+expect(workflow.includes("actions/setup-node@v6"), "CI 未升级到 setup-node@v6");
+expect(workflow.includes("actions/upload-artifact@v7"), "CI 未升级到 upload-artifact@v7");
+expect(workflow.includes("actions/download-artifact@v8"), "CI 未升级到 download-artifact@v8");
 
 if (failures.length) {
   console.error(JSON.stringify({ ok: false, failures }, null, 2));
