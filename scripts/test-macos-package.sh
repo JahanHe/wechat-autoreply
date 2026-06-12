@@ -2,9 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PACKAGE_VERSION="$(node -p "require('$ROOT_DIR/package.json').version")"
 DMG_PATH="${1:-}"
 if [[ -z "$DMG_PATH" ]]; then
-  DMG_PATH="$(find "$ROOT_DIR/dist" -maxdepth 1 -type f -name '*.dmg' | sort | tail -1)"
+  if [[ -f "$ROOT_DIR/dist/小店AI客服-$PACKAGE_VERSION-arm64.dmg" ]]; then
+    DMG_PATH="$ROOT_DIR/dist/小店AI客服-$PACKAGE_VERSION-arm64.dmg"
+  elif [[ -f "$ROOT_DIR/dist/xiaodian-ai-kefu-macos-arm64.dmg" ]]; then
+    DMG_PATH="$ROOT_DIR/dist/xiaodian-ai-kefu-macos-arm64.dmg"
+  else
+    DMG_PATH="$(find "$ROOT_DIR/dist" -maxdepth 1 -type f -name "*$PACKAGE_VERSION*.dmg" | sort | tail -1)"
+  fi
 fi
 if [[ ! -f "$DMG_PATH" ]]; then
   echo "macOS DMG 不存在: $DMG_PATH" >&2
@@ -52,17 +59,23 @@ wait_for_json() {
 
 mkdir -p "$MOUNT_DIR" "$INSTALL_DIR" "$USER_DATA"
 hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_DIR" >/dev/null
-cp -R "$MOUNT_DIR/小店AI客服.app" "$INSTALL_DIR/小店AI客服.app"
+APP_IN_DMG="$(find "$MOUNT_DIR" -maxdepth 1 -type d -name '*.app' | sort | head -1)"
+if [[ -z "$APP_IN_DMG" || ! -d "$APP_IN_DMG" ]]; then
+  find "$MOUNT_DIR" -maxdepth 2 -print >&2
+  echo "DMG 内没有找到 .app: $DMG_PATH" >&2
+  exit 1
+fi
+cp -R "$APP_IN_DMG" "$INSTALL_DIR/"
 
-APP_PATH="$INSTALL_DIR/小店AI客服.app"
+APP_PATH="$INSTALL_DIR/$(basename "$APP_IN_DMG")"
 EXECUTABLE="$APP_PATH/Contents/MacOS/小店AI客服"
 ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
-node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.3.9
+node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.4.0
 
 DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Contents/Info.plist")"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
 [[ "$DISPLAY_NAME" == "小店AI客服" ]] || { echo "应用名称异常: $DISPLAY_NAME" >&2; exit 1; }
-[[ "$VERSION" == "0.3.9" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
+[[ "$VERSION" == "0.4.0" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
 
 WECHAT_KF_ALLOW_MULTIPLE=1 \
 WECHAT_KF_DESKTOP_USER_DATA="$USER_DATA" \

@@ -3,8 +3,9 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const targetVersion = "0.3.9";
+const targetVersion = "0.4.0";
 const tag = `v${targetVersion}`;
+const gateBaselineVersion = "0.3.9";
 
 const failures = [];
 
@@ -39,8 +40,8 @@ function pathExists(relativePath) {
 }
 
 const packageJson = readJson("package.json");
-const gates = readJson("docs/execution/v0.3.9-gates.json");
-const progress = readText("docs/execution/v0.3.9-progress.md");
+const gates = readJson(`docs/execution/v${gateBaselineVersion}-gates.json`);
+const progress = readText(`docs/execution/v${gateBaselineVersion}-progress.md`);
 const readme = readText("README.md");
 const workflow = readText(".github/workflows/build-installers.yml");
 const releaseNotesPath = `docs/release-notes/${tag}.md`;
@@ -78,7 +79,7 @@ expect(pathExists("build/icon.png"), "缺少 PNG 图标 build/icon.png");
 
 const validStatuses = new Set(["pending", "in_progress", "passed", "blocked"]);
 const stages = Array.isArray(gates.stages) ? gates.stages : [];
-expect(gates.version === targetVersion, `gates.version 应为 ${targetVersion}`);
+expect(gates.version === gateBaselineVersion, `gates.version 应为 ${gateBaselineVersion}`);
 expect(gates.overall === "passed", `gates.overall 应为 passed，当前为 ${gates.overall}`);
 expect(stages.length === 9, `gates 应包含 9 个阶段，当前 ${stages.length}`);
 expect(stages.filter((stage) => stage.status === "in_progress").length === 0, "最终发布前不能存在 in_progress 阶段");
@@ -108,10 +109,14 @@ for (const marker of progressMustContain) {
 }
 
 const docLinks = [
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
   "docs/rich-user-guide.md",
   "docs/customer-reply-rule-library.md",
   "docs/desktop-app-structure-deployment.md",
   "docs/wechat-kf-page-structure.md",
+  "docs/workbench-optimization-plan.md",
   "docs/runtime-statuses.md",
   "docs/project-journey.md",
   "docs/mac-install-troubleshooting.md",
@@ -123,9 +128,11 @@ for (const link of docLinks) {
 }
 
 expect(readme.includes(tag), `README 未指向 ${tag}`);
-expect(readme.includes("xiaodian-ai-kefu-macos-arm64.dmg"), "README 未使用 macOS v0.3.9 资产名");
-expect(readme.includes("xiaodian-ai-kefu-windows-setup.exe"), "README 未使用 Windows 安装版 v0.3.9 资产名");
-expect(readme.includes("xiaodian-ai-kefu-windows-portable.exe"), "README 未使用 Windows 便携版 v0.3.9 资产名");
+expect(readme.includes("xiaodian-ai-kefu-macos-arm64.dmg"), "README 未使用 macOS v0.4.0 资产名");
+expect(readme.includes("xiaodian-ai-kefu-windows-setup.exe"), "README 未使用 Windows 安装版 v0.4.0 资产名");
+expect(readme.includes("xiaodian-ai-kefu-windows-portable.exe"), "README 未使用 Windows 便携版 v0.4.0 资产名");
+expect(readme.includes("微信小店客服页属于第三方网页映射"), "README 缺少微信小店映射风险提示");
+expect(readme.includes("Runyu 判断库是私有外部服务"), "README 缺少 Runyu 私有权限提示");
 
 expect(releaseNotes.includes(`# 小店AI客服 ${tag}`), `${releaseNotesPath} 标题缺少版本号`);
 expect(releaseNotes.includes("xiaodian-ai-kefu-macos-arm64.dmg"), "Release Notes 缺少 macOS 资产名");

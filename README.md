@@ -1,22 +1,12 @@
 # 小店AI客服
 
 [![Build installers](https://github.com/JahanHe/wechat-autoreply/actions/workflows/build-installers.yml/badge.svg)](https://github.com/JahanHe/wechat-autoreply/actions/workflows/build-installers.yml)
-[![Release v0.3.9](https://img.shields.io/badge/release-v0.3.9-111827)](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.3.9)
+[![Release v0.4.0](https://img.shields.io/badge/release-v0.4.0-111827)](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.4.0)
+[![License: MIT](https://img.shields.io/badge/license-MIT-cc785c)](LICENSE)
 
-> README 是这个项目的第一章。先从这里下载、初始化和理解新版能力；需要更细的规则、判断库、Webhook、页面结构、安装疑难和项目历程，再跳到 docs 里的专题文档。
+小店AI客服是一个微信小店客服桌面自动回复工具。它把微信小店客服页映射到 Electron 桌面应用里，并提供规则库、AI 回复、Runyu 判断库、商品卡片/邀请下单、图片/文件发送、Webhook 通知、悬浮窗和长期运行守护。
 
-## 当前版本
-
-`v0.3.9` 是一次全栈重构版：以 `v0.3.7` 为功能基线，废弃 `v0.3.8` 的复杂界面方案，保留已经验证有效的安全、退出和运行修复。
-
-| 事项 | 当前状态 |
-| --- | --- |
-| 应用名称 | 小店AI客服 |
-| 交付形态 | macOS DMG、Windows 安装版、Windows 便携版 |
-| 首次必填 | DeepSeek API Key、企业微信机器人 Webhook、Runyu 判断库网页登录 |
-| 默认能力 | 文字、图片、文件、商品卡片、邀请下单、规则库、AI、判断库、异步第二条回复 |
-| 后台运行 | 主窗口关闭只隐藏；Dock、托盘和悬浮窗可恢复；危险区可彻底退出 |
-| 敏感信息 | API Key、Webhook、Cookie、控制 Token 只存本机，不进仓库和安装包 |
+> 微信小店客服页属于第三方网页映射与自动化场景，请在自己的店铺、账号权限和平台规则范围内谨慎使用。Runyu 判断库是私有外部服务，需要授权账号和权限；本项目不会提供或绕过任何第三方权限。
 
 ## 下载
 
@@ -24,276 +14,108 @@
 
 | 系统 | 文件 |
 | --- | --- |
-| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.9/xiaodian-ai-kefu-macos-arm64.dmg) |
-| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.9/xiaodian-ai-kefu-windows-setup.exe) |
-| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.9/xiaodian-ai-kefu-windows-portable.exe) |
+| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.0/xiaodian-ai-kefu-macos-arm64.dmg) |
+| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.0/xiaodian-ai-kefu-windows-setup.exe) |
+| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.0/xiaodian-ai-kefu-windows-portable.exe) |
 
-发布说明：[docs/release-notes/v0.3.9.md](docs/release-notes/v0.3.9.md)
+发布说明：[docs/release-notes/v0.4.0.md](docs/release-notes/v0.4.0.md)
 
-macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md)
+历史变更：[CHANGELOG.md](CHANGELOG.md)
+
+macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md)。
+
+## v0.4.0 重点
+
+| 方向 | 内容 |
+| --- | --- |
+| 规则匹配 | 真实会话和手动测试共用同一套规则匹配逻辑，减少“测试能命中、实际不回复”的问题 |
+| 回复动作 | 支持文字、图片、文件、商品卡片、邀请下单、忽略、AI 后续回复 |
+| 状态可见 | 主控台和悬浮窗同步显示检测、规则、判断库、AI、发送和失败状态 |
+| 悬浮窗 | 展开态固定排版，最小化态保留打开控制台、展开、隐藏三个按钮 |
+| 安装包 | macOS/Windows 资源完整性和启动冒烟测试进入发布门禁 |
+| 开源材料 | 新增 README、CHANGELOG、LICENSE、CONTRIBUTING 作为开源入口 |
 
 ## 首次初始化
 
-第一次打开会进入 `系统设置 > 初始化`。换电脑、清空配置或判断库凭证失效时，也会回到这个流程。
+第一次打开会进入 `系统设置 > 初始化`。换电脑、清空配置或判断库凭证失效时，也可以从这里重新修复。
 
-| 步骤 | 位置 | 做什么 |
-| --- | --- | --- |
-| 1 | 系统设置 > 初始化 | 填 DeepSeek API Key |
-| 2 | 系统设置 > 初始化 | 填企业微信机器人 Webhook |
-| 3 | 系统设置 > 初始化 | 打开 Runyu 登录页，5 分钟内完成网页登录 |
-| 4 | 系统设置 > 初始化 | 点“我已登录，获取凭证”，真实查询通过后初始化 10 条引用缓存 |
-| 5 | 系统设置 > 初始化 | 点“保存并自检”，检查 AI、Webhook、判断库、规则库和守护状态 |
-| 6 | 客服工作台 | 扫码登录微信小店客服页，并选中一个会话 |
+| 步骤 | 做什么 |
+| --- | --- |
+| 1 | 填写 DeepSeek API Key |
+| 2 | 填写企业微信机器人 Webhook |
+| 3 | 打开 Runyu 登录网页，在 5 分钟内完成网页登录 |
+| 4 | 点击“我已登录，获取凭证”，让程序读取本机 Cookie Token 并做真实查询 |
+| 5 | 点击“保存并自检”，检查 AI、Webhook、判断库、规则库和长期运行状态 |
+| 6 | 进入 `客服工作台`，扫码登录微信小店客服页并选中会话 |
 
-初始化完成后，Bot 默认开启。主控台和悬浮窗会同步显示“检测消息、匹配规则、查询判断库、AI思考中、发送文字、发送图片、发送商品、回复失败”等步骤。
-
-## 一张图看懂
-
-```mermaid
-flowchart LR
-  User["客服/运营"] --> Console["主控制台"]
-  User --> Float["桌面悬浮窗"]
-  Console --> Settings["配置、规则、风格、通知"]
-  Console --> Page["微信小店客服页映射"]
-  Page --> Script["客服页自动化脚本"]
-  Script --> Rules["确定性规则库"]
-  Script --> Actions["页面动作接口"]
-  Script --> AI["本地 AI 服务"]
-  AI --> Knowledge["本地知识库索引"]
-  AI --> Runyu["Runyu 判断库"]
-  Actions --> Page
-  Console --> Records["回复记录和 Trace"]
-  Records --> Webhook["企业微信 Webhook"]
-  Float --> Console
-```
+敏感信息只写入本机运行目录：API Key、Webhook、Cookie、控制 Token 不进入仓库和安装包。
 
 ## 主控台结构
 
-`v0.3.9` 把旧版很多入口收敛成 4 个一级导航，避免重复和找不到位置。
-
-| 一级入口 | 二级功能 | 用途 |
-| --- | --- | --- |
-| 客服工作台 | 客服页 | 微信小店客服原网页映射，扫码、选会话、聊天都在这里 |
-| 回复中心 | 规则库、Bot策略、API风格、判断库 | 编辑回复规则、开关 Bot、配置 DeepSeek、回复风格、知识库和 Runyu 判断库 |
-| 运行监控 | 总览、日志 | 看当前状态、回复来源、AI Trace、判断库命中、Webhook 队列和失败原因 |
-| 系统设置 | 初始化、Webhook、悬浮窗、说明 | 首次配置、通知规则、固定悬浮窗、帮助说明和彻底退出 |
-
-界面统一为浅色风格：暖白背景、白色主面板、珊瑚主操作色、语义状态灯、8px 圆角。本地图标随程序打包，不依赖 CDN 或外部网络。
-
-## 悬浮窗和退出逻辑
-
-新版悬浮窗只做状态，不再塞配置表单。
-
-| 项目 | 行为 |
+| 一级入口 | 用途 |
 | --- | --- |
-| 展开内容 | 当前步骤、AI、本地服务、脚本、登录、实时钟 |
-| 操作按钮 | 打开控制台、暂停/开启 Bot |
-| 最小化内容 | 当前短状态、实时摘要和状态灯 |
-| 最小化按钮 | 打开控制台、展开、关闭悬浮窗 |
-| 尺寸 | 展开固定 `344 x 256`，最小化固定 `244 x 52`，不允许无级缩放 |
-| 关闭悬浮窗 | 只隐藏，可从主控台、Dock 或托盘重新打开 |
-| 关闭主窗口 | 只隐藏控制台，Bot 继续运行 |
-| Dock | 应用运行期间保持可见，点击 Dock 图标恢复主控台 |
-| 彻底退出 | 系统设置 > 悬浮窗里的危险区，二次确认后停止 Bot、AI、本机控制服务、守护、通知调度和窗口 |
+| 客服工作台 | 微信小店客服原网页映射，扫码、选会话、聊天都在这里 |
+| 回复中心 | 管理动作规则、文字规则、图片规则、Bot 策略、API 风格和 Runyu 判断库 |
+| 运行监控 | 查看当前状态、回复日志、AI Trace、判断库命中、Webhook 队列和失败原因 |
+| 系统设置 | 初始化、Webhook、悬浮窗、开机启动、帮助说明和彻底退出 |
 
-源码安装的 LaunchAgent 只在异常退出时重启，正常彻底退出不会被再次拉起。
+悬浮窗只显示状态和两个高频动作：打开控制台、暂停/开启 Bot。关闭悬浮窗只是隐藏，可从主控台、Dock 或托盘重新打开。关闭主窗口也只是隐藏，Bot 继续运行；彻底退出需要在系统设置危险区二次确认。
 
-## 回复决策流程
+## 回复流程
 
 ```mermaid
 flowchart TD
   A["发现客户最新消息"] --> B{"Bot 是否开启"}
-  B -- "否" --> Z["不处理"]
-  B -- "是" --> C{"是否已经回复过"}
+  B -- "否" --> Z["只监控，不回复"]
+  B -- "是" --> C{"是否重复处理"}
   C -- "是" --> Z
   C -- "否" --> D{"命中动作规则"}
-  D -- "是" --> E["发送文字/图片/文件/商品/邀请下单/忽略"]
-  D -- "否" --> F{"命中文字规则"}
-  F -- "是" --> G["发送 FAQ 回复"]
-  F -- "否" --> H["请求 AI 和判断库"]
+  D -- "是" --> E["文字/图片/文件/商品/邀请下单/忽略"]
+  D -- "否" --> F{"命中文字或图片规则"}
+  F -- "是" --> G["发送确定性回复"]
+  F -- "否" --> H["查询知识库、Runyu 判断库和 AI"]
   H --> I{"15 秒内返回"}
   I -- "是" --> J["发送 AI 精准回复"]
-  I -- "否" --> K["轮换承接语"]
+  I -- "否" --> K["发送轮换承接语"]
   K --> L{"60 秒内返回"}
   L -- "是" --> J
-  L -- "否" --> M["轮换兜底回复"]
-  M --> N["AI 后续返回仍继续发送最终答案"]
-  E --> R["记录结果"]
+  L -- "否" --> M["发送轮换兜底语"]
+  M --> N["AI 后续返回后继续发送最终答案"]
+  E --> R["记录日志和 Trace"]
   G --> R
   J --> R
   N --> R
-  R --> S["日志、状态、Webhook 总结"]
+  R --> S["状态同步和 Webhook 总结"]
 ```
 
-关键点：
+## 默认能力
 
-- 承接语和兜底回复不是最终完成标记。
-- 异步第二条 AI 回复不会因为第一条承接语变成“客服最后一条消息”而被取消。
-- 去重按会话、客户消息和动作签名判断，避免重复发送固定会员回复。
-- 客户发图片、表情、商品卡、文件、视频等非文本消息，不会让脚本失联。
-
-## 默认规则和动作能力
-
-当前默认规则围绕“润宇年度会员商业社群”配置，商品码为 `10000275472384`。
-
-| 客户问题 | 默认动作 |
+| 能力 | 说明 |
 | --- | --- |
-| 想买会员、会员链接、会员入口 | 发送年度会员商品卡片 |
-| 怎么买、怎么付款、怎么下单 | 邀请下单 |
-| 会员专区包含什么权益、课程目录 | 发送文字和目录图 |
-| 怎么进群、会员专区怎么使用 | 发送文字和说明图 |
-| 月度会员取消自动续费 | 发送文字和说明图 |
-| 咨询俱乐部、产品详情 | 发送文字和详情图 |
-| 加微信、留电话、留手机号 | 平台内沟通合规提示 |
-| 谢谢、明白、OK | 标记已处理，不再补话 |
+| 规则库 | 可视化编辑关键词、动作序列、图片预览、文件路径、商品码和邀请下单 |
+| AI 回复 | 支持 DeepSeek 兼容接口、回复语气、风格灵魂、边界规则、审核补充规则 |
+| 本地知识库 | 启动后建立内存索引，供 AI 回复参考 |
+| Runyu 判断库 | 通过应用内网页登录获取本机凭证，可远程查询和下载本地缓存 |
+| Webhook | 企业微信机器人推送扫码、异常、恢复、小时总结和每日总览 |
+| 页面结构 | 可捕捉微信小店客服页结构，辅助定位商品、上传、弹窗和发送按钮 |
+| 长期运行 | Dock/托盘/悬浮窗恢复入口、开机启动、防后台清退、异常恢复通知 |
 
-可用动作：
-
-| 动作 | 说明 |
-| --- | --- |
-| `text` | 发送文字 |
-| `image` | 上传并发送本地图片，规则卡片显示缩略图 |
-| `file` | 上传并发送本地文件 |
-| `product` | 发送商品卡片或邀请下单 |
-| `material` | 预留素材库动作 |
-| `quick_reply` | 预留快捷语动作 |
-| `ignore` | 命中后不发送，直接标记已处理 |
-
-图片和文件路径在 `回复中心 > 规则库` 里可以直接编辑，也可以点“选择/替换”换文件，点“打开位置”直达目录。
-
-### 动作规则示例
-
-```json
-{
-  "enabled": true,
-  "name": "会员专区：邀请下单",
-  "keywords": ["怎么付款", "怎么买", "怎么购买", "怎么下单", "我要下单"],
-  "actions": [
-    {
-      "type": "text",
-      "text": "我给您选好年度会员\n您点进去就可以下单"
-    },
-    {
-      "type": "product",
-      "productId": "10000275472384",
-      "productName": "润宇年度会员商业社群",
-      "button": "邀请下单"
-    }
-  ]
-}
-```
-
-## 图片预览
-
-这些默认图片会随安装包复制到本机运行目录，规则库里可以替换。
-
-| 图片 | 用途 |
-| --- | --- |
-| <img src="config/reply-images/image1.png" alt="会员专区使用说明" width="160"> | 会员专区使用说明 |
-| <img src="config/reply-images/image2.png" alt="进群和小程序路径补充" width="160"> | 进群和小程序路径补充 |
-| <img src="config/reply-images/image3.jpg" alt="会员权益和目录说明" width="160"> | 会员权益和目录说明 |
-| <img src="config/reply-images/image4.png" alt="月度会员取消自动续费" width="160"> | 月度会员取消自动续费 |
-| <img src="config/reply-images/image5.png" alt="咨询俱乐部详情" width="160"> | 咨询俱乐部详情 |
-
-## AI、知识库和判断库
-
-AI 服务运行在本机，客服页脚本通过白名单 CORS 调用，不再把 API Key 放进命令行参数。
-
-| 模块 | 新版行为 |
-| --- | --- |
-| DeepSeek | 原生 `fetch`，统一处理超时、HTTP 错误、非 JSON、空回复和脱敏日志 |
-| 本地知识库 | 启动时建立内存缓存和倒排索引；文件监听失败时退化为旧的全量搜索 |
-| Runyu 判断库 | `fetch` 主线，保留受控 curl 备用线路；记录查询词、来源、命中、耗时、缓存/远程线路和错误码 |
-| AI Trace | 记录规则命中、知识库、判断库、Thinking、审核、降级和最终回复来源 |
-
-判断库接入推荐走应用内网页登录：
-
-1. `系统设置 > 初始化` 或 `回复中心 > 判断库` 打开登录网页。
-2. 完成网页登录。
-3. 点“我已登录，获取凭证”。
-4. 程序读取本机 session token，只写入本机 `.env`。
-5. 远端真实查询成功后，自动初始化 10 条引用缓存。
-
-常见错误：
-
-| 错误码 | 处理 |
-| --- | --- |
-| `RUNYU_SESSION_TOKEN_NOT_FOUND` | 登录页未完成，回到登录窗口确认后再获取凭证 |
-| `RUNYU_AUTH_EXPIRED` / HTTP 401 | 点“重新登录”，用新 Token 替换旧 Token |
-| `RUNYU_PERMISSION_DENIED` / HTTP 403 | 换有判断库权限的账号 |
-| `RUNYU_API_404` / HTTP 404 | Base URL 只保留域名 `https://runyuai.zhiduoke.com.cn` |
-| `RUNYU_NETWORK_FAILED` / `RUNYU_REQUEST_TIMEOUT` | 检查网络、代理、防火墙后重试 |
-| `RUNYU_BOOTSTRAP_EMPTY` | 点“初始化引用库”重试，复制错误码和最近记录反馈 |
-
-## Webhook 通知
-
-企业微信机器人 Webhook 用来把关键事件推给人。
-
-| 通知类型 | 说明 |
-| --- | --- |
-| 启动和缺配置 | 应用启动、缺 Key、缺 Webhook、缺登录 |
-| 扫码和登录 | 需要扫码时通知；登录恢复后通知 |
-| 错误和恢复 | AI、判断库、Webhook、客服页、脚本异常会通知；恢复后也会通知 |
-| 回复失败 | 页面动作失败、超时、找不到输入框、上传失败 |
-| 定时总结 | 每小时总结、每日总览，时间和间隔可配置 |
-| 积压补发 | Webhook 失败时写入本地 outbox，恢复后补发 |
-
-二维码截图发送会等待真实二维码出现，避免把“客服页映射已打开”当成二维码发出去。
-
-## 后端和脚本结构
-
-`v0.3.9` 做了结构拆分，但保持原功能基线。
-
-| 层 | 文件或模块 |
-| --- | --- |
-| Electron 入口 | `desktop/main.js` 只负责启动并导入运行时 |
-| 桌面运行时 | `desktop/app-runtime.js` |
-| 应用上下文 | `desktop/app-context.js` |
-| 状态中心 | `desktop/status-center.js` |
-| IPC 契约 | `desktop/ipc-contract.js` |
-| 配置校验 | `desktop/config-validator.js` |
-| AI 客户端 | `src/deepseek-client.js` |
-| 知识库索引 | `src/knowledge-index.js` |
-| 文本评分 | `src/text-utils.js` |
-| 敏感值脱敏 | `src/redact.js` |
-| 客服页源码 | `extension/source/` |
-| 客服页产物 | `extension/content.js`，由 esbuild 生成 IIFE |
-
-安装包构建前会自动执行 `npm run build-extension`，避免源码和注入产物不一致。
-
-## 安全边界
-
-- `.env` 不进仓库。
-- DeepSeek API Key、Webhook、Runyu Cookie 和本机控制 Token 不进安装包。
-- 本机控制接口健康检查可只读访问；写操作必须带随机 Token。
-- AI 服务 CORS 允许微信小店客服域名和本机控制来源，不使用无限制通配。
-- 日志、Webhook 和诊断复制内容会脱敏。
-- 不绕过微信扫码、验证码或平台风控。
-- 严禁引导客户加微信、打电话、私聊、留手机号或私下交易。
-
-## 本地运行
+## 本地开发
 
 ```bash
 npm install
+npm run build-extension
 npm run desktop
 ```
 
 常用检查：
 
 ```bash
-npm run build-extension
-npm run test:baseline
-npm run test:desktop-modules
-npm run test:ai-knowledge
-npm run test:security-config
 npm run test:extension-modules
-npm run test:lifecycle
 npm run test:status-ui
-npm run test:regressions
-npm run test:notify-outbox
+npm run test:release-readiness
 npm run check:secrets
 npm run doctor
-npm run test:release-readiness
 ```
 
 打包：
@@ -303,66 +125,29 @@ npm run dist:mac
 npm run dist:win
 ```
 
-## 运行目录
+## 文档入口
 
-| 内容 | 仓库默认文件 | 运行时文件 |
-| --- | --- | --- |
-| 默认回复规则 | `config/replies.json` | `desktop-config.json` |
-| 回复图片 | `config/reply-images/` | `config/reply-images/` |
-| 助手风格和知识库 | `config/assistant-profile.json` | `assistant-profile.json` |
-| FAQ 知识库 | `knowledge-base/customer-service.md` | 随安装包读取 |
-| API Key / Webhook / Cookie / Token | 不进仓库 | `.env` |
-
-macOS：
-
-```text
-~/Library/Application Support/小店AI客服/
-```
-
-Windows：
-
-```text
-%APPDATA%/小店AI客服/
-```
-
-## 发布流程
-
-GitHub Actions 工作流：[.github/workflows/build-installers.yml](.github/workflows/build-installers.yml)
-
-| 触发 | 行为 |
+| 主题 | 文档 |
 | --- | --- |
-| 推送 `main` | 运行无头门禁，构建并启动检查 macOS/Windows artifacts |
-| 推送 `v*` 标签 | 构建 macOS DMG、Windows 安装版、Windows 便携版，三者冒烟通过后创建 GitHub Release |
-| Release Notes | 优先读取 `docs/release-notes/<tag>.md` |
-| 资产名 | `xiaodian-ai-kefu-macos-arm64.dmg`、`xiaodian-ai-kefu-windows-setup.exe`、`xiaodian-ai-kefu-windows-portable.exe` |
+| 图文使用说明 | [docs/rich-user-guide.md](docs/rich-user-guide.md) |
+| 规则库写法 | [docs/customer-reply-rule-library.md](docs/customer-reply-rule-library.md) |
+| 桌面结构与部署 | [docs/desktop-app-structure-deployment.md](docs/desktop-app-structure-deployment.md) |
+| 微信客服页结构 | [docs/wechat-kf-page-structure.md](docs/wechat-kf-page-structure.md) |
+| 工作台优化方案 | [docs/workbench-optimization-plan.md](docs/workbench-optimization-plan.md) |
+| 运行状态词典 | [docs/runtime-statuses.md](docs/runtime-statuses.md) |
+| macOS 安装疑难 | [docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md) |
+| 项目历程 | [docs/project-journey.md](docs/project-journey.md) |
+| v0.4.0 发布说明 | [docs/release-notes/v0.4.0.md](docs/release-notes/v0.4.0.md) |
+| 变更记录 | [CHANGELOG.md](CHANGELOG.md) |
+| 贡献指南 | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 开源协议 | [LICENSE](LICENSE) |
 
-`v0.3.8` 已恢复为历史说明并标记废弃，不再作为推荐版本。
+## 开源和边界
 
-## 验收状态
+本项目使用 MIT License 开源。代码可以学习、修改和分发，但使用者必须自行确认：
 
-本地已通过：
+- 微信小店账号、客服页、商品、会话和自动化行为符合平台规则。
+- Runyu 判断库、DeepSeek API、企业微信机器人等外部服务已经获得合法授权。
+- 不把 API Key、Webhook、Cookie、控制 Token、个人缓存、私有判断库数据提交到仓库或安装包。
 
-- 行为基线：文字、图片、文件、商品、邀请下单、规则、AI、判断库、异步回复、Webhook、窗口生命周期
-- 桌面模块、AI/知识库、安全配置、扩展模块、生命周期、状态 UI、核心回归、通知补发、密钥扫描、doctor、release-readiness
-- Release DMG 全新目录启动、asar 资源、知识库查询和首次图片初始化通过；Windows CI 会实际启动解包版、安装版和便携版
-
-仍需要在真实微信小店会话中复核的动作：
-
-- 文字规则、AI 直接回复、判断库深度回复、15 秒承接、60 秒兜底
-- 客户图片、表情、商品卡、文件和视频消息识别
-- 发送图片、文件、商品卡片和邀请下单
-- 登录过期、判断库 Cookie 过期、AI 失败、Webhook 失败和恢复通知
-
-## 文档路由
-
-| 你想做什么 | 直接看 |
-| --- | --- |
-| 按图文说明安装、配置 API、Webhook、规则和图片 | [docs/rich-user-guide.md](docs/rich-user-guide.md) |
-| macOS 提示无法打开、开发者无法验证、xattr 命令 | [docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md) |
-| 写自己的回复规则：什么时候发文字、图片、商品、邀请下单 | [docs/customer-reply-rule-library.md](docs/customer-reply-rule-library.md) |
-| 理解桌面版怎么运行、运行目录在哪里、Webhook 怎么汇总 | [docs/desktop-app-structure-deployment.md](docs/desktop-app-structure-deployment.md) |
-| 理解微信小店客服页结构，后续控制商品、素材库、快捷语 | [docs/wechat-kf-page-structure.md](docs/wechat-kf-page-structure.md) |
-| 看懂检测、AI、文字、图片、商品和异常指示灯 | [docs/runtime-statuses.md](docs/runtime-statuses.md) |
-| 看项目从浏览器脚本到桌面安装包的完整历程 | [docs/project-journey.md](docs/project-journey.md) |
-| 查看当前发行版说明 | [docs/release-notes/v0.3.9.md](docs/release-notes/v0.3.9.md) |
-| 查看废弃的 v0.3.8 说明 | [docs/release-notes/v0.3.8.md](docs/release-notes/v0.3.8.md) |
+更多协作规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。

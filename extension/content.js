@@ -172,7 +172,7 @@
 
   // extension/source/index.js
   (() => {
-    const VERSION = "0.3.9";
+    const VERSION = "0.4.0";
     const CONFIG = {
       enabled: true,
       aiFallback: true,
