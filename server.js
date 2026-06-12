@@ -323,7 +323,7 @@ function buildSystemPrompt({ profile, knowledge, sideContext, judgmentContext })
   }
 
   if (judgmentContext) {
-    sections.push(`外部判断库检索结果：\n${judgmentContext}\n\n使用规则：只把这些结果当作判断依据和表达参考，不要透露“判断库/API/检索结果”等后台词。没有直接依据时，保持谨慎，不编造。`);
+    sections.push(`外部知识库检索结果：\n${judgmentContext}\n\n使用规则：只把这些结果当作判断依据和表达参考，不要透露“外部知识库/API/检索结果”等后台词。没有直接依据时，保持谨慎，不编造。`);
   }
 
   if (profile.sidebarContextEnabled !== false && sideContext) {

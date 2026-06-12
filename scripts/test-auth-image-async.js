@@ -58,9 +58,9 @@ try {
   console.log(JSON.stringify({
     ok: true,
     checks: [
-      "判断库5分钟登录监控",
-      "手动捕捉Token错误码",
-      "Cookie远端强制自检",
+      "外部知识库5分钟配置监控",
+      "手动获取凭证错误码",
+      "访问凭证远端强制自检",
       "凭证状态历史追溯",
       "隐藏图片上传控件识别",
       "图片商品卡表情消息识别",
@@ -69,8 +69,8 @@ try {
       "规则动作独立模块和图片预览",
       "规则库手动激发测试",
       "非文本默认规则命中",
-      "AI判断库Trace可视化",
-      "日志判断库Thinking和处理步骤",
+      "AI外部知识库Trace可视化",
+      "日志外部知识库Thinking和处理步骤",
       "异步AI最终回复不中断",
       "内置图片文件完整"
     ],
@@ -114,8 +114,8 @@ function assertMediaHeartbeat(source) {
 }
 
 function assertRemoteOnlyAuthCheck(main, judgment) {
-  if (!main.includes("remoteOnly: true")) throw new Error("Cookie 自检没有强制远端查询");
-  if (!judgment.includes("const remoteOnly = options.remoteOnly === true")) throw new Error("判断库查询没有实现远端强制模式");
+  if (!main.includes("remoteOnly: true")) throw new Error("访问凭证检查没有强制远端查询");
+  if (!judgment.includes("const remoteOnly = options.remoteOnly === true")) throw new Error("外部知识库查询没有实现远端强制模式");
 }
 
 function assertBackgroundHeartbeat(source) {
@@ -146,7 +146,7 @@ async function testRunyuAuthUi(page) {
     state.view = "judgments";
     state.runyuAuth = {
       status: "monitoring",
-      message: "正在监控登录状态",
+      message: "正在监控配置状态",
       loginWindowOpen: true,
       cookieDetected: false,
       deadlineAt: deadline,
@@ -155,10 +155,10 @@ async function testRunyuAuthUi(page) {
     renderJudgments();
   }, deadlineAt);
 
-  await page.getByRole("button", { name: "打开登录网页", exact: true }).waitFor();
-  await page.getByRole("button", { name: "我已登录，获取凭证", exact: true }).waitFor();
-  await page.getByRole("button", { name: "自检 Cookie", exact: true }).waitFor();
-  await page.getByRole("button", { name: "初始化引用库", exact: true }).waitFor();
+  await page.getByRole("button", { name: "打开网络配置页", exact: true }).waitFor();
+  await page.getByRole("button", { name: "获取访问凭证", exact: true }).waitFor();
+  await page.getByRole("button", { name: "检查连通性", exact: true }).waitFor();
+  await page.getByRole("button", { name: "初始化本地缓存", exact: true }).waitFor();
   let countdown = await page.locator("[data-runyu-countdown]").first().textContent();
   if (!/^0[4-5]:\d{2}$/.test(String(countdown || ""))) {
     countdown = await page.evaluate((deadline) => {
@@ -168,13 +168,13 @@ async function testRunyuAuthUi(page) {
     }, deadlineAt);
   }
   if (!/^0[4-5]:\d{2}$/.test(String(countdown || ""))) {
-    throw new Error(`登录倒计时异常: ${countdown}`);
+    throw new Error(`配置倒计时异常: ${countdown}`);
   }
 
   await page.evaluate(() => {
     state.runyuAuth = {
       status: "error",
-      message: "判断库 API 404",
+      message: "外部知识库 API 404",
       errorCode: "RUNYU_API_404",
       httpStatus: 404,
       errorDetail: "请求地址不可用",
@@ -200,10 +200,10 @@ async function testRunyuAuthUi(page) {
 async function testManualCookieFailure(page) {
   const result = await page.evaluate(() => window.mainShell.captureRunyuCookie());
   if (result.status !== "login_required" || result.errorCode !== "RUNYU_SESSION_TOKEN_NOT_FOUND") {
-    throw new Error(`手动捕捉无 Cookie 时未返回明确错误码: ${JSON.stringify(result)}`);
+    throw new Error(`手动获取无访问凭证时未返回明确错误码: ${JSON.stringify(result)}`);
   }
   if (!Array.isArray(result.history) || !result.history.some((item) => item.errorCode === "RUNYU_SESSION_TOKEN_NOT_FOUND")) {
-    throw new Error("手动捕捉错误没有写入凭证历史");
+    throw new Error("手动获取错误没有写入凭证历史");
   }
 }
 
@@ -326,7 +326,7 @@ async function testAiTraceUi(page) {
       }
     });
   });
-  await page.getByText("判断库 3 条", { exact: true }).waitFor();
+  await page.getByText("外部知识库 3 条", { exact: true }).waitFor();
   await page.getByText("Thinking 开启", { exact: true }).waitFor();
   await page.getByText("审核通过", { exact: true }).waitFor();
 }
@@ -340,11 +340,11 @@ async function testLogTrace(page) {
         at: Date.now(),
         kind: "sent",
         sourceType: "judgment_ai",
-        sourceLabel: "判断库补充",
+        sourceLabel: "外部知识库补充",
         customer: "会员专区怎么使用",
         reply: "您可以从订单详情进入会员专区",
         latencyMs: 2450,
-        processSteps: ["检测消息", "收集上下文", "判断库命中2条", "调用AI接口", "审核通过", "发送文字"],
+        processSteps: ["检测消息", "收集上下文", "外部知识库命中2条", "调用AI接口", "审核通过", "发送文字"],
         aiTrace: {
           model: "deepseek-v4-flash",
           thinking: "enabled",
@@ -360,7 +360,7 @@ async function testLogTrace(page) {
     };
     renderLogs();
   });
-  await page.getByText("判断库 2 条", { exact: true }).waitFor();
+  await page.getByText("外部知识库 2 条", { exact: true }).waitFor();
   await page.getByText("Thinking 开启", { exact: true }).waitFor();
   const steps = await page.locator(".process-chain span").count();
   if (steps !== 6) throw new Error(`日志处理步骤数量异常: ${steps}`);

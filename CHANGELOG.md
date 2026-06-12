@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 This project follows a practical Keep a Changelog style and uses semantic version tags where possible.
 
+## [0.4.2] - 2026-06-12
+
+### Changed
+
+- Renamed the user-facing judgment-library module to external knowledge base across the workbench, docs, release checks, and runtime messages.
+- Clarified that the external knowledge base can use network calls or local imports, with access credentials treated as local-only sensitive data.
+- Updated release metadata, download links, packaged resource checks, and installer smoke tests for `0.4.2`.
+
+### Fixed
+
+- Removed stale Runyu/judgment-library wording from current project rules and user-facing guidance.
+- Aligned GitHub documentation links with the canonical `JahanHe/Shop-ai-reply` repository.
+
 ## [0.4.1] - 2026-06-12
 
 ### Added

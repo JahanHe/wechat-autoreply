@@ -181,8 +181,8 @@ jobs:
 
           ## 文档
 
-          - [README](https://github.com/JahanHe/wechat-autoreply#readme)
-          - [图文使用说明](https://github.com/JahanHe/wechat-autoreply/blob/main/docs/rich-user-guide.md)
+          - [README](https://github.com/JahanHe/Shop-ai-reply#readme)
+          - [图文使用说明](https://github.com/JahanHe/Shop-ai-reply/blob/main/docs/rich-user-guide.md)
           EOF
           fi
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then

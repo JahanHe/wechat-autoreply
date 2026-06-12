@@ -20,7 +20,7 @@ const statuses = [
   ["product_found", "收到商品", "active", "检测", "已检测到客户发送的商品卡片"],
   ["last_kf", "客服最后", "ok", "等待", "当前会话最后一条消息来自客服"],
   ["matching_rule", "匹配规则", "active", "匹配", "正在匹配回复规则"],
-  ["querying_judgment", "查询判断库", "active", "AI", "正在检索判断库"],
+  ["querying_judgment", "查外部库", "active", "AI", "正在检索外部知识库"],
   ["api_calling", "调用API", "active", "AI", "正在请求本地AI服务"],
   ["async_api", "异步API", "active", "AI", "后台继续生成详细回复"],
   ["ai_thinking", "AI思考中", "active", "AI", "AI正在生成回复"],
@@ -247,7 +247,7 @@ async function assertNavigationStructure(page) {
     throw new Error(`一级导航不符合预期: ${JSON.stringify(result.topItems)}`);
   }
   if (result.topItems.some((item) => !item.icon)) throw new Error(`一级导航缺少本地图标: ${JSON.stringify(result.topItems)}`);
-  if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("判断库")) {
+  if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("外部知识库")) {
     throw new Error(`知识库二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
   }
   if (!result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {

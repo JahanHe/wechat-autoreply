@@ -108,12 +108,12 @@ cp -R "$APP_IN_DMG" "$INSTALL_DIR/"
 APP_PATH="$INSTALL_DIR/$(basename "$APP_IN_DMG")"
 EXECUTABLE="$APP_PATH/Contents/MacOS/小店AI客服"
 ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
-node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.4.1
+node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.4.2
 
 DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Contents/Info.plist")"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
 [[ "$DISPLAY_NAME" == "小店AI客服" ]] || { echo "应用名称异常: $DISPLAY_NAME" >&2; exit 1; }
-[[ "$VERSION" == "0.4.1" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
+[[ "$VERSION" == "0.4.2" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
 
 WECHAT_KF_ALLOW_MULTIPLE=1 \
 WECHAT_KF_DESKTOP_USER_DATA="$USER_DATA" \

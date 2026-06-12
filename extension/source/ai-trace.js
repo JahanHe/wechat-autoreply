@@ -3,7 +3,7 @@ export function aiProcessSteps(trace = {}, usedJudgmentLibrary = false) {
   if (trace?.judgmentQueried) {
     steps.push(usedJudgmentLibrary ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中");
     if (Array.isArray(trace.judgmentTransports) && trace.judgmentTransports.length) {
-      steps.push(`判断线路:${trace.judgmentTransports.join("+")}`);
+      steps.push(`知识线路:${trace.judgmentTransports.join("+")}`);
     }
   } else {
     steps.push("未查询判断库");

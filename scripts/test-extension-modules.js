@@ -16,7 +16,7 @@ const second = buildAndHash();
 if (first !== second) throw new Error(`扩展构建不稳定：${first} != ${second}`);
 
 const output = readFileSync(resolve(root, "extension/content.js"), "utf8");
-for (const marker of ["pendingAiFollowups", "sendImageReply", "product_found", "ai_followup", "判断线路:"]) {
+for (const marker of ["pendingAiFollowups", "sendImageReply", "product_found", "ai_followup", "知识线路:"]) {
   if (!output.includes(marker)) throw new Error(`扩展构建产物缺少 ${marker}`);
 }
 console.log(JSON.stringify({ ok: true, modules: expectedModules.length, sha256: first }));

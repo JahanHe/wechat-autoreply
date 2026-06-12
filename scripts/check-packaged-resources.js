@@ -5,7 +5,7 @@ import { extractFile, listPackage } from "@electron/asar";
 const asarPath = process.argv[2]
   ? resolve(process.argv[2])
   : findDefaultAsar();
-const expectedVersion = String(process.argv[3] || "0.4.1");
+const expectedVersion = String(process.argv[3] || "0.4.2");
 
 if (!asarPath || !statSync(asarPath).isFile()) {
   throw new Error(`app.asar 不存在: ${asarPath}`);
@@ -22,7 +22,7 @@ const requiredEntries = [
   "src/runyu-judgments.js",
   "src/deepseek-client.js",
   "extension/content.js",
-  "docs/release-notes/v0.4.1.md",
+  "docs/release-notes/v0.4.2.md",
   "config/reply-images/image1.png"
 ];
 

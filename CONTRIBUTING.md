@@ -19,7 +19,7 @@ npm run desktop
 - 改动内容和用户影响。
 - 涉及的模块边界。
 - 跑过的检查命令。
-- 是否涉及微信客服页自动化、Runyu 授权、AI、Webhook、配置、安装包或敏感数据。
+- 是否涉及微信客服页自动化、外部知识库授权或导入、AI、Webhook、配置、安装包或敏感数据。
 - 如果测试无法运行，说明原因、风险和替代验证。
 
 基础检查：
@@ -46,7 +46,7 @@ npm run doctor
 
 - `desktop/`：Electron 主进程、窗口、托盘、悬浮窗、preload、状态中心和配置校验。
 - `extension/`：注入微信小店客服页的 content script 和浏览器扩展相关文件。
-- `src/`：可复用业务逻辑，如规则匹配、AI 客户端、知识库、Runyu 查询和文本工具。
+- `src/`：可复用业务逻辑，如规则匹配、AI 客户端、知识库、外部知识库查询和文本工具。
 - `config/`：默认规则、默认 AI 风格、承接语和随包图片。
 - `scripts/`：构建、安装、测试、诊断和发布检查脚本。
 - `docs/`：专题文档、历史说明和发布说明。
@@ -80,9 +80,9 @@ npm run doctor
 
 - DeepSeek API Key。
 - 企业微信 / WeCom Webhook URL。
-- Runyu Cookie、session token 或授权历史。
+- 外部知识库访问凭证、session token 或授权历史。
 - Desktop control Token。
-- `.env`、个人运行缓存、私有判断库导出。
+- `.env`、个人运行缓存、私有外部知识库导入缓存或导出。
 - 微信小店登录态、Chrome profile、二维码截图或客户隐私。
 
 如果日志、截图、fixture 或文档包含凭证，先脱敏再提交。`npm run check:secrets` 通过不代表可以跳过人工检查。
@@ -93,7 +93,7 @@ npm run doctor
 
 - Electron 窗口、菜单、托盘、悬浮窗。
 - 回复决策顺序、规则匹配、AI fallback。
-- Runyu 登录、Cookie、判断库查询。
+- 外部知识库网络调用、本地导入、访问凭证和查询。
 - Webhook、通知补发、回复记录。
 - 配置文件、运行目录、打包文件。
 - 安全、密钥、权限、缓存。
