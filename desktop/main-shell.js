@@ -277,7 +277,7 @@ function applySidebarState() {
     button.title = state.sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏";
     button.setAttribute("aria-label", button.title);
   }
-  window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 112 : 268).catch((error) => {
+  window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 64 : 268).catch((error) => {
     console.warn("[shell] sidebar width sync failed", error);
   });
 }
@@ -361,17 +361,11 @@ function topNavIdFor(view) {
 
 function renderSectionTabs() {
   const group = sectionGroups[topNavIdFor(state.view)] || [];
-  const nav = navItems.find((item) => item.id === topNavIdFor(state.view));
+  const tabs = group.length ? group : [state.view];
   contextBar.innerHTML = `
-    <div class="context-title">
-      <strong>${escapeHtml(viewLabels[state.view] || nav?.title || "工作台")}</strong>
-      <span>${escapeHtml(nav?.description || "当前页面上下文")}</span>
+    <div class="section-tabs" aria-label="二级功能导航">
+      ${tabs.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
     </div>
-    ${group.length > 1 ? `
-      <div class="section-tabs" aria-label="二级功能导航">
-        ${group.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
-      </div>
-    ` : `<div class="badge-row"><span class="badge">${escapeHtml(nav?.hint || "当前")}</span></div>`}
   `;
   $$("[data-subview]", contextBar).forEach((button) => button.addEventListener("click", () => switchView(button.dataset.subview)));
 }

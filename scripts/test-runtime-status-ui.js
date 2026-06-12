@@ -192,7 +192,16 @@ async function assertNavigationStructure(page) {
     document.querySelector('#nav button[data-top="settings"]')?.click();
     await new Promise((resolve) => setTimeout(resolve, 150));
     const settingsTabs = Array.from(document.querySelectorAll(".section-tabs button")).map((node) => node.textContent);
-    return { topItems, rulesTabs, settingsTabs };
+    const contextSubtitleCount = document.querySelectorAll(".context-title span").length;
+    const tabsBox = document.querySelector(".section-tabs")?.getBoundingClientRect();
+    const contextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
+    return {
+      topItems,
+      rulesTabs,
+      settingsTabs,
+      contextSubtitleCount,
+      tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40)
+    };
   });
   const expectedTop = ["工作台", "知识库", "监控", "设置"];
   if (JSON.stringify(result.topItems.map((item) => item.text)) !== JSON.stringify(expectedTop)) {
@@ -208,6 +217,8 @@ async function assertNavigationStructure(page) {
   if (result.settingsTabs.includes("API风格") || result.rulesTabs.includes("Webhook")) {
     throw new Error(`二级导航仍存在重复归属: ${JSON.stringify(result)}`);
   }
+  if (result.contextSubtitleCount) throw new Error(`Context Bar 仍显示说明小字: ${JSON.stringify(result)}`);
+  if (!result.tabsLeftAligned) throw new Error(`二级页签没有左置: ${JSON.stringify(result)}`);
 }
 
 async function assertControlWindowCanReopen(electronApp, floatingPage) {
