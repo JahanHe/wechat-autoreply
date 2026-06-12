@@ -69,6 +69,107 @@
     return String(reply || "").trim().toLowerCase().replace(/\s+/g, "").slice(0, 220);
   }
 
+  // extension/source/rule-matcher.js
+  var RULE_TERMS = [
+    "会员专区",
+    "年度会员",
+    "月度会员",
+    "咨询俱乐部",
+    "自动续费",
+    "商品链接",
+    "商品卡",
+    "商品",
+    "链接",
+    "权益",
+    "进群",
+    "群",
+    "使用",
+    "上课",
+    "入口",
+    "课程目录",
+    "目录",
+    "直播回放",
+    "专区问答",
+    "专属视频",
+    "社群",
+    "图片",
+    "截图",
+    "图文",
+    "照片",
+    "文件",
+    "视频",
+    "表情",
+    "非文本",
+    "付款",
+    "下单",
+    "购买",
+    "买",
+    "退款",
+    "售后",
+    "联系方式",
+    "微信",
+    "手机号"
+  ];
+  var PUNCTUATION_RE = /[\s,，.。!！?？、;；:："“”'‘’()[\]（）【】<>《》{}|｜~～…·_-]+/g;
+  function normalizeRuleText(value) {
+    return String(value || "").trim().toLowerCase().replace(/怎样|如何|咋样|咋/g, "怎么").replace(/啥/g, "什么").replace(/哪儿|哪里/g, "哪").replace(/加入社群|加入群|进社群|加社群|加群/g, "进群").replace(/怎么用/g, "怎么使用").replace(PUNCTUATION_RE, "");
+  }
+  function buildRuleSearchText(message, aliases = {}) {
+    const messageObject = message && typeof message === "object" ? message : null;
+    const textParts = messageObject ? [messageObject.contextText, messageObject.rawText, messageObject.text] : [message];
+    const type = String(messageObject?.type || inferMessageTypeFromRuleText(textParts.join(" ")) || "text");
+    const typeAliases = {
+      image: "图片 照片 截图 非文本 客户发图片 收到图片",
+      emoji: "表情 图片表情 非文本 客户发表情 收到表情",
+      product: "商品 商品卡 商品链接 链接 非文本 客户发商品 收到商品",
+      file: "文件 附件 非文本 客户发文件 收到文件",
+      video: "视频 非文本 客户发视频 收到视频",
+      media: "非文本 媒体消息",
+      ...aliases
+    };
+    return normalizeRuleText([
+      ...textParts,
+      typeAliases[type] || "",
+      type !== "text" ? typeAliases.media : ""
+    ].filter(Boolean).join(" "));
+  }
+  function ruleMatchesSearchText(rule = {}, searchText = "") {
+    const normalizedSearch = normalizeRuleText(searchText);
+    return normalizeKeywordList(rule.keywords).some((keyword) => keywordMatchesSearchText(keyword, normalizedSearch));
+  }
+  function keywordMatchesSearchText(keyword = "", searchText = "") {
+    const normalizedKeyword = normalizeRuleText(keyword);
+    if (!normalizedKeyword || !searchText) return false;
+    if (searchText.includes(normalizedKeyword)) return true;
+    const terms = tokenizeKeyword(normalizedKeyword);
+    if (terms.length < 2) return false;
+    if (!terms.every((term) => searchText.includes(term))) return false;
+    const hasTopic = terms.some((term) => /会员专区|年度会员|月度会员|咨询俱乐部|商品|课程/.test(term));
+    const hasIntent = terms.some((term) => !/会员专区|年度会员|月度会员|咨询俱乐部/.test(term));
+    return hasTopic && hasIntent;
+  }
+  function normalizeKeywordList(value) {
+    if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+    return String(value || "").split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean);
+  }
+  function inferMessageTypeFromRuleText(text) {
+    const value = String(text || "").trim();
+    if (/^\[图片\]/.test(value)) return "image";
+    if (/^\[表情\]/.test(value)) return "emoji";
+    if (/^\[商品卡\]/.test(value)) return "product";
+    if (/^\[文件\]/.test(value)) return "file";
+    if (/^\[视频\]/.test(value)) return "video";
+    return "";
+  }
+  function tokenizeKeyword(normalizedKeyword) {
+    const terms = [];
+    for (const term of RULE_TERMS) {
+      const normalizedTerm = normalizeRuleText(term);
+      if (normalizedTerm && normalizedKeyword.includes(normalizedTerm)) terms.push(normalizedTerm);
+    }
+    return Array.from(new Set(terms)).sort((a, b) => b.length - a.length);
+  }
+
   // extension/source/index.js
   (() => {
     const VERSION = "0.3.9";
@@ -100,7 +201,7 @@
         {
           enabled: true,
           name: "会员专区：权益目录图文",
-          keywords: ["会员专区包含什么权益", "会员专区有什么权益", "会员专区包含哪些权益", "会员专区权益", "会员专区有什么", "会员专区有啥", "会员有什么", "会员有啥", "包含什么权益", "有什么权益", "有哪些权益", "权益有哪些", "会员权益", "包含什么内容", "会员专区包含什么", "课程目录", "大致目录", "专属视频", "直播回放", "专区问答"],
+          keywords: ["会员专区包含什么权益", "会员专区有什么权益", "会员专区包含哪些权益", "会员专区权益", "会员专区有什么", "会员专区有啥", "会员有什么", "会员有啥", "包含什么权益", "有什么权益", "有哪些权益", "权益有哪些", "会员权益", "包含什么内容", "会员专区包含什么", "会员专区图片", "会员专区图文", "会员专区截图", "会员专区详情", "会员专区介绍", "课程目录", "大致目录", "专属视频", "直播回放", "专区问答"],
           actions: [
             { type: "text", text: "目前有专属视频、直播回放、社群和专区问答\n您可以先看课程目录" },
             { type: "image", path: "config/reply-images/image3.jpg" }
@@ -188,6 +289,7 @@
       lastHref: location.href,
       routeTimer: null,
       startedOnKf: false,
+      settingsLoaded: false,
       lastStatus: "启动中",
       lastStatusMeta: { code: "starting", label: "启动中", detail: "正在启动自动回复脚本" }
     };
@@ -249,14 +351,19 @@
       log("started on kf page", location.href);
     }
     function loadSettings() {
-      if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+        state.settingsLoaded = true;
+        return;
+      }
       chrome.storage.local.get({ ...CONFIG, configVersion: "" }, (items) => {
         if (items.configVersion !== VERSION) {
           chrome.storage.local.set({ configVersion: VERSION });
         }
         Object.assign(CONFIG, items);
+        state.settingsLoaded = true;
         setStep(CONFIG.enabled ? "monitoring" : "paused", CONFIG.enabled ? "检测中" : "暂停中", CONFIG.enabled ? "正在监听客户新消息" : "Bot已暂停，不会自动发送回复");
         syncObserver();
+        if (CONFIG.enabled) scheduleCheck("settings_loaded");
       });
     }
     function watchSettings() {
@@ -305,10 +412,28 @@
     async function checkAndReply(reason) {
       if (!CONFIG.enabled) return;
       if (state.busy) return;
+      if (!state.settingsLoaded) {
+        setStep("loading_settings", "加载配置", "正在读取桌面端规则库和自动回复配置");
+        scheduleCheck("settings_pending");
+        return;
+      }
       state.busy = true;
       setStep("detecting", "检测消息", "正在检查当前会话的最新消息", { takeover: true });
       try {
         await checkAndReplyOnce(reason);
+      } catch (error) {
+        const message = safeErrorMessage(error);
+        warn("check and reply failed", error);
+        setStep("reply_failed", "回复失败", `客服页脚本异常：${message}`);
+        reportEvent("reply_failed", {
+          stage: "content_script",
+          sourceType: "script",
+          usedRuleLibrary: false,
+          usedDirectReply: false,
+          usedAi: false,
+          reason,
+          error: message
+        });
       } finally {
         state.busy = false;
         reportStatus(state.lastStatus || "检测中", state.lastStatusMeta || {});
@@ -340,6 +465,7 @@
       }
       const sessionKey = currentSessionKey();
       const key = messageReplyKey(latest, sessionKey);
+      const latestForMatching = enrichMessageWithContext(latest);
       const detectedStatus = runtimeStatusForIncomingMessage(latest);
       setStep(detectedStatus.code, detectedStatus.label, detectedStatus.detail, {
         customer: latest.text,
@@ -358,7 +484,7 @@
       state.inFlight.add(key);
       let responseSent = false;
       try {
-        const actionRule = matchActionRule(latest);
+        const actionRule = matchActionRule(latestForMatching);
         if (actionRule) {
           setStep("matching_rule", "匹配规则", `已匹配动作规则：${actionRule.name || "未命名"}`, { customer: latest.text });
           const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "", sessionKey);
@@ -388,7 +514,7 @@
           log("action rule executed", { reason, customer: latest.text, actionRule, result });
           return;
         }
-        const imageReply = matchImageReply(latest);
+        const imageReply = matchImageReply(latestForMatching);
         if (imageReply) {
           setStep("matching_image", "匹配图片", `已匹配图片规则：${imageReply.name || "未命名"}`, { customer: latest.text });
           const caption = String(imageReply.caption || "我发你图片看下").trim();
@@ -457,7 +583,7 @@
             return;
           }
         }
-        const ruleReply = matchRuleReply(latest);
+        const ruleReply = matchRuleReply(latestForMatching);
         if (ruleReply) {
           setStep("matching_rule", "匹配规则", "已匹配文字回复规则", { customer: latest.text });
           if (hasSessionReply(sessionKey, ruleReply)) {
@@ -820,13 +946,14 @@
     }
     function parseMessageNode(row) {
       const item = row.matches(".message-item") ? row : row.querySelector(".message-item") || row;
-      const textNode = item.querySelector(".text-msg");
+      const textNode = item.querySelector(".text-msg, [class*='text-msg'], [class*='message-text'], [class*='msg-text'], [class*='bubble-text']");
       const productNode = item.querySelector(".product-msg-block, [class*='product-msg'], [class*='product-card']");
       const fileNode = item.querySelector("[class*='file-msg'], [class*='file-card'], [class*='file-item']");
       const videoNode = item.querySelector("video, [class*='video-msg'], [class*='video-card']");
       const emojiNode = item.querySelector("[class*='emoji'], [class*='sticker'], img[alt*='表情'], img[title*='表情']");
       const imageNode = item.querySelector("img, canvas, [class*='image-msg'], [class*='image-message'], [class*='pic-msg']");
       const from = inferMessageSide(item, textNode);
+      const rawText = textOf(item) || textOf(row);
       let type = "text";
       let text = textOf(textNode);
       if (productNode) {
@@ -844,14 +971,20 @@
       } else if (!text && imageNode) {
         type = "image";
         text = messagePlaceholder2("图片", mediaLabel(imageNode));
+      } else if (!text && rawText) {
+        text = cleanMessageText(rawText);
       }
       if (!text) return null;
       return {
         from,
         type,
         id: row.id || row.getAttribute("data-msgid") || row.getAttribute("data-id") || stableMessageId(row, text, from),
-        text
+        text,
+        rawText: rawText && rawText !== text ? rawText : ""
       };
+    }
+    function cleanMessageText(value) {
+      return String(value || "").replace(/^(?:星期[一二三四五六日天]|今天|昨天)?\s*\d{1,2}:\d{2}\s*/g, "").replace(/^樱桃老师\s*/g, "").replace(/\s+/g, " ").trim();
     }
     function inferMessageSide(item, textNode) {
       if (textNode?.classList.contains("bg-user")) return "customer";
@@ -900,14 +1033,27 @@
     function messageReplyKey(message, sessionKey = currentSessionKey()) {
       return `${sessionKey}:${message?.id || ""}:${message?.type || "text"}:${message?.text || ""}`;
     }
+    function enrichMessageWithContext(message) {
+      if (!message) return message;
+      return {
+        ...message,
+        contextText: recentCustomerContext(message)
+      };
+    }
+    function recentCustomerContext(latest, limit = 4) {
+      const messages = messageNodes().map(parseMessageNode).filter((message) => message && message.from === "customer").slice(-limit);
+      if (!messages.length) return String(latest?.text || "");
+      const hasLatest = messages.some((message) => message.id === latest?.id);
+      const selected = hasLatest ? messages : [...messages.slice(-(limit - 1)), latest].filter(Boolean);
+      return selected.map((message) => message.text).filter(Boolean).join(" ");
+    }
     function matchRuleReply(message) {
       const text = messageSearchText(message);
       const rules = Array.isArray(CONFIG.rules) && CONFIG.rules.length > 0 ? CONFIG.rules : DEFAULT_RULES;
       for (const rule of rules) {
         if (!rule) continue;
         if (rule.enabled === false) continue;
-        const keywords = Array.isArray(rule.keywords) ? rule.keywords : splitKeywords(rule.keywords);
-        if (keywords.some((keyword) => text.includes(normalize(keyword)))) {
+        if (ruleMatchesSearchText(rule, text)) {
           return rule.reply;
         }
       }
@@ -918,8 +1064,7 @@
       const text = messageSearchText(message);
       return rules.find((rule) => {
         if (!rule || rule.enabled === false || !Array.isArray(rule.actions) || rule.actions.length === 0) return false;
-        const keywords = Array.isArray(rule.keywords) ? rule.keywords : splitKeywords(rule.keywords);
-        return keywords.some((keyword) => keyword && text.includes(normalize(keyword)));
+        return ruleMatchesSearchText(rule, text);
       }) || null;
     }
     async function executeActions(actions, customerText, ruleName = "", sessionKey = currentSessionKey()) {
@@ -1075,8 +1220,7 @@
         if (!rule || rule.enabled === false) return false;
         const path = String(rule.path || rule.imagePath || "").trim();
         if (!path) return false;
-        const keywords = Array.isArray(rule.keywords) ? rule.keywords : splitKeywords(rule.keywords);
-        return keywords.some((keyword) => keyword && text.includes(normalize(keyword)));
+        return ruleMatchesSearchText(rule, text);
       }) || null;
     }
     function messageSearchText(message) {
@@ -1091,7 +1235,12 @@
         video: "视频 非文本 客户发视频 收到视频",
         media: "非文本 媒体消息"
       };
-      return normalize([text, aliases[type] || "", type !== "text" ? aliases.media : ""].filter(Boolean).join(" "));
+      return buildRuleSearchText({
+        text,
+        rawText: messageObject?.rawText || "",
+        contextText: messageObject?.contextText || "",
+        type
+      }, aliases);
     }
     async function requestImageReply(imageReply, customer) {
       try {
@@ -1123,7 +1272,7 @@
       }
     }
     function splitKeywords(value) {
-      return String(value || "").split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean);
+      return normalizeKeywordList(value);
     }
     function matchPanelAction(message) {
       if (!CONFIG.panelAutoActionsEnabled) return null;
@@ -1761,6 +1910,9 @@ ${text}`);
     }
     function normalize(value) {
       return String(value || "").trim().toLowerCase();
+    }
+    function safeErrorMessage(error) {
+      return clip2(String(error?.message || error || "unknown error").replace(/\s+/g, " ").trim(), 160);
     }
     function sleep(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));

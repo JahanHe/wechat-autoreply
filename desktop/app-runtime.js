@@ -8,6 +8,12 @@ import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeRunyuBaseUrl, normalizeRunyuCookie } from "../src/runyu-judgments.js";
 import { safeErrorMessage } from "../src/redact.js";
+import {
+  buildRuleSearchText as sharedBuildRuleSearchText,
+  inferMessageTypeFromRuleText as sharedInferMessageTypeFromRuleText,
+  normalizeRuleText as sharedNormalizeRuleText,
+  ruleMatchesSearchText as sharedRuleMatchesSearchText
+} from "../extension/source/rule-matcher.js";
 import { createAppContext, snapshotAppContext } from "./app-context.js";
 import { DESKTOP_CONFIG_SCHEMA_VERSION, repairDesktopConfig, validateDesktopConfig } from "./config-validator.js";
 import {
@@ -4382,7 +4388,7 @@ function findRuleTrigger(message, bot = {}) {
 }
 
 function ruleMatchesSearchText(rule = {}, searchText = "") {
-  return normalizeList(rule.keywords).some((keyword) => keyword && searchText.includes(normalizeRuleText(keyword)));
+  return sharedRuleMatchesSearchText(rule, searchText);
 }
 
 function ruleSearchText(message) {
@@ -4395,21 +4401,15 @@ function ruleSearchText(message) {
     file: "文件 附件 非文本 客户发文件 收到文件",
     video: "视频 非文本 客户发视频 收到视频"
   };
-  return normalizeRuleText([text, aliases[type] || "", type !== "text" ? "非文本 媒体消息" : ""].filter(Boolean).join(" "));
+  return sharedBuildRuleSearchText({ text, type }, aliases);
 }
 
 function inferRuleMessageType(text) {
-  const value = String(text || "").trim();
-  if (/^\[图片\]/.test(value)) return "image";
-  if (/^\[表情\]/.test(value)) return "emoji";
-  if (/^\[商品卡\]/.test(value)) return "product";
-  if (/^\[文件\]/.test(value)) return "file";
-  if (/^\[视频\]/.test(value)) return "video";
-  return "text";
+  return sharedInferMessageTypeFromRuleText(text) || "text";
 }
 
 function normalizeRuleText(value) {
-  return String(value || "").trim().toLowerCase();
+  return sharedNormalizeRuleText(value);
 }
 
 function summarizeRuleActions(actions = []) {
