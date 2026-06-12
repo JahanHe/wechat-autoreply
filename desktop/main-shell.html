@@ -28,7 +28,8 @@
         --sidebar: var(--sidebar-expanded);
         --contextbar: 46px;
         --chrome-control-size: 26px;
-        --chrome-control-top: 10px;
+        --chrome-control-top: 11.5px;
+        --chrome-control-bottom: 8.5px;
         --chrome-control-left: 88px;
         --chrome-control-gap: 12px;
       }
@@ -632,7 +633,7 @@
         justify-content: flex-start;
         gap: var(--chrome-control-gap);
         min-height: var(--contextbar);
-        padding: var(--chrome-control-top) 18px;
+        padding: var(--chrome-control-top) 18px var(--chrome-control-bottom);
         border-bottom: 1px solid var(--hairline);
         background: rgba(250, 249, 245, .94);
         -webkit-app-region: drag;
