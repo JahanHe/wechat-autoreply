@@ -38,7 +38,7 @@ const APP_USER_DATA_DIR_NAME = "小店AI客服";
 const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 268;
-const MAIN_SHELL_SIDEBAR_COLLAPSED_WIDTH = 76;
+const MAIN_SHELL_SIDEBAR_COLLAPSED_WIDTH = 112;
 const MAIN_SHELL_CONTEXT_BAR_HEIGHT = 54;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
@@ -1788,7 +1788,7 @@ function registerIpc() {
   ipcMain.handle("main-set-sidebar-width", (_event, width) => setMainShellSidebarWidth(width));
   ipcMain.handle("main-open-floating", async (_event, mode = "compact") => {
     showFloatingWindow();
-    if (mode === "settings") await setFloatingMode("settings");
+    if (["compact", "mini", "settings"].includes(String(mode || ""))) await setFloatingMode(mode);
     return statusPayload();
   });
   ipcMain.handle("main-hide-floating", async () => {

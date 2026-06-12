@@ -24,7 +24,7 @@
         --radius: 8px;
         --control-radius: 8px;
         --sidebar-expanded: 268px;
-        --sidebar-collapsed: 76px;
+        --sidebar-collapsed: 112px;
         --sidebar: var(--sidebar-expanded);
         --contextbar: 54px;
       }
@@ -155,25 +155,30 @@
         align-items: center;
         justify-content: flex-end;
         min-height: 0;
-        padding: 10px 12px 0;
+        padding: 12px 12px 0;
       }
 
-      .collapse-button,
-      .float-action {
-        width: 34px;
-        height: 34px;
-        min-height: 34px;
+      .collapse-button {
+        width: 24px;
+        height: 24px;
+        min-height: 24px;
         display: inline-grid;
         place-items: center;
         padding: 0;
-        border-color: var(--hairline);
-        background: #fff;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
       }
 
-      .collapse-button svg,
-      .float-action svg {
-        width: 17px;
-        height: 17px;
+      .collapse-button:hover {
+        border-color: var(--hairline);
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .collapse-button svg {
+        width: 15px;
+        height: 15px;
         fill: none;
         stroke: currentColor;
         stroke-width: 2;
@@ -181,19 +186,24 @@
         stroke-linejoin: round;
       }
 
-      body.sidebar-collapsed .collapse-button svg {
-        transform: rotate(180deg);
+      .collapse-arrow {
+        transform-origin: 13.5px 12px;
+        transition: transform .16s ease;
+      }
+
+      body.sidebar-collapsed .collapse-arrow {
+        transform: scaleX(-1);
       }
 
       .platform-darwin .sidebar-window-controls {
         min-height: 38px;
         justify-content: flex-start;
-        padding: 11px 0 0 96px;
+        padding: 12px 0 0 92px;
       }
 
       .platform-darwin.window-fullscreen .sidebar-window-controls {
         min-height: 0;
-        padding: 10px 12px 0;
+        padding: 8px 12px 0;
         justify-content: flex-end;
       }
 
@@ -357,28 +367,85 @@
         background: var(--hairline);
       }
 
-      .status-strip {
-        padding: 0 14px 10px;
-        display: grid;
-        gap: 8px;
-      }
-
       .floating-strip {
-        padding: 0 14px 10px;
+        padding: 0 12px 12px;
       }
 
       .floating-status {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 34px;
+        grid-template-columns: 12px minmax(0, 1fr) auto;
         align-items: center;
         gap: 8px;
-        min-height: 40px;
-        padding: 0 6px 0 10px;
+        min-height: 52px;
+        padding: 6px 7px 6px 10px;
         border: 1px solid var(--hairline);
         border-radius: var(--control-radius);
-        background: #fff;
+        background: rgba(251, 250, 247, .98);
         color: var(--body);
         font-size: 12px;
+      }
+
+      .floating-copy {
+        min-width: 0;
+        display: grid;
+        gap: 1px;
+      }
+
+      .floating-title,
+      .floating-subtitle {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .floating-title {
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 780;
+      }
+
+      .floating-subtitle {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .floating-actions {
+        display: flex;
+        gap: 4px;
+      }
+
+      .float-action {
+        width: 24px;
+        height: 24px;
+        min-height: 24px;
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .float-action:hover {
+        border-color: var(--hairline);
+        background: #f1e8de;
+        color: var(--ink);
+      }
+
+      .float-action.close:hover {
+        background: #fae2de;
+        color: var(--error);
+      }
+
+      .float-action svg {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
       .mini-status {
@@ -423,7 +490,7 @@
       }
 
       .nav {
-        padding: 6px 10px 10px;
+        padding: 4px 10px 10px;
         display: grid;
         gap: 4px;
       }
@@ -1299,71 +1366,62 @@
 
       body.sidebar-collapsed .sidebar-window-controls {
         justify-content: center;
-        padding: 10px 0 0;
+        padding: 12px 0 0;
       }
 
       body.sidebar-collapsed.platform-darwin .sidebar-window-controls {
         min-height: 38px;
-        padding: 11px 0 0 0;
-        justify-content: center;
+        justify-content: flex-start;
+        padding: 12px 0 0 82px;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .sidebar-window-controls {
         min-height: 0;
-        padding-top: 10px;
+        padding: 8px 0 0;
+        justify-content: center;
       }
 
       body.sidebar-collapsed .brand {
-        grid-template-columns: 34px;
+        grid-template-columns: 42px;
         justify-content: center;
-        padding: 10px 0 8px;
+        padding: 10px 0 10px;
       }
 
       body.sidebar-collapsed .brand-copy,
-      body.sidebar-collapsed .floating-status .signal span,
-      body.sidebar-collapsed .status-strip .mini-status span span,
-      body.sidebar-collapsed .status-strip .mini-status > span:last-child,
+      body.sidebar-collapsed .menu-button,
+      body.sidebar-collapsed .floating-copy,
+      body.sidebar-collapsed .floating-actions,
       body.sidebar-collapsed .nav-copy,
       body.sidebar-collapsed .detail-panel {
         display: none;
       }
 
       body.sidebar-collapsed .brand img {
-        display: none;
-      }
-
-      body.sidebar-collapsed.platform-darwin .brand {
-        grid-template-columns: 42px;
-      }
-
-      body.sidebar-collapsed.platform-darwin .brand img {
         display: block;
+        width: 42px;
+        height: 42px;
+        border-radius: var(--control-radius);
       }
 
-      body.sidebar-collapsed .floating-strip,
-      body.sidebar-collapsed .status-strip {
+      body.sidebar-collapsed .floating-strip {
         padding-left: 0;
         padding-right: 0;
+        padding-bottom: 8px;
         justify-items: center;
       }
 
       body.sidebar-collapsed .floating-status {
-        width: 50px;
+        width: 42px;
+        min-height: 42px;
         grid-template-columns: 1fr;
         justify-items: center;
-        padding: 5px 0;
-      }
-
-      body.sidebar-collapsed .float-action {
-        width: 32px;
-        height: 32px;
-        min-height: 32px;
-      }
-
-      body.sidebar-collapsed .mini-status {
-        width: 50px;
-        justify-content: center;
         padding: 0;
+        background: transparent;
+      }
+
+      body.sidebar-collapsed .floating-status .dot {
+        width: 10px;
+        height: 10px;
       }
 
       body.sidebar-collapsed .nav {
@@ -1376,6 +1434,12 @@
         justify-items: center;
         min-height: 42px;
         padding: 6px 0;
+      }
+
+      body.sidebar-collapsed .nav-icon,
+      body.sidebar-collapsed .nav-icon svg {
+        width: 18px;
+        height: 18px;
       }
 
       @media (max-width: 1180px) {
@@ -1409,7 +1473,7 @@
       <aside class="sidebar">
         <div class="sidebar-window-controls">
           <button id="sidebarCollapse" class="collapse-button" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"/><path d="M15 8l-4 4 4 4"/></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 5v14"/><path class="collapse-arrow" d="m15 9-3 3 3 3"/></svg>
           </button>
         </div>
         <div class="brand">
@@ -1428,21 +1492,19 @@
 
         <div class="floating-strip">
           <div class="floating-status">
-            <span class="signal"><i id="floatDot" class="dot warn"></i><span id="floatMini">悬浮窗</span></span>
-            <button id="openFloatDock" class="float-action" type="button" title="打开悬浮窗" aria-label="打开悬浮窗">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <div class="status-strip">
-          <div class="mini-status">
-            <span class="signal"><i id="botDot" class="dot"></i><span id="botMini">Bot</span></span>
-            <span id="botModeMini">开启</span>
-          </div>
-          <div class="mini-status">
-            <span class="signal"><i id="aiDot" class="dot warn"></i><span id="aiMini">AI</span></span>
-            <span id="notifyMini">通知</span>
+            <i id="floatDot" class="dot warn"></i>
+            <div class="floating-copy">
+              <strong id="floatTitle" class="floating-title">启动中</strong>
+              <span id="floatSubtitle" class="floating-subtitle">小店AI客服</span>
+            </div>
+            <div class="floating-actions">
+              <button id="expandFloatDock" class="float-action" type="button" title="展开悬浮窗" aria-label="展开悬浮窗">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+              </button>
+              <button id="hideFloatDock" class="float-action close" type="button" title="隐藏悬浮窗" aria-label="隐藏悬浮窗">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
           </div>
         </div>
 

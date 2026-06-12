@@ -243,8 +243,13 @@ function formatAccelerator(value) {
 function bindGlobalActions() {
   $("#desktopMenuButton").addEventListener("click", () => toggleDesktopMenu());
   $("#sidebarCollapse")?.addEventListener("click", () => setSidebarCollapsed(!state.sidebarCollapsed));
-  $("#openFloatDock")?.addEventListener("click", async () => {
+  $("#expandFloatDock")?.addEventListener("click", async () => {
     state.status = await window.mainShell.openFloating("compact");
+    renderChrome();
+    await refreshMenuModel();
+  });
+  $("#hideFloatDock")?.addEventListener("click", async () => {
+    state.status = await window.mainShell.hideFloating();
     renderChrome();
     await refreshMenuModel();
   });
@@ -272,7 +277,7 @@ function applySidebarState() {
     button.title = state.sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏";
     button.setAttribute("aria-label", button.title);
   }
-  window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 76 : 268).catch((error) => {
+  window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 112 : 268).catch((error) => {
     console.warn("[shell] sidebar width sync failed", error);
   });
 }
@@ -294,29 +299,35 @@ function renderChrome() {
   const status = state.status || {};
   document.body.classList.toggle("platform-darwin", status.platform === "darwin" || state.menuModel?.platform === "darwin");
   document.body.classList.toggle("window-fullscreen", Boolean(status.fullscreen));
-  const botEnabled = Boolean(status.enabled);
-  const aiOk = Boolean(status.ai?.ok && status.ai?.hasKey);
-  const aiHasKey = Boolean(status.ai?.hasKey);
-  const notifyConfigured = Boolean(status.notify?.configured || status.notifyEnabled);
   const page = status.page || {};
-  const floating = status.floating || {};
   const storeName = page.authenticated ? (page.title || "微信小店") : "微信小店";
-  const botTone = runtimeTone(status.bot?.tone);
+  const floatingState = buildSidebarFloatingState(status);
 
-  $("#botDot").className = `dot ${botEnabled ? botTone : "warn"}`;
-  $("#aiDot").className = `dot ${aiOk ? "" : aiHasKey ? "warn" : "bad"}`;
-  $("#floatDot").className = `dot ${floating.visible ? "" : "warn"}`;
-  $("#floatMini").textContent = floating.visible ? "悬浮窗显示中" : "悬浮窗已隐藏";
-  $("#openFloatDock").title = floating.visible ? "打开悬浮窗" : "显示悬浮窗";
-  $("#openFloatDock").setAttribute("aria-label", $("#openFloatDock").title);
-  $("#botMini").textContent = shortStatus(status.bot?.label || status.bot?.status || "检测中");
-  $("#botModeMini").textContent = botEnabled ? "开启" : "暂停";
-  $("#aiMini").textContent = aiOk ? "AI 正常" : aiHasKey ? "AI 待测" : "缺 Key";
-  $("#notifyMini").textContent = notifyConfigured ? `通知 ${status.notify?.outboxCount || 0}` : "未配置";
+  $("#floatDot").className = `dot ${floatingState.dotClass}`;
+  $("#floatTitle").textContent = floatingState.title;
+  $("#floatSubtitle").textContent = floatingState.subtitle;
   $("#storeName").textContent = page.loading ? "客服页加载中" : storeName;
   $$("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
   });
+}
+
+function buildSidebarFloatingState(payload = {}) {
+  const bot = payload.bot || {};
+  const tone = runtimeTone(bot.tone);
+  const tones = [
+    tone,
+    payload.ai?.ok ? "ok" : payload.ai?.hasKey ? "warn" : "bad",
+    payload.page?.scriptHealthy ? "ok" : payload.page?.loading ? "warn" : "bad"
+  ];
+  const overallTone = tones.includes("bad") ? "bad" : tone === "active" ? "active" : tones.includes("warn") || !payload.enabled ? "warn" : "ok";
+  const title = shortStatus(bot.label || bot.status || "检测中");
+  const detail = String(bot.detail || bot.status || "状态同步").trim();
+  return {
+    dotClass: overallTone === "ok" ? "" : overallTone,
+    title,
+    subtitle: shortText(detail)
+  };
 }
 
 function renderView() {
@@ -2514,6 +2525,11 @@ function runtimeTone(value) {
 
 function shortStatus(value) {
   return Array.from(String(value || "检测中").replace(/\s+/g, "")).slice(0, 6).join("");
+}
+
+function shortText(value) {
+  const text = String(value || "").trim();
+  return text.length > 14 ? `${text.slice(0, 14)}...` : text || "等待状态";
 }
 
 function runtimeTrailHtml(history) {
