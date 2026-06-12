@@ -7,8 +7,24 @@ contextBridge.exposeInMainWorld("mainShell", {
   getWorkbenchSnapshot() {
     return ipcRenderer.invoke("main-get-workbench-snapshot");
   },
+  getMenuModel() {
+    return ipcRenderer.invoke("main-get-menu-model");
+  },
+  runMenuCommand(commandId, options) {
+    return ipcRenderer.invoke("main-run-menu-command", commandId || "", options || {});
+  },
   onStatus(callback) {
     ipcRenderer.on("main-status", (_event, payload) => {
+      if (typeof callback === "function") callback(payload || {});
+    });
+  },
+  onMenuModel(callback) {
+    ipcRenderer.on("desktop-menu-model", (_event, payload) => {
+      if (typeof callback === "function") callback(payload || {});
+    });
+  },
+  onOpenView(callback) {
+    ipcRenderer.on("main-open-view", (_event, payload) => {
       if (typeof callback === "function") callback(payload || {});
     });
   },

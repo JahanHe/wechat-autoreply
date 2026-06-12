@@ -58,6 +58,7 @@ const state = {
   records: null,
   judgments: null,
   workbench: null,
+  menuModel: null,
   runyuAuth: null,
   judgmentDownload: null,
   judgmentPollTimer: null,
@@ -91,6 +92,13 @@ async function init() {
     renderChrome();
     if (["dashboard", "logs", "judgments"].includes(state.view)) renderView();
   });
+  window.mainShell.onMenuModel?.((payload) => {
+    state.menuModel = payload || null;
+    renderDesktopMenu();
+  });
+  window.mainShell.onOpenView?.((payload) => {
+    if (payload?.view) switchView(payload.view);
+  });
   window.mainShell.onRunyuAuth(async (payload) => {
     state.runyuAuth = payload || {};
     const [settings, judgments] = await Promise.all([
@@ -102,22 +110,25 @@ async function init() {
     if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
     renderChrome();
   });
-  const [settings, status, records, judgments, judgmentDownload, workbench] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
     window.mainShell.getJudgmentsDownloadStatus(),
-    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null)
+    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null),
+    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(null)
   ]);
   state.settings = settings;
   state.status = status;
   state.records = records;
   state.judgments = judgments;
   state.workbench = workbench;
+  state.menuModel = menuModel;
   state.runyuAuth = judgments?.auth || status?.runyuAuth || null;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
+  renderDesktopMenu();
   await switchView(needsInitialSetup() ? "setup" : "page");
 }
 
@@ -134,25 +145,109 @@ function renderNav() {
   });
 }
 
-function bindGlobalActions() {
-  $("#openFloat").addEventListener("click", async () => {
-    await window.mainShell.openFloating("compact");
-    showFlash("悬浮窗已打开", "ok");
+function renderDesktopMenu() {
+  const menu = $("#desktopMenu");
+  if (!menu) return;
+  const model = state.menuModel;
+  if (!model?.sections?.length) {
+    menu.innerHTML = `<div class="hint">菜单正在加载...</div>`;
+    return;
+  }
+  menu.innerHTML = model.sections.map((section, index) => `
+    <details class="menu-section" ${index === 0 ? "open" : ""}>
+      <summary>${escapeHtml(section.label)}</summary>
+      <div class="menu-items">
+        ${(section.items || []).map((item) => renderMenuItem(item)).join("")}
+      </div>
+    </details>
+  `).join("");
+  $$("[data-command]", menu).forEach((button) => {
+    button.addEventListener("click", () => executeMenuCommand(button.dataset.command));
   });
-  $("#toggleBot").addEventListener("click", async () => {
-    state.status = await window.mainShell.toggleEnabled();
+}
+
+function renderMenuItem(item = {}) {
+  if (item.type === "separator") return `<div class="menu-separator" role="separator"></div>`;
+  return `
+    <button type="button" class="menu-command ${item.danger ? "danger" : ""}" data-command="${attr(item.id)}" ${item.enabled === false ? "disabled" : ""}>
+      <span class="menu-check">${item.checked === true ? "✓" : ""}</span>
+      <span>${escapeHtml(item.label || item.id || "命令")}</span>
+      <span class="menu-accelerator">${escapeHtml(formatAccelerator(item.accelerator || ""))}</span>
+    </button>
+  `;
+}
+
+function toggleDesktopMenu(force) {
+  const menu = $("#desktopMenu");
+  const button = $("#desktopMenuButton");
+  if (!menu || !button) return;
+  const next = force == null ? !menu.classList.contains("open") : Boolean(force);
+  menu.classList.toggle("open", next);
+  button.classList.toggle("active", next);
+  button.setAttribute("aria-expanded", String(next));
+}
+
+function closeDesktopMenu() {
+  toggleDesktopMenu(false);
+}
+
+async function executeMenuCommand(commandId) {
+  if (!commandId) return;
+  const options = {};
+  if (commandId === "settings.quit") {
+    const confirmed = window.confirm("彻底退出小店AI客服？Bot、AI、本机控制服务、Webhook 调度和悬浮窗都会停止。");
+    if (!confirmed) return;
+    options.confirm = "小店AI客服";
+  }
+  closeDesktopMenu();
+  const result = await window.mainShell.runMenuCommand(commandId, options);
+  await handleMenuCommandResult(commandId, result);
+}
+
+async function handleMenuCommandResult(commandId, result = {}) {
+  if (result.status) state.status = result.status;
+  if (result.view) {
+    await switchView(result.view);
+    return;
+  }
+  if (["settings.autostart", "settings.preventSleep", "floating.alwaysOnTop", "floating.compact", "floating.mini", "floating.show", "floating.hide"].includes(commandId)) {
     state.settings = await window.mainShell.getSettings();
-    renderChrome();
-    renderView();
+  }
+  if (commandId === "workbench.capture") {
+    showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message || "捕捉失败", result.ok ? "ok" : "error");
+  } else if (commandId === "api.checkAi") {
+    showFlash(result.ok ? "AI 服务连接正常" : result.ai?.message || "AI 服务检查失败", result.ok ? "ok" : "error");
+  } else if (commandId === "api.testWebhook") {
+    showFlash(result.ok ? "Webhook 测试已发送" : result.message || "Webhook 测试失败", result.ok ? "ok" : "error");
+  } else if (result.message) {
+    showFlash(result.message, result.ok === false ? "error" : "ok");
+  }
+  await refreshMenuModel();
+  renderChrome();
+  renderView();
+}
+
+async function refreshMenuModel() {
+  if (!window.mainShell.getMenuModel) return;
+  state.menuModel = await window.mainShell.getMenuModel();
+  renderDesktopMenu();
+}
+
+function formatAccelerator(value) {
+  return String(value || "")
+    .replace(/CmdOrCtrl/g, state.menuModel?.platform === "darwin" ? "Cmd" : "Ctrl")
+    .replace(/CommandOrControl/g, state.menuModel?.platform === "darwin" ? "Cmd" : "Ctrl");
+}
+
+function bindGlobalActions() {
+  $("#desktopMenuButton").addEventListener("click", () => toggleDesktopMenu());
+  document.addEventListener("click", (event) => {
+    if (!$("#desktopMenu")?.classList.contains("open")) return;
+    if (event.target.closest("#desktopMenu") || event.target.closest("#desktopMenuButton")) return;
+    closeDesktopMenu();
   });
-  $("#reloadPage").addEventListener("click", async () => {
-    await window.mainShell.reload();
-    showFlash("客服页正在重载");
-  });
-  $("#captureStructure").addEventListener("click", async () => {
-    showFlash("正在捕捉页面结构...");
-    const result = await window.mainShell.capturePageStructure();
-    showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message, result.ok ? "ok" : "error");
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDesktopMenu();
   });
 }
 
@@ -171,6 +266,7 @@ async function switchView(view) {
 
 function renderChrome() {
   const status = state.status || {};
+  document.body.classList.toggle("platform-darwin", status.platform === "darwin" || state.menuModel?.platform === "darwin");
   const botEnabled = Boolean(status.enabled);
   const aiOk = Boolean(status.ai?.ok && status.ai?.hasKey);
   const aiHasKey = Boolean(status.ai?.hasKey);
@@ -185,20 +281,6 @@ function renderChrome() {
   $("#aiMini").textContent = aiOk ? "AI 正常" : aiHasKey ? "AI 待测" : "缺 Key";
   $("#notifyMini").textContent = notifyConfigured ? `通知 ${status.notify?.outboxCount || 0}` : "未配置";
   $("#pageMini").textContent = page.loading ? "客服页加载中" : page.title || "客服页映射";
-  $("#toggleBot").textContent = botEnabled ? "暂停 Bot" : "开启 Bot";
-  $("#toggleBot").classList.toggle("primary", !botEnabled);
-
-  const runtime = status.bot || {};
-  const topTone = runtimeTone(runtime.tone);
-  $("#topRuntimeDot").className = `dot ${topTone === "ok" ? "" : topTone}`;
-  $("#topRuntimeLabel").textContent = shortStatus(runtime.label || runtime.status || "检测中");
-  $("#topRuntimeDetail").textContent = runtime.detail || runtime.status || "等待运行状态";
-  const topStates = buildTopStates(status);
-  setTopLamp("Ai", topStates.ai);
-  setTopLamp("Local", topStates.local);
-  setTopLamp("Script", topStates.script);
-  setTopLamp("Login", topStates.login);
-
   $$("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
   });
@@ -255,7 +337,7 @@ function renderPageView() {
     <div class="page-placeholder">
       <div class="card">
         <h3>客服页映射已打开</h3>
-        <p class="muted">微信小店客服页显示在当前工作区。顶部状态栏始终保留，可随时打开悬浮窗、暂停 Bot、重载页面或捕捉页面结构。</p>
+        <p class="muted">微信小店客服页显示在当前工作区。全局操作已迁移到 Mac 菜单栏、Windows 三条杠菜单、托盘和快捷键。</p>
       </div>
     </div>
   `;
@@ -764,7 +846,7 @@ function renderDashboard() {
   $("#dashOpenPage").addEventListener("click", () => switchView("page"));
   $("#dashOpenFloat").addEventListener("click", () => window.mainShell.openFloating("compact"));
   $("#dashReload").addEventListener("click", () => window.mainShell.reload());
-  $("#dashCapture").addEventListener("click", () => $("#captureStructure").click());
+  $("#dashCapture").addEventListener("click", captureStructureFromUi);
   $("#dashJudgments").addEventListener("click", () => switchView("judgments"));
 }
 
@@ -2021,13 +2103,14 @@ async function saveSettings(payload, okMessage) {
 }
 
 async function refreshAll() {
-  const [settings, status, records, judgments, judgmentDownload, workbench] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
     window.mainShell.getJudgmentsDownloadStatus(),
-    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(state.workbench)
+    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(state.workbench),
+    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(state.menuModel)
   ]);
   state.settings = settings;
   state.status = status;
@@ -2035,9 +2118,17 @@ async function refreshAll() {
   state.judgments = judgments;
   state.judgmentDownload = judgmentDownload;
   state.workbench = workbench;
+  state.menuModel = menuModel;
   renderChrome();
+  renderDesktopMenu();
   renderView();
   showFlash("已刷新", "ok");
+}
+
+async function captureStructureFromUi() {
+  showFlash("正在捕捉页面结构...");
+  const result = await window.mainShell.capturePageStructure();
+  showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message, result.ok ? "ok" : "error");
 }
 
 async function checkAi() {

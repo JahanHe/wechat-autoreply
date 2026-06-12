@@ -38,7 +38,7 @@ const APP_USER_DATA_DIR_NAME = "小店AI客服";
 const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
 const MAIN_SHELL_SIDEBAR_WIDTH = 236;
-const MAIN_SHELL_TOP_BAR_HEIGHT = 64;
+const MAIN_SHELL_CONTEXT_BAR_HEIGHT = 54;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
 const RUNYU_LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -165,6 +165,7 @@ async function startDesktopApp() {
   await loadRunyuAuthHistory();
   initializeRunyuAuthState();
   await saveConfig();
+  installApplicationMenu();
   await loadNotifyOutbox();
   await loadReplyRecords();
   await loadReplySummaryState();
@@ -838,6 +839,362 @@ function readControlJson(req) {
   });
 }
 
+function installApplicationMenu() {
+  if (process.platform !== "darwin") {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMacApplicationMenuTemplate()));
+}
+
+function buildMacApplicationMenuTemplate() {
+  return [
+    {
+      label: APP_DISPLAY_NAME,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { label: `隐藏${APP_DISPLAY_NAME}`, role: "hide" },
+        { label: "隐藏其他", role: "hideOthers" },
+        { label: "全部显示", role: "unhide" },
+        { type: "separator" },
+        { label: `彻底退出${APP_DISPLAY_NAME}`, accelerator: "Cmd+Q", click: () => confirmQuitFromNativeMenu() }
+      ]
+    },
+    ...desktopMenuModel().sections.map((section) => ({
+      label: section.label,
+      submenu: section.items.map((item) => macMenuItemForCommand(item))
+    })),
+    {
+      label: "编辑",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" }
+      ]
+    },
+    {
+      label: "窗口",
+      submenu: [
+        { role: "minimize" },
+        { role: "close" },
+        { type: "separator" },
+        { role: "front" }
+      ]
+    }
+  ];
+}
+
+function macMenuItemForCommand(item) {
+  if (item.type === "separator") return { type: "separator" };
+  const menuItem = {
+    label: item.label,
+    enabled: item.enabled !== false,
+    click: () => runDesktopMenuCommand(item.id, { source: "mac-menu" }).catch((error) => {
+      console.error("[menu] command failed", item.id, error);
+      showNativeMenuResult("菜单执行失败", safeErrorMessage(error));
+    })
+  };
+  if (item.accelerator) menuItem.accelerator = item.accelerator;
+  if (item.checked !== undefined) {
+    menuItem.type = "checkbox";
+    menuItem.checked = Boolean(item.checked);
+  }
+  return menuItem;
+}
+
+function desktopMenuModel() {
+  const status = menuStatusSnapshot();
+  return {
+    platform: process.platform,
+    appName: APP_DISPLAY_NAME,
+    sections: [
+      {
+        id: "settings",
+        label: "设置",
+        items: [
+          commandItem("settings.open", "打开设置", { accelerator: "CmdOrCtrl+," }),
+          commandItem("settings.autostart", "开机启动", { checked: status.autoStart }),
+          commandItem("settings.notifications", "通知设置"),
+          commandItem("settings.preventSleep", "防休眠", { checked: status.preventSleep }),
+          commandItem("settings.repair", "初始化与修复"),
+          separatorItem(),
+          commandItem("settings.quit", "彻底退出程序", { danger: true })
+        ]
+      },
+      {
+        id: "workbench",
+        label: "工作台设定",
+        items: [
+          commandItem("workbench.open", "打开工作台", { accelerator: "CmdOrCtrl+1" }),
+          commandItem("workbench.page", "客服工作台"),
+          commandItem("workbench.rules", "回复中心"),
+          commandItem("workbench.dashboard", "运行监控"),
+          commandItem("workbench.settings", "系统设置"),
+          separatorItem(),
+          commandItem("workbench.reload", "重载客服页", { accelerator: "CmdOrCtrl+R" }),
+          commandItem("workbench.capture", "捕捉页面结构")
+        ]
+      },
+      {
+        id: "bot",
+        label: "Bot",
+        items: [
+          commandItem("bot.enable", "开启 Bot", { enabled: !status.botEnabled }),
+          commandItem("bot.pause", "暂停 Bot", { enabled: status.botEnabled, accelerator: "CmdOrCtrl+Shift+B" }),
+          commandItem("bot.settings", "Bot 设定"),
+          separatorItem(),
+          commandItem("bot.testReply", "测试回复"),
+          commandItem("bot.testRule", "测试规则命中"),
+          commandItem("bot.recent", "查看最近回复")
+        ]
+      },
+      {
+        id: "floating",
+        label: "悬浮窗",
+        items: [
+          commandItem("floating.show", "开启悬浮窗", { accelerator: "CmdOrCtrl+2" }),
+          commandItem("floating.hide", "关闭悬浮窗", { enabled: status.floatingVisible }),
+          separatorItem(),
+          commandItem("floating.compact", "展开尺寸", { checked: status.floatingMode === "compact" }),
+          commandItem("floating.mini", "迷你尺寸", { checked: status.floatingMode === "mini" }),
+          commandItem("floating.alwaysOnTop", "置顶显示", { checked: status.floatingAlwaysOnTop }),
+          separatorItem(),
+          commandItem("floating.presetTopLeft", "位置预设：左上", { enabled: status.floatingVisible }),
+          commandItem("floating.presetTopRight", "位置预设：右上", { enabled: status.floatingVisible }),
+          commandItem("floating.presetBottomLeft", "位置预设：左下", { enabled: status.floatingVisible }),
+          commandItem("floating.presetBottomRight", "位置预设：右下", { enabled: status.floatingVisible }),
+          separatorItem(),
+          commandItem("floating.settings", "悬浮窗设定")
+        ]
+      },
+      {
+        id: "api",
+        label: "API",
+        items: [
+          commandItem("api.checkAi", "检查 AI 连通性"),
+          commandItem("api.settings", "API 设定"),
+          commandItem("api.webhookSettings", "Webhook 设定"),
+          commandItem("api.testWebhook", "测试 Webhook", { enabled: status.webhookConfigured }),
+          separatorItem(),
+          commandItem("api.runyuLogin", "判断库登录"),
+          commandItem("api.verifyRunyu", "检查判断库授权"),
+          commandItem("api.refreshJudgments", "刷新判断库")
+        ]
+      }
+    ]
+  };
+}
+
+function menuStatusSnapshot() {
+  return {
+    botEnabled: Boolean(config?.bot?.enabled),
+    autoStart: Boolean(config?.autoStart),
+    preventSleep: config?.watchdog?.preventAppSuspension !== false,
+    floatingVisible: Boolean(floatWindow && !floatWindow.isDestroyed() && floatWindow.isVisible()),
+    floatingMode: normalizeFloatingMode(config?.floatWindow?.mode),
+    floatingAlwaysOnTop: Boolean(config?.floatWindow?.alwaysOnTop),
+    webhookConfigured: Boolean(config?.notify?.wecomWebhookUrl)
+  };
+}
+
+function commandItem(id, label, options = {}) {
+  return {
+    type: "command",
+    id,
+    label,
+    enabled: options.enabled !== false,
+    checked: options.checked,
+    accelerator: options.accelerator || "",
+    danger: Boolean(options.danger)
+  };
+}
+
+function separatorItem() {
+  return { type: "separator" };
+}
+
+async function runDesktopMenuCommand(commandId, options = {}) {
+  const id = String(commandId || "");
+  const source = String(options.source || "menu");
+  if (!id) return { ok: false, message: "菜单命令为空" };
+
+  if (id === "settings.open" || id === "settings.repair" || id === "workbench.settings") return openMainShellView("setup");
+  if (id === "settings.notifications" || id === "api.webhookSettings") return openMainShellView("webhook");
+  if (id === "settings.autostart") return toggleAutoStartFromMenu();
+  if (id === "settings.preventSleep") return togglePreventSleepFromMenu();
+  if (id === "settings.quit") {
+    if (source === "mac-menu") return confirmQuitFromNativeMenu();
+    return requestFullQuit({ confirm: options.confirm, source });
+  }
+
+  if (id === "workbench.open") return openMainShellView(mainMode === "page" ? "page" : "dashboard");
+  if (id === "workbench.page") return openMainShellView("page");
+  if (id === "workbench.rules") return openMainShellView("rules");
+  if (id === "workbench.dashboard") return openMainShellView("dashboard");
+  if (id === "workbench.reload") {
+    reloadKfPage();
+    return { ok: true, message: "客服页正在重载", status: statusPayload() };
+  }
+  if (id === "workbench.capture") return runCaptureStructureFromMenu(source);
+
+  if (id === "bot.enable") return setBotEnabled(true);
+  if (id === "bot.pause") return setBotEnabled(false);
+  if (id === "bot.settings") return openMainShellView("bot");
+  if (id === "bot.testReply") return openMainShellView("api");
+  if (id === "bot.testRule") return openMainShellView("rules");
+  if (id === "bot.recent") return openMainShellView("logs");
+
+  if (id === "floating.show") {
+    showFloatingWindow();
+    refreshDesktopMenuSurfaces();
+    return { ok: true, message: "悬浮窗已打开", status: statusPayload() };
+  }
+  if (id === "floating.hide") {
+    await hideFloatingWindowFromMenu();
+    return { ok: true, message: "悬浮窗已隐藏", status: statusPayload() };
+  }
+  if (id === "floating.compact") return setFloatingModeFromMenu("compact");
+  if (id === "floating.mini") return setFloatingModeFromMenu("mini");
+  if (id === "floating.alwaysOnTop") return setFloatingAlwaysOnTopFromMenu(!Boolean(config?.floatWindow?.alwaysOnTop));
+  if (id === "floating.presetTopLeft") return setFloatingPresetFromMenu("top-left");
+  if (id === "floating.presetTopRight") return setFloatingPresetFromMenu("top-right");
+  if (id === "floating.presetBottomLeft") return setFloatingPresetFromMenu("bottom-left");
+  if (id === "floating.presetBottomRight") return setFloatingPresetFromMenu("bottom-right");
+  if (id === "floating.settings") return openMainShellView("floating");
+
+  if (id === "api.checkAi") return checkAiFromMenu(source);
+  if (id === "api.settings") return openMainShellView("api");
+  if (id === "api.testWebhook") return testWebhookFromMenu(source);
+  if (id === "api.runyuLogin") return openRunyuLoginWindow({ source });
+  if (id === "api.verifyRunyu") return selfCheckRunyuAuth({ notify: true, source });
+  if (id === "api.refreshJudgments") return refreshJudgmentLibrary({ notify: true, source });
+
+  return { ok: false, message: `未知菜单命令：${id}` };
+}
+
+async function openMainShellView(view) {
+  const normalized = String(view || "dashboard");
+  showMainWindow();
+  await setMainMode(normalized === "page" ? "page" : normalized);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("main-open-view", { view: normalized });
+  }
+  return { ok: true, view: normalized, status: statusPayload() };
+}
+
+async function toggleAutoStartFromMenu() {
+  config.autoStart = !Boolean(config.autoStart);
+  applyLoginItemSetting();
+  await saveConfig();
+  refreshDesktopMenuSurfaces();
+  return { ok: true, checked: Boolean(config.autoStart), status: statusPayload() };
+}
+
+async function togglePreventSleepFromMenu() {
+  config.watchdog = normalizeWatchdogConfig({
+    ...config.watchdog,
+    preventAppSuspension: config?.watchdog?.preventAppSuspension === false
+  });
+  syncPowerBlocker();
+  await saveConfig();
+  refreshDesktopMenuSurfaces();
+  return { ok: true, checked: config.watchdog.preventAppSuspension !== false, status: statusPayload() };
+}
+
+async function hideFloatingWindowFromMenu() {
+  if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide();
+  config.floatWindow.visible = false;
+  await saveConfig();
+  refreshDesktopMenuSurfaces();
+}
+
+async function setFloatingModeFromMenu(mode) {
+  showFloatingWindow();
+  await setFloatingMode(mode);
+  refreshDesktopMenuSurfaces();
+  return { ok: true, mode: normalizeFloatingMode(mode), status: statusPayload() };
+}
+
+async function setFloatingAlwaysOnTopFromMenu(value) {
+  await setFloatingAlwaysOnTop(value);
+  refreshDesktopMenuSurfaces();
+  return { ok: true, checked: Boolean(value), status: statusPayload() };
+}
+
+async function setFloatingPresetFromMenu(preset) {
+  showFloatingWindow();
+  const ok = await setFloatingPreset(preset);
+  refreshDesktopMenuSurfaces();
+  return { ok, preset, status: statusPayload() };
+}
+
+async function checkAiFromMenu(source) {
+  await checkAiHealth({ notifyOk: source === "mac-menu" });
+  refreshDesktopMenuSurfaces();
+  if (source === "mac-menu") {
+    showNativeMenuResult("AI 连通性", lastAiHealth.ok ? "AI 服务连接正常。" : lastAiHealth.message || "AI 服务检查失败。");
+  }
+  return { ok: Boolean(lastAiHealth.ok), ai: lastAiHealth, status: statusPayload() };
+}
+
+async function testWebhookFromMenu(source) {
+  const env = readEnvValues();
+  const webhookUrl = config?.notify?.wecomWebhookUrl || env.WECOM_BOT_WEBHOOK_URL || process.env.WECOM_BOT_WEBHOOK_URL || "";
+  if (!webhookUrl) return { ok: false, message: "Webhook 未配置" };
+  const result = await testWebhookUrl(webhookUrl);
+  if (source === "mac-menu") {
+    showNativeMenuResult("Webhook 测试", result.ok ? "Webhook 测试已发送。" : result.message || "Webhook 测试失败。");
+  }
+  return result;
+}
+
+async function runCaptureStructureFromMenu(source) {
+  const result = await capturePageStructure();
+  if (source === "mac-menu") {
+    showNativeMenuResult("页面结构捕捉", result.ok ? `页面结构已保存：${result.count || 0} 个节点。` : result.message || "捕捉失败。");
+  }
+  return result;
+}
+
+async function confirmQuitFromNativeMenu() {
+  const targetWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+  const result = await dialog.showMessageBox(targetWindow || undefined, {
+    type: "warning",
+    buttons: ["取消", "彻底退出"],
+    defaultId: 0,
+    cancelId: 0,
+    title: `退出${APP_DISPLAY_NAME}`,
+    message: `彻底退出${APP_DISPLAY_NAME}？`,
+    detail: "Bot、AI、本机控制服务、Webhook 调度和悬浮窗都会停止。"
+  });
+  if (result.response !== 1) return { ok: false, cancelled: true };
+  return requestFullQuit({ confirm: APP_DISPLAY_NAME, source: "mac-menu" });
+}
+
+function showNativeMenuResult(title, message) {
+  const targetWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+  dialog.showMessageBox(targetWindow || undefined, {
+    type: "info",
+    title,
+    message: title,
+    detail: String(message || "")
+  }).catch((error) => console.error("[menu] show result failed", error));
+}
+
+function refreshDesktopMenuSurfaces() {
+  installApplicationMenu();
+  updateTrayMenu();
+  broadcastStatus();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("desktop-menu-model", desktopMenuModel());
+  }
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -846,6 +1203,7 @@ function createMainWindow() {
     minHeight: 720,
     title: APP_DISPLAY_NAME,
     icon: APP_ICON_PATH,
+    autoHideMenuBar: process.platform !== "darwin",
     show: true,
     webPreferences: {
       preload: resolve(__dirname, "main-shell-preload.cjs"),
@@ -1080,9 +1438,9 @@ function layoutKfView() {
   const [width, height] = mainWindow.getContentSize();
   kfView.setBounds({
     x: MAIN_SHELL_SIDEBAR_WIDTH,
-    y: MAIN_SHELL_TOP_BAR_HEIGHT,
+    y: MAIN_SHELL_CONTEXT_BAR_HEIGHT,
     width: Math.max(0, width - MAIN_SHELL_SIDEBAR_WIDTH),
-    height: Math.max(0, height - MAIN_SHELL_TOP_BAR_HEIGHT)
+    height: Math.max(0, height - MAIN_SHELL_CONTEXT_BAR_HEIGHT)
   });
   kfView.setAutoResize({ width: true, height: true });
 }
@@ -1134,7 +1492,7 @@ function createFloatingWindow() {
   });
   floatWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   floatWindow.loadFile(FLOATING_HTML_PATH);
-  floatWindow.once("ready-to-show", () => broadcastStatus());
+  floatWindow.once("ready-to-show", () => refreshDesktopMenuSurfaces());
   floatWindow.on("move", persistFloatingBoundsSoon);
   floatWindow.on("resize", persistFloatingBoundsSoon);
   floatWindow.on("close", (event) => {
@@ -1143,7 +1501,7 @@ function createFloatingWindow() {
     floatWindow.hide();
     config.floatWindow.visible = false;
     saveConfig().catch((error) => console.error("[desktop] save floating visible failed", error));
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
   });
 }
 
@@ -1158,18 +1516,15 @@ function updateTrayMenu() {
   if (!tray) return;
   const enabled = Boolean(config.bot.enabled);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `打开${APP_DISPLAY_NAME}`, click: showMainWindow },
-    { label: "显示悬浮窗", click: showFloatingWindow },
-    { label: enabled ? "暂停 Bot 接管" : "开启 Bot 接管", click: () => setBotEnabled(!enabled) },
-    { label: "重载客服页", click: reloadKfPage },
-    { label: "检查 AI 服务", click: () => checkAiHealth({ notifyOk: true }) },
+    { label: `打开${APP_DISPLAY_NAME}`, click: () => runDesktopMenuCommand("workbench.open", { source: "tray" }) },
+    { label: "显示悬浮窗", click: () => runDesktopMenuCommand("floating.show", { source: "tray" }) },
+    { label: enabled ? "暂停 Bot 接管" : "开启 Bot 接管", click: () => runDesktopMenuCommand(enabled ? "bot.pause" : "bot.enable", { source: "tray" }) },
+    { label: "重载客服页", click: () => runDesktopMenuCommand("workbench.reload", { source: "tray" }) },
+    { label: "检查 AI 服务", click: () => runDesktopMenuCommand("api.checkAi", { source: "tray" }) },
     { type: "separator" },
     {
       label: "退出程序",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      }
+      click: () => confirmQuitFromNativeMenu()
     }
   ]));
 }
@@ -1239,7 +1594,7 @@ function showFloatingWindow() {
     saveConfig().catch((error) => console.error("[desktop] save floating visible failed", error));
     floatWindow.show();
     floatWindow.focus();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return;
   }
 
@@ -1247,6 +1602,7 @@ function showFloatingWindow() {
   config.floatWindow.visible = true;
   saveConfig().catch((error) => console.error("[desktop] save floating enabled failed", error));
   createFloatingWindow();
+  refreshDesktopMenuSurfaces();
 }
 
 async function setFloatingMode(mode) {
@@ -1259,7 +1615,7 @@ async function setFloatingMode(mode) {
   floatWindow.setSize(width, height, true);
   config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
   await saveConfig();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   return true;
 }
 
@@ -1290,7 +1646,7 @@ async function setFloatingAlwaysOnTop(value) {
     floatWindow.setAlwaysOnTop(Boolean(value));
   }
   await saveConfig();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   return true;
 }
 
@@ -1342,8 +1698,7 @@ function registerIpc() {
     }
     await saveConfig();
     sendConfigChanges(changes);
-    updateTrayMenu();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return true;
   });
 
@@ -1381,7 +1736,7 @@ function registerIpc() {
     }
     config.floatWindow.visible = false;
     await saveConfig();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return true;
   });
   ipcMain.handle("float-quit", () => requestFullQuit({ confirm: APP_DISPLAY_NAME, source: "floating" }));
@@ -1398,6 +1753,11 @@ function registerIpc() {
 
   ipcMain.handle("main-get-status", () => statusPayload());
   ipcMain.handle("main-get-workbench-snapshot", () => workbenchSnapshotPayload());
+  ipcMain.handle("main-get-menu-model", () => desktopMenuModel());
+  ipcMain.handle("main-run-menu-command", (_event, commandId, options = {}) => runDesktopMenuCommand(commandId, {
+    ...(options || {}),
+    source: "windows-menu"
+  }));
   ipcMain.handle("main-get-settings", () => settingsPayload());
   ipcMain.handle("main-save-settings", (_event, payload) => saveDesktopSettings(payload || {}));
   ipcMain.handle("main-set-mode", (_event, mode) => setMainMode(mode));
@@ -1410,7 +1770,7 @@ function registerIpc() {
     if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide();
     config.floatWindow.visible = false;
     await saveConfig();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return statusPayload();
   });
   ipcMain.handle("main-toggle-enabled", () => setBotEnabled(!config.bot.enabled));
@@ -1502,11 +1862,11 @@ async function setBotEnabled(enabled) {
   config.bot.enabled = enabled;
   await saveConfig();
   sendConfigChanges({ enabled: { oldValue, newValue: enabled } });
-  updateTrayMenu();
   updateFloatingStatus(enabled ? "检测中" : "暂停中", {
     code: enabled ? "monitoring" : "paused",
     detail: enabled ? "Bot已开启，正在检测客户消息" : "Bot已暂停，不会自动发送回复"
   });
+  refreshDesktopMenuSurfaces();
   return statusPayload();
 }
 
@@ -1581,6 +1941,7 @@ function statusPayload() {
   const records = replyRecordStats(replyRecords);
   const payload = {
     appName: APP_DISPLAY_NAME,
+    platform: process.platform,
     bot: lastBotStatus,
     botHistory: botStatusHistory,
     ai: lastAiHealth,
@@ -1903,8 +2264,7 @@ async function saveDesktopSettings(payload) {
       detail: config.bot.enabled ? "Bot已开启，正在检测客户消息" : "Bot已暂停，不会自动发送回复"
     });
   }
-  updateTrayMenu();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   flushNotifyOutbox().catch((error) => console.error("[notify] flush after settings failed", error));
   return settingsPayload();
 }
@@ -2143,7 +2503,7 @@ async function setFloatingPreset(preset) {
   floatWindow.setBounds(next, true);
   config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
   await saveConfig();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   return true;
 }
 

@@ -24,7 +24,7 @@
         --radius: 8px;
         --control-radius: 8px;
         --sidebar: 236px;
-        --topbar: 64px;
+        --contextbar: 54px;
         --detail: 340px;
       }
 
@@ -145,11 +145,45 @@
       }
 
       .brand {
-        padding: 18px 16px 14px;
+        padding: 14px 16px 12px;
         display: grid;
+        grid-template-columns: 34px 42px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+      }
+
+      .menu-button {
+        width: 34px;
+        height: 34px;
+        min-height: 34px;
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        border-color: var(--hairline);
+        background: #fff;
+      }
+
+      .menu-button span {
+        display: block;
+        width: 16px;
+        height: 2px;
+        margin: 2px 0;
+        border-radius: 999px;
+        background: var(--ink);
+      }
+
+      .menu-button.active {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(204, 120, 92, .12);
+      }
+
+      .platform-darwin .menu-button {
+        display: none;
+      }
+
+      .platform-darwin .brand {
         grid-template-columns: 42px minmax(0, 1fr);
         gap: 12px;
-        align-items: center;
       }
 
       .brand img {
@@ -174,6 +208,100 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .desktop-menu {
+        position: fixed;
+        top: 58px;
+        left: 12px;
+        z-index: 60;
+        width: min(340px, calc(100vw - 24px));
+        max-height: calc(100vh - 76px);
+        overflow: auto;
+        display: none;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: #fff;
+        box-shadow: 0 24px 60px rgba(20, 20, 19, .18);
+        padding: 8px;
+      }
+
+      .desktop-menu.open {
+        display: grid;
+        gap: 6px;
+      }
+
+      .menu-section {
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        overflow: hidden;
+        background: var(--soft-panel-2);
+      }
+
+      .menu-section summary {
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 10px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .menu-section summary::after {
+        content: ">";
+        color: var(--muted);
+      }
+
+      .menu-items {
+        display: grid;
+        gap: 2px;
+        padding: 6px;
+        border-top: 1px solid var(--hairline);
+        background: #fff;
+      }
+
+      .menu-command {
+        width: 100%;
+        min-height: 34px;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 0 8px;
+        border-color: transparent;
+        background: transparent;
+        text-align: left;
+      }
+
+      .menu-command:hover {
+        border-color: #ead8cd;
+        background: #fff5ef;
+      }
+
+      .menu-command:disabled {
+        opacity: .42;
+      }
+
+      .menu-command.danger {
+        color: var(--error);
+      }
+
+      .menu-check {
+        color: var(--primary);
+        font-weight: 800;
+      }
+
+      .menu-accelerator {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .menu-separator {
+        height: 1px;
+        margin: 4px 2px;
+        background: var(--hairline);
       }
 
       .status-strip {
@@ -332,84 +460,7 @@
         height: 100vh;
         overflow: hidden;
         display: grid;
-        grid-template-rows: var(--topbar) auto minmax(0, 1fr);
-      }
-
-      .top-bar {
-        min-width: 0;
-        display: grid;
-        grid-template-columns: minmax(260px, 1fr) auto;
-        gap: 16px;
-        align-items: center;
-        height: var(--topbar);
-        padding: 10px 18px;
-        border-bottom: 1px solid var(--hairline);
-        background: rgba(255, 255, 255, .86);
-      }
-
-      .top-status {
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .top-status-main {
-        min-width: 0;
-        display: grid;
-        gap: 2px;
-      }
-
-      .top-status-main strong,
-      .top-status-main span {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .top-status-main strong {
-        font-size: 15px;
-      }
-
-      .top-status-main span {
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .top-lamps {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 7px;
-        align-items: center;
-      }
-
-      .top-lamp {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 28px;
-        padding: 0 8px;
-        border: 1px solid var(--hairline);
-        border-radius: 999px;
-        background: #fff;
-        color: var(--body);
-        font-size: 12px;
-        white-space: nowrap;
-      }
-
-      .top-actions {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        justify-content: flex-end;
-        min-width: 0;
-      }
-
-      .top-actions button {
-        min-width: 88px;
-        padding: 0 10px;
-        white-space: nowrap;
+        grid-template-rows: auto minmax(0, 1fr);
       }
 
       .context-bar {
@@ -418,6 +469,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
+        min-height: var(--contextbar);
         padding: 10px 18px;
         border-bottom: 1px solid var(--hairline);
         background: rgba(250, 249, 245, .94);
@@ -1191,14 +1243,14 @@
         max-width: 520px;
       }
 
-      details {
+      details:not(.menu-section) {
         border: 1px solid var(--hairline);
         border-radius: var(--radius);
         background: #fff;
         padding: 10px 12px;
       }
 
-      details summary {
+      details:not(.menu-section) summary {
         cursor: pointer;
         font-weight: 650;
       }
@@ -1216,7 +1268,7 @@
         }
 
         .brand {
-          grid-template-columns: 42px;
+          grid-template-columns: 34px;
           justify-content: center;
         }
 
@@ -1225,6 +1277,18 @@
         .nav-copy,
         .nav small {
           display: none;
+        }
+
+        .brand img {
+          display: none;
+        }
+
+        .platform-darwin .brand {
+          grid-template-columns: 42px;
+        }
+
+        .platform-darwin .brand img {
+          display: block;
         }
 
         .nav button {
@@ -1249,18 +1313,6 @@
 
         .detail-panel.open {
           display: block;
-        }
-
-        .top-bar {
-          grid-template-columns: 1fr;
-          height: auto;
-          min-height: var(--topbar);
-          align-items: start;
-        }
-
-        .top-actions {
-          justify-content: flex-start;
-          overflow-x: auto;
         }
 
         .grid.cols-3,
@@ -1292,12 +1344,18 @@
     <div class="app">
       <aside class="sidebar">
         <div class="brand">
+          <button id="desktopMenuButton" class="menu-button" type="button" title="打开菜单" aria-label="打开菜单" aria-expanded="false">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
           <img src="assets/logo.png" alt="">
           <div>
             <h1>小店AI客服控制台</h1>
             <p id="pageMini">客服页映射</p>
           </div>
         </div>
+        <div id="desktopMenu" class="desktop-menu" aria-label="全局菜单"></div>
 
         <div class="status-strip">
           <div class="mini-status">
@@ -1314,27 +1372,6 @@
       </aside>
 
       <section class="workspace">
-        <header id="topBar" class="top-bar">
-          <div class="top-status">
-            <i id="topRuntimeDot" class="dot active"></i>
-            <div class="top-status-main">
-              <strong id="topRuntimeLabel">启动中</strong>
-              <span id="topRuntimeDetail">正在启动客服工作台</span>
-            </div>
-            <div class="top-lamps" aria-label="工作台状态">
-              <span class="top-lamp"><i id="topAiDot" class="dot warn"></i><span id="topAiText">AI</span></span>
-              <span class="top-lamp"><i id="topLocalDot" class="dot warn"></i><span id="topLocalText">本地</span></span>
-              <span class="top-lamp"><i id="topScriptDot" class="dot warn"></i><span id="topScriptText">脚本</span></span>
-              <span class="top-lamp"><i id="topLoginDot" class="dot warn"></i><span id="topLoginText">登录</span></span>
-            </div>
-          </div>
-          <div class="top-actions">
-            <button id="openFloat" class="primary">打开悬浮窗</button>
-            <button id="toggleBot">暂停 Bot</button>
-            <button id="reloadPage">重载客服页</button>
-            <button id="captureStructure">捕捉结构</button>
-          </div>
-        </header>
         <div id="contextBar" class="context-bar" aria-label="页面上下文"></div>
         <div class="workspace-body">
           <main id="content" class="content" aria-live="polite"></main>

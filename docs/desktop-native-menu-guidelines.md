@@ -158,7 +158,7 @@ Windows 不使用屏幕顶部系统菜单栏，也不显示一整条传统菜单
 
 ## 命令注册规则
 
-实现时必须建立统一命令注册表。每个命令至少包含：
+当前实现必须使用统一命令模型。每个命令至少包含：
 
 ```text
 id
@@ -174,10 +174,29 @@ run(context)
 
 约束：
 
-- Mac `Menu`、Windows 三条杠菜单、托盘菜单和快捷键都从命令注册表派生。
+- Mac `Menu`、Windows 三条杠菜单、托盘菜单和快捷键都从同一命令模型派生。
 - 不能在不同 UI 里复制业务逻辑。
 - 命令执行函数必须复用现有主进程能力，例如 `showMainWindow`、`setBotEnabled`、`reloadKfPage`、`checkAiHealth`、`showFloatingWindow`。
 - 状态变化后必须刷新所有菜单表面。
+
+当前 IPC 约定：
+
+| 接口 | 用途 |
+| --- | --- |
+| `main-get-menu-model` | 返回 Windows 三条杠菜单渲染所需的业务菜单模型 |
+| `main-run-menu-command` | 执行菜单命令，Windows 三条杠菜单只传命令 ID |
+| `desktop-menu-model` | 主进程向主控台推送最新菜单模型 |
+| `main-open-view` | Mac 菜单或托盘触发视图切换时，通知主控台同步页面 |
+
+当前顶级命令 ID 前缀：
+
+| 前缀 | 菜单 |
+| --- | --- |
+| `settings.*` | 设置 |
+| `workbench.*` | 工作台设定 |
+| `bot.*` | Bot |
+| `floating.*` | 悬浮窗 |
+| `api.*` | API |
 
 ## 快捷键规则
 
