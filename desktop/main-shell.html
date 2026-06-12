@@ -29,8 +29,8 @@
         --contextbar: 46px;
         --chrome-control-size: 26px;
         --chrome-control-top: 10px;
-        --chrome-control-left: 76px;
-        --chrome-control-gap: 8px;
+        --chrome-control-left: 88px;
+        --chrome-control-gap: 12px;
       }
 
       * {
@@ -221,6 +221,13 @@
       .collapse-button:hover {
         border-color: var(--hairline);
         background: #fff;
+        color: var(--ink);
+      }
+
+      .platform-darwin .collapse-button,
+      body.sidebar-collapsed .top-collapse-button {
+        border-color: #ead8cd;
+        background: #fff5ef;
         color: var(--ink);
       }
 

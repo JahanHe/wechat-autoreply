@@ -267,7 +267,7 @@ async function assertNavigationStructure(page) {
   if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapseButtonHit) throw new Error(`折叠按钮被其他层遮挡: ${JSON.stringify(result)}`);
   if (!result.collapseButtonMatchesTabs) throw new Error(`折叠按钮没有和页签按钮同层对齐: ${JSON.stringify(result)}`);
-  if (result.controlGap !== 8) throw new Error(`折叠按钮和页签间距不一致: ${JSON.stringify(result)}`);
+  if (result.controlGap !== 12) throw new Error(`折叠按钮和页签间距不一致: ${JSON.stringify(result)}`);
   if (!result.collapseButtonKeepsPosition) throw new Error(`折叠按钮展开/折叠位置不一致: ${JSON.stringify(result)}`);
   if (!result.expandedAfterTopClick) throw new Error(`折叠按钮无法恢复展开: ${JSON.stringify(result)}`);
 }
