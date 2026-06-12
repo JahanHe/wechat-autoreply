@@ -1,5 +1,7 @@
 # 小店AI客服项目历程：从浏览器依赖到桌面工作台
 
+> 本文定位：项目历史和演进记录，不作为当前架构规范。当前规范以 [ARCHITECTURE.md](../ARCHITECTURE.md) 和 [docs/README.md](README.md) 为准。
+
 > 这个项目的主线不是“写一个会聊天的机器人”，而是把一个容易被关掉、容易漏配、容易丢规则的浏览器自动化工具，推进成一个可以下载安装、扫码登录、补 Key 后长期运行的桌面客服工作台。
 
 ## 证据来源
@@ -211,10 +213,10 @@ flowchart TD
 
 当前 Release：
 
-- [v0.3.6 发布页](https://github.com/JahanHe/wechat-autoreply/releases/tag/v0.3.6)
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.3.6/wechat-autoreply-windows-portable.exe)
+- [v0.3.6 发布页](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.3.6)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.3.6/wechat-autoreply-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.3.6/wechat-autoreply-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.3.6/wechat-autoreply-windows-portable.exe)
 
 ## 第七幕：带着答案回来
 

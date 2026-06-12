@@ -1,5 +1,7 @@
 # 小店AI客服运行状态说明
 
+> 本文定位：主控台、悬浮窗和通知共用的运行状态词典。上级规范：[ARCHITECTURE.md](../ARCHITECTURE.md)，UI 演进见 [workbench-optimization-plan.md](workbench-optimization-plan.md)。
+
 主控制台和桌面悬浮窗使用同一个运行状态源。每个短状态最多 6 个字符，用于快速判断程序正在做什么；状态下方的详细说明不受 6 字限制，用来解释当前客户、动作和失败原因。
 
 ## 指示灯

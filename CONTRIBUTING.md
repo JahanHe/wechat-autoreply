@@ -1,8 +1,8 @@
 # Contributing
 
-Thanks for improving 小店AI客服. This project is a desktop automation tool, so changes must protect existing reply behavior and avoid leaking local credentials.
+本文是协作者改动项目时的准入规则。架构和模块边界以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；用户入口以 [README.md](README.md) 为准。
 
-## Local Setup
+## 本地准备
 
 ```bash
 npm install
@@ -10,74 +10,118 @@ npm run build-extension
 npm run desktop
 ```
 
-Use a real test shop account only when you have permission to do so. For automated tests, prefer fixture-based scripts under `scripts/`.
+只在你有权限的店铺和账号上测试微信小店客服页。自动化测试优先使用 `scripts/` 下的 fixture 或 Playwright/Electron 脚本。
 
-## Required Checks
+## PR 前检查
 
-Before opening a pull request or release commit, run the checks that match your change:
+每个 PR 都要说明：
+
+- 改动内容和用户影响。
+- 涉及的模块边界。
+- 跑过的检查命令。
+- 是否涉及微信客服页自动化、Runyu 授权、AI、Webhook、配置、安装包或敏感数据。
+- 如果测试无法运行，说明原因、风险和替代验证。
+
+基础检查：
 
 ```bash
 npm run build-extension
-npm run test:extension-modules
-npm run test:status-ui
-npm run test:release-readiness
 npm run check:secrets
 npm run doctor
 ```
 
-For packaging changes, also run:
+按改动类型追加：
 
-```bash
-npm run dist:mac
-npm run test:macos-package
-```
+| 改动类型 | 追加检查 |
+| --- | --- |
+| 规则、文本、AI、知识库 | `npm run test:extension-modules`, `npm run test:ai-knowledge`, `npm run test:baseline` |
+| Electron 主进程、窗口、生命周期 | `npm run test:desktop-modules`, `npm run test:lifecycle` |
+| 主控台、悬浮窗、状态 UI | `npm run test:status-ui` |
+| 页面动作、图片、文件、商品、登录 | `npm run test:regressions`，并补充人工验证说明 |
+| 发布、安装包、资源 | `npm run test:release-readiness`, `npm run test:packaged-resources` |
+| macOS 打包 | `npm run dist:mac`, `npm run test:macos-package` |
+| Windows 打包 | `npm run dist:win`, `npm run test:windows-packages` 或 GitHub Actions 结果 |
 
-Windows installer and portable-package smoke tests run in GitHub Actions.
+## 目录归属
 
-## Secrets and Private Data
+- `desktop/`：Electron 主进程、窗口、托盘、悬浮窗、preload、状态中心和配置校验。
+- `extension/`：注入微信小店客服页的 content script 和浏览器扩展相关文件。
+- `src/`：可复用业务逻辑，如规则匹配、AI 客户端、知识库、Runyu 查询和文本工具。
+- `config/`：默认规则、默认 AI 风格、承接语和随包图片。
+- `scripts/`：构建、安装、测试、诊断和发布检查脚本。
+- `docs/`：专题文档、历史说明和发布说明。
 
-Never commit:
+不要把同一段业务逻辑复制到多个 UI。规则匹配、页面动作、状态推断、菜单命令等共享行为应有单一事实来源。
 
-- DeepSeek API Key
-- Enterprise WeChat / WeCom webhook URL
-- Runyu Cookie or session token
-- Desktop control Token
-- `.env`
-- personal runtime cache
-- private Runyu judgment-library exports or downloaded private data
-- local WeChat shop session data
+## 代码和 UI 规则
 
-If a log, screenshot, or fixture contains any credential, redact it before committing.
+- 保持现有 Electron + plain JavaScript 结构，除非已有明确迁移计划。
+- 确定性规则优先，AI 只做 fallback 或补充判断。
+- 用户界面保持紧凑、浅色、可扫描，适合客服长期值守。
+- 全局命令遵守 `docs/desktop-native-menu-guidelines.md`：Mac 用系统菜单栏，Windows 用小型三条杠菜单。
+- 状态标签遵守 `docs/runtime-statuses.md`，短状态不要随意新增或改名。
+- 敏感值不得进入命令行参数、日志、通知、截图、测试 fixture 或文档示例。
 
-## WeChat Shop Page Changes
+## 微信客服页自动化
 
-Changes that touch the mapped WeChat shop customer-service page must include clear verification notes:
+触碰客服页 DOM、selector、上传、商品、邀请下单、发送按钮或登录判断时，必须提供验证说明：
 
-- what page state was tested
-- what customer message or action triggered the behavior
-- whether text, image, file, product card, or order invitation was sent
-- whether the action produced a reply record and status trace
-- any screenshot evidence if the change affects layout or page automation
+- 测试页面状态和 URL。
+- 触发的客户消息或人工操作。
+- 实际发送的类型：文字、图片、文件、商品卡片、邀请下单、素材或忽略。
+- 是否产生回复记录、状态 Trace 和 Webhook 摘要。
+- 页面结构是否需要重新捕捉并更新 `docs/wechat-kf-page-structure.md`。
 
-Do not replace a tested selector or page action with a guess. If the page structure changed, capture the page structure and document the new target.
+禁止用猜测替换已验证 selector。页面结构变化时，先捕捉结构，再改动作逻辑。
 
-## Code Style
+## 配置和密钥
 
-- Keep the existing Electron and plain JavaScript structure unless a larger migration is explicitly planned.
-- Keep user-facing UI light, compact, and operational.
-- Prefer deterministic rules before AI fallback.
-- Keep sensitive values out of command-line arguments and logs.
-- Add tests near the behavior being changed.
+永远不要提交：
+
+- DeepSeek API Key。
+- 企业微信 / WeCom Webhook URL。
+- Runyu Cookie、session token 或授权历史。
+- Desktop control Token。
+- `.env`、个人运行缓存、私有判断库导出。
+- 微信小店登录态、Chrome profile、二维码截图或客户隐私。
+
+如果日志、截图、fixture 或文档包含凭证，先脱敏再提交。`npm run check:secrets` 通过不代表可以跳过人工检查。
+
+## 文档同步
+
+以下改动必须同步文档：
+
+- Electron 窗口、菜单、托盘、悬浮窗。
+- 回复决策顺序、规则匹配、AI fallback。
+- Runyu 登录、Cookie、判断库查询。
+- Webhook、通知补发、回复记录。
+- 配置文件、运行目录、打包文件。
+- 安全、密钥、权限、缓存。
+- 发布流程、安装包命名和下载链接。
+
+文档优先级：`ARCHITECTURE.md` > `CONTRIBUTING.md` > `README.md` > `docs/README.md` > `docs/*`。
+
+## 发布和版本
+
+发布相关提交必须一起更新：
+
+- `package.json` 版本。
+- `README.md` 下载链接和版本说明。
+- `CHANGELOG.md`。
+- `docs/release-notes/` 下对应版本说明。
+- 发布检查脚本或打包资源检查，如果产物命名或资源列表改变。
+
+正式安装包在 GitHub Releases，不在 Packages。
 
 ## Commit Style
 
-Use short conventional prefixes when practical:
+优先使用简短前缀：
 
-- `fix:` for bug fixes
-- `feat:` for new capabilities
-- `docs:` for documentation
-- `test:` for test coverage
-- `ci:` for workflow changes
-- `chore:` for version or release maintenance
+- `fix:` bug 修复。
+- `feat:` 新能力。
+- `docs:` 文档。
+- `test:` 测试。
+- `ci:` 工作流。
+- `chore:` 版本、发布或维护。
 
-Release commits should update version numbers, release notes, README links, and release readiness checks together.
+提交范围要小而明确。不要把无关 logo 草稿、个人运行目录、构建产物和功能改动混在同一个提交里。

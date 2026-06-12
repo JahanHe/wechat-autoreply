@@ -1,5 +1,7 @@
 # 小店AI客服新版工作台优化方案
 
+> 本文定位：工作台信息架构和 UI 演进专题规范。上级规范：[ARCHITECTURE.md](../ARCHITECTURE.md)，全局菜单规范：[desktop-native-menu-guidelines.md](desktop-native-menu-guidelines.md)。
+
 这份方案来自 v0.4.0 前的工作台重构讨论，并在 v0.4.1 开始落地为新版主控台。它用于约束后续继续把主控台从“功能配置集合”优化成“对象、状态、动作、反馈”的高频工作台。
 
 > 后续桌面端全局入口以 [桌面端原生菜单设计规范](./desktop-native-menu-guidelines.md) 为准。该规范要求 Mac 使用系统顶部菜单栏，Windows 使用小型三条杠菜单，并移除当前主窗口内固定 64px Top Bar。
@@ -13,7 +15,7 @@
 | Context Bar | 已承载二级导航和当前页面上下文 |
 | Main Workspace | 已保留原业务页面和表单，降低功能回归风险 |
 | Detail Panel | 已支持规则摘要、日志 Trace、异常队列和 Webhook 队列 |
-| BrowserView | 待迁移：后续不再为旧 Top Bar 预留固定高度，客服页映射由侧边栏和 Context Bar 边界约束 |
+| BrowserView | 待迁移：后续不再因旧 Top Bar 固定下移，客服页映射由侧边栏和 Context Bar 边界约束 |
 
 ## 目标
 

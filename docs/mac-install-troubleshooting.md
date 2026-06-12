@@ -1,5 +1,7 @@
 # macOS 安装和打不开处理
 
+> 本文定位：macOS 安装拦截和打不开问题处理。上级入口：[README.md](../README.md)，发布和打包规则见 [ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 > 这份文件会放在 DMG 里。遇到“无法打开”“开发者无法验证”“JavaScript error occurred in the main process”时，先按这里排查。
 
 ## 正常安装

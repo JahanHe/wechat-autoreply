@@ -1,5 +1,7 @@
 # 微信小店客服规则库标准
 
+> 本文定位：回复规则和动作规则专题规范。上级规范：[ARCHITECTURE.md](../ARCHITECTURE.md)，协作准入：[CONTRIBUTING.md](../CONTRIBUTING.md)。
+
 规则在桌面悬浮窗里编辑：设置 > 回复。
 
 ## 当前业务主商品

@@ -1,5 +1,7 @@
 # 小店AI客服桌面端原生菜单设计规范
 
+> 本文定位：Mac 原生菜单、Windows 三条杠菜单、托盘和快捷键的 UI source of truth。上级规范：[ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 这份规范定义桌面端全局操作入口。后续涉及 Mac 菜单栏、Windows 三条杠菜单、托盘菜单、窗口内快捷入口和快捷键时，都以本文为准。
 
 ## 设计原则

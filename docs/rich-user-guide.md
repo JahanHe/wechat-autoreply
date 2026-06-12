@@ -1,5 +1,7 @@
 # 小店AI客服富文本使用说明
 
+> 本文定位：面向安装者和店铺运营者的图文使用说明。上级入口：[README.md](../README.md)，架构规范：[ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 > 这份文档面向安装者、店铺运营者和后续维护者。目标很简单：下载安装包后，只补充 DeepSeek API Key、企业微信 Webhook，再扫码登录微信小店客服页，其它规则、图片、商品动作和悬浮窗能力都应该自动准备好。
 
 ## 一句话定位
@@ -10,9 +12,9 @@
 
 正式安装包在 GitHub Releases：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.1/xiaodian-ai-kefu-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.1/xiaodian-ai-kefu-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/wechat-autoreply/releases/download/v0.4.1/xiaodian-ai-kefu-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.1/xiaodian-ai-kefu-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.1/xiaodian-ai-kefu-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.1/xiaodian-ai-kefu-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 

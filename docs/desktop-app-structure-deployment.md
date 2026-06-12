@@ -1,5 +1,7 @@
 # 小店AI客服桌面版结构和部署说明
 
+> 本文定位：桌面运行结构、部署、配置迁移和打包细节。上级规范：[ARCHITECTURE.md](../ARCHITECTURE.md)，协作准入：[CONTRIBUTING.md](../CONTRIBUTING.md)。
+
 ## 目录结构
 
 ```text
