@@ -185,6 +185,35 @@
         pointer-events: auto;
       }
 
+      .top-collapse-button {
+        width: 28px;
+        height: 28px;
+        min-height: 28px;
+        display: none;
+        place-items: center;
+        padding: 0;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+        -webkit-app-region: no-drag;
+      }
+
+      .top-collapse-button:hover {
+        border-color: #ead8cd;
+        background: #fff5ef;
+        color: var(--ink);
+      }
+
+      .top-collapse-button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
       .collapse-button:hover {
         border-color: var(--hairline);
         background: #fff;
@@ -597,6 +626,7 @@
         grid-column: 1 / -1;
         grid-row: 1;
         padding-left: 54px;
+        gap: 6px;
       }
 
       .workspace-body {
@@ -1384,20 +1414,11 @@
       }
 
       body.sidebar-collapsed .sidebar-window-controls {
-        position: fixed;
-        top: 0;
-        left: 0;
-        z-index: 200;
-        min-height: 38px;
-        justify-content: flex-start;
-        padding: 12px 0 0 18px;
-        pointer-events: none;
+        display: none;
       }
 
       body.sidebar-collapsed.platform-darwin .sidebar-window-controls {
-        min-height: 38px;
-        justify-content: flex-start;
-        padding: 12px 0 0 76px;
+        display: none;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .sidebar-window-controls {
@@ -1406,11 +1427,15 @@
       }
 
       body.sidebar-collapsed.platform-darwin .context-bar {
-        padding-left: 116px;
+        padding-left: 78px;
       }
 
       body.sidebar-collapsed.platform-darwin.window-fullscreen .context-bar {
-        padding-left: 72px;
+        padding-left: 18px;
+      }
+
+      body.sidebar-collapsed .top-collapse-button {
+        display: inline-grid;
       }
 
       body.sidebar-collapsed .brand {
@@ -1509,7 +1534,7 @@
     <div class="app">
       <aside class="sidebar">
         <div class="sidebar-window-controls">
-          <button id="sidebarCollapse" class="collapse-button" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true">
+          <button id="sidebarCollapse" class="collapse-button" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true" data-sidebar-toggle>
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 5v14"/><path class="collapse-arrow" d="m15 9-3 3 3 3"/></svg>
           </button>
         </div>

@@ -242,7 +242,12 @@ function formatAccelerator(value) {
 
 function bindGlobalActions() {
   $("#desktopMenuButton").addEventListener("click", () => toggleDesktopMenu());
-  $("#sidebarCollapse")?.addEventListener("click", () => setSidebarCollapsed(!state.sidebarCollapsed));
+  document.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-sidebar-toggle]");
+    if (!toggle) return;
+    event.preventDefault();
+    setSidebarCollapsed(!state.sidebarCollapsed);
+  });
   $("#expandFloatDock")?.addEventListener("click", async () => {
     state.status = await window.mainShell.openFloating("compact");
     renderChrome();
@@ -271,12 +276,11 @@ function setSidebarCollapsed(collapsed) {
 
 function applySidebarState() {
   document.body.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
-  const button = $("#sidebarCollapse");
-  if (button) {
+  $$("[data-sidebar-toggle]").forEach((button) => {
     button.setAttribute("aria-expanded", String(!state.sidebarCollapsed));
     button.title = state.sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏";
     button.setAttribute("aria-label", button.title);
-  }
+  });
   window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 64 : 268).catch((error) => {
     console.warn("[shell] sidebar width sync failed", error);
   });
@@ -363,10 +367,14 @@ function renderSectionTabs() {
   const group = sectionGroups[topNavIdFor(state.view)] || [];
   const tabs = group.length ? group : [state.view];
   contextBar.innerHTML = `
+    <button id="sidebarCollapseTop" class="top-collapse-button" type="button" title="展开侧边栏" aria-label="展开侧边栏" aria-expanded="false" data-sidebar-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 5v14"/><path class="collapse-arrow" d="m15 9-3 3 3 3"/></svg>
+    </button>
     <div class="section-tabs" aria-label="二级功能导航">
       ${tabs.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
     </div>
   `;
+  applySidebarState();
   $$("[data-subview]", contextBar).forEach((button) => button.addEventListener("click", () => switchView(button.dataset.subview)));
 }
 

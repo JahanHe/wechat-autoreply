@@ -201,10 +201,13 @@ async function assertNavigationStructure(page) {
     await new Promise((resolve) => setTimeout(resolve, 150));
     const collapsedContextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
     const collapsedSidebarBox = document.querySelector(".sidebar")?.getBoundingClientRect();
-    const collapseBox = document.querySelector("#sidebarCollapse")?.getBoundingClientRect();
+    const collapseBox = document.querySelector("#sidebarCollapseTop")?.getBoundingClientRect();
+    const activeTabBox = document.querySelector(".section-tabs button.active")?.getBoundingClientRect();
     const collapseHit = collapseBox
-      ? document.elementFromPoint(collapseBox.left + collapseBox.width / 2, collapseBox.top + collapseBox.height / 2)?.closest("#sidebarCollapse")
+      ? document.elementFromPoint(collapseBox.left + collapseBox.width / 2, collapseBox.top + collapseBox.height / 2)?.closest("#sidebarCollapseTop")
       : null;
+    document.querySelector("#sidebarCollapseTop")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
     return {
       topItems,
       rulesTabs,
@@ -215,7 +218,9 @@ async function assertNavigationStructure(page) {
       activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
       collapsedTopFullWidth: Boolean(collapsedContextBox && Math.round(collapsedContextBox.left) === 0 && Math.round(collapsedContextBox.width) >= window.innerWidth - 2),
       collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1),
-      collapseButtonHit: Boolean(collapseHit)
+      collapseButtonHit: Boolean(collapseHit),
+      collapseButtonMatchesTabs: Boolean(collapseBox && activeTabBox && Math.abs(collapseBox.height - activeTabBox.height) < 1 && Math.abs(collapseBox.top - activeTabBox.top) < 1),
+      expandedAfterTopClick: !document.body.classList.contains("sidebar-collapsed")
     };
   });
   const expectedTop = ["工作台", "知识库", "监控", "设置"];
@@ -237,6 +242,8 @@ async function assertNavigationStructure(page) {
   if (!result.tabsContainerBorderless || !result.activeTabHasFrame) throw new Error(`二级页签边框规则不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapseButtonHit) throw new Error(`折叠按钮被其他层遮挡: ${JSON.stringify(result)}`);
+  if (!result.collapseButtonMatchesTabs) throw new Error(`折叠按钮没有和页签按钮同层对齐: ${JSON.stringify(result)}`);
+  if (!result.expandedAfterTopClick) throw new Error(`折叠按钮无法恢复展开: ${JSON.stringify(result)}`);
 }
 
 async function assertControlWindowCanReopen(electronApp, floatingPage) {
