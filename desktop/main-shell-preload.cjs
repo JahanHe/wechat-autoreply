@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld("mainShell", {
   toggleEnabled() {
     return ipcRenderer.invoke("main-toggle-enabled");
   },
+  requestQuit(payload) {
+    return ipcRenderer.invoke("main-request-quit", payload || {});
+  },
   reload() {
     return ipcRenderer.invoke("main-reload");
   },

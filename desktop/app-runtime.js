@@ -145,6 +145,7 @@ app.on("window-all-closed", () => {});
 app.on("activate", () => showMainWindow());
 
 async function startDesktopApp() {
+  if (process.platform === "darwin") app.dock?.show();
   applyUserDataOverride();
   await migrateLegacyUserData();
   await ensureRuntimeConfigFiles();
@@ -1376,11 +1377,7 @@ function registerIpc() {
     broadcastStatus();
     return true;
   });
-  ipcMain.handle("float-quit", () => {
-    isQuitting = true;
-    app.quit();
-    return true;
-  });
+  ipcMain.handle("float-quit", () => requestFullQuit({ confirm: APP_DISPLAY_NAME, source: "floating" }));
   ipcMain.handle("float-choose-image", () => chooseImagePath());
   ipcMain.handle("bot-image-reply", (_event, payload) => handleImageReply(payload || {}));
   ipcMain.handle("page-open-floating", async (_event, mode = "compact") => {
@@ -1409,6 +1406,7 @@ function registerIpc() {
     return statusPayload();
   });
   ipcMain.handle("main-toggle-enabled", () => setBotEnabled(!config.bot.enabled));
+  ipcMain.handle("main-request-quit", (_event, payload = {}) => requestFullQuit(payload || {}));
   ipcMain.handle("main-reload", () => reloadKfPage());
   ipcMain.handle("main-check-ai", async () => {
     await checkAiHealth({ notifyOk: false });
@@ -1434,6 +1432,55 @@ function registerIpc() {
   ipcMain.handle("main-refresh-judgments", (_event, payload = {}) => refreshJudgmentLibrary(payload || {}));
   ipcMain.handle("main-start-judgments-full-download", (_event, payload = {}) => startJudgmentFullDownload(payload || {}));
   ipcMain.handle("main-get-judgments-download-status", () => getJudgmentDownloadStatus());
+}
+
+async function requestFullQuit(payload = {}) {
+  const confirmed = String(payload.confirm || "") === APP_DISPLAY_NAME || payload.confirm === true;
+  if (!confirmed) {
+    return {
+      ok: false,
+      requireConfirm: true,
+      confirmText: APP_DISPLAY_NAME,
+      message: `再次确认将彻底退出${APP_DISPLAY_NAME}，Bot、AI、本机控制服务、Webhook调度和悬浮窗都会停止。`
+    };
+  }
+  await shutdownAndQuit(String(payload.source || "main"));
+  return { ok: true };
+}
+
+async function shutdownAndQuit(source = "main") {
+  if (isQuitting) return;
+  isQuitting = true;
+  appContext.runtime.isQuitting = true;
+  updateFloatingStatus("彻底退出", { code: "background", detail: `收到${source}退出指令，正在停止后台服务` });
+  stopWatchdogs();
+  clearTimeout(floatingBoundsTimer);
+  clearTimeout(loginNotificationTimer);
+  clearTimeout(runyuCookieCaptureTimer);
+  clearTimeout(runyuLoginTimeoutTimer);
+  clearTimeout(judgmentRefreshTimer);
+  clearTimeout(notifyOutboxTimer);
+  await Promise.allSettled([
+    flushKfSession(),
+    saveConfig(),
+    saveNotifyOutbox(),
+    saveReplyRecords(),
+    saveReplySummaryState(),
+    closeServer(controlServer),
+    closeServer(aiServer)
+  ]);
+  controlServer = null;
+  aiServer = null;
+  stopPowerBlocker();
+  for (const win of [runyuLoginWindow, floatWindow, mainWindow]) {
+    if (win && !win.isDestroyed()) win.destroy();
+  }
+  app.quit();
+}
+
+function closeServer(server) {
+  if (!server || !server.listening) return Promise.resolve();
+  return new Promise((resolveClose) => server.close(resolveClose));
 }
 
 function sendConfigChanges(changes) {
@@ -1464,6 +1511,7 @@ function reloadKfPage() {
 }
 
 function showMainWindow() {
+  if (process.platform === "darwin") app.dock?.show();
   if (!mainWindow || mainWindow.isDestroyed()) {
     createMainWindow();
     return;

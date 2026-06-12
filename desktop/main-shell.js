@@ -1270,6 +1270,7 @@ function renderFloating() {
       <button id="showFloat" class="primary">打开悬浮窗</button>
       <button id="hideFloat">隐藏悬浮窗</button>
       <button id="saveFloat" class="dark">保存悬浮窗设置</button>
+      <button id="quitApp" class="danger">彻底退出程序</button>
     `)}
     <div class="grid cols-2">
       <div class="card">
@@ -1295,6 +1296,15 @@ function renderFloating() {
   $("#showFloat").addEventListener("click", () => window.mainShell.openFloating("compact"));
   $("#hideFloat").addEventListener("click", () => window.mainShell.hideFloating());
   $("#saveFloat").addEventListener("click", saveFloatingSettings);
+  $("#quitApp").addEventListener("click", requestFullQuitFromUi);
+}
+
+async function requestFullQuitFromUi() {
+  const first = await window.mainShell.requestQuit({ source: "main" });
+  if (!first?.requireConfirm) return;
+  const confirmed = window.confirm(`${first.message}\n\n再次点击确认后，程序会完全退出。`);
+  if (!confirmed) return;
+  await window.mainShell.requestQuit({ source: "main", confirm: first.confirmText });
 }
 
 function renderHelp() {
