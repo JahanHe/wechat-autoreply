@@ -310,8 +310,15 @@ function renderChrome() {
   document.body.classList.toggle("window-fullscreen", Boolean(status.fullscreen));
   const page = status.page || {};
   const storeName = page.authenticated ? (page.title || "微信小店") : "微信小店";
+  const logoUrl = page.authenticated ? safeLogoUrl(page.logoUrl) : "";
+  const brandLogo = $("#brandLogo");
   const floatingState = buildSidebarFloatingState(status);
 
+  if (brandLogo) {
+    const nextLogo = logoUrl || brandLogo.dataset.defaultSrc || "assets/logo.png";
+    if (brandLogo.getAttribute("src") !== nextLogo) brandLogo.setAttribute("src", nextLogo);
+    document.body.classList.toggle("shop-logo-loaded", Boolean(logoUrl));
+  }
   $("#floatDot").className = `dot ${floatingState.dotClass}`;
   $("#floatTitle").textContent = floatingState.title;
   $("#floatSubtitle").textContent = floatingState.subtitle;
@@ -319,6 +326,14 @@ function renderChrome() {
   $$("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
   });
+}
+
+function safeLogoUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^data:image\//i.test(url)) return url;
+  return "";
 }
 
 function buildSidebarFloatingState(payload = {}) {

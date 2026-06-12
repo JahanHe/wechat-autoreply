@@ -73,6 +73,12 @@ let aiRestarting = false;
 let isQuitting = false;
 let blockerId = null;
 let lastBotHeartbeatAt = 0;
+let kfBrandInfo = {
+  title: "",
+  logoUrl: "",
+  updatedAt: 0
+};
+let kfBrandInfoTimer = null;
 let lastBotStatus = {
   code: "starting",
   label: "启动中",
@@ -1208,7 +1214,7 @@ function createMainWindow() {
     autoHideMenuBar: process.platform !== "darwin",
     ...(process.platform === "darwin" ? {
       titleBarStyle: "hiddenInset",
-      trafficLightPosition: { x: 16, y: 18 }
+      trafficLightPosition: { x: 16, y: 17 }
     } : {}),
     show: true,
     webPreferences: {
@@ -1320,6 +1326,7 @@ function createKfView() {
     injectBotScript();
     persistAuthenticatedKfUrlSoon();
     flushKfSessionSoon();
+    scheduleKfBrandInfoRefresh();
     broadcastStatus();
   });
 
@@ -1329,6 +1336,7 @@ function createKfView() {
     injectBotScript();
     persistAuthenticatedKfUrlSoon();
     flushKfSessionSoon();
+    scheduleKfBrandInfoRefresh();
     broadcastStatus();
   });
 
@@ -1408,6 +1416,7 @@ function pageInfoPayload() {
       visible: false,
       url: "",
       title: "",
+      logoUrl: "",
       loading: false,
       authenticated: false,
       scriptHealthy: false,
@@ -1422,11 +1431,124 @@ function pageInfoPayload() {
     ready: true,
     visible: Boolean(kfViewAttached && mainMode === "page"),
     url,
-    title: wc.getTitle(),
+    title: kfBrandInfo.title || wc.getTitle(),
+    logoUrl: isAuthenticatedKfUrl(url) ? kfBrandInfo.logoUrl : "",
     loading: wc.isLoading(),
     authenticated: isAuthenticatedKfUrl(url),
     scriptHealthy: Boolean(lastBotHeartbeatAt && Date.now() - lastBotHeartbeatAt < heartbeatLimit),
     scriptUpdatedAt: lastBotHeartbeatAt
+  };
+}
+
+function scheduleKfBrandInfoRefresh(delayMs = 800) {
+  clearTimeout(kfBrandInfoTimer);
+  kfBrandInfoTimer = setTimeout(() => {
+    refreshKfBrandInfo().catch((error) => console.error("[desktop] refresh kf brand failed", error));
+  }, delayMs);
+}
+
+async function refreshKfBrandInfo() {
+  const wc = getKfWebContents();
+  if (!wc || wc.isDestroyed()) return;
+  const url = wc.getURL();
+  if (!isAuthenticatedKfUrl(url)) {
+    const hadBrand = Boolean(kfBrandInfo.title || kfBrandInfo.logoUrl);
+    kfBrandInfo = { title: "", logoUrl: "", updatedAt: 0 };
+    if (hadBrand) broadcastStatus();
+    return;
+  }
+
+  const info = await wc.executeJavaScript(`(${extractKfBrandInfoScript.toString()})()`, true).catch(() => null);
+  if (!info || typeof info !== "object") return;
+  const next = {
+    title: String(info.title || "").trim().slice(0, 40),
+    logoUrl: normalizeImageUrl(info.logoUrl),
+    updatedAt: Date.now()
+  };
+  const changed = next.title !== kfBrandInfo.title || next.logoUrl !== kfBrandInfo.logoUrl;
+  kfBrandInfo = next;
+  if (changed) broadcastStatus();
+}
+
+function normalizeImageUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^data:image\//i.test(url)) return url;
+  return "";
+}
+
+function extractKfBrandInfoScript() {
+  const visible = (node) => {
+    if (!node) return false;
+    const style = window.getComputedStyle(node);
+    if (!style || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+    const rect = node.getBoundingClientRect();
+    return rect.width >= 8 && rect.height >= 8 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+  };
+  const textOf = (node) => String(node?.textContent || node?.getAttribute?.("aria-label") || node?.getAttribute?.("title") || "").replace(/\s+/g, " ").trim();
+  const normalizeSrc = (src) => {
+    const value = String(src || "").trim();
+    if (!value || /^(blob:|file:|about:|javascript:)/i.test(value)) return "";
+    try {
+      return new URL(value, window.location.href).href;
+    } catch {
+      return "";
+    }
+  };
+  const cleanTitle = (value) => String(value || "")
+    .replace(/微信小店|客服|工作台|商家|后台|PC端|[-_|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+
+  const titleSelectors = [
+    "[class*='shop'][class*='name']",
+    "[class*='store'][class*='name']",
+    "[class*='merchant'][class*='name']",
+    "[class*='seller'][class*='name']",
+    "[class*='brand'][class*='name']",
+    "[class*='account'][class*='name']"
+  ];
+  const title = titleSelectors
+    .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+    .filter(visible)
+    .map(textOf)
+    .map(cleanTitle)
+    .find((text) => text.length >= 2 && text.length <= 30) || cleanTitle(document.title);
+
+  const candidates = Array.from(document.images)
+    .filter(visible)
+    .map((img) => {
+      const rect = img.getBoundingClientRect();
+      const src = normalizeSrc(img.currentSrc || img.src || img.getAttribute("src"));
+      const meta = [
+        img.alt,
+        img.title,
+        img.getAttribute("aria-label"),
+        img.className,
+        img.id,
+        src
+      ].join(" ").toLowerCase();
+      if (!src || /qrcode|qr_code|captcha|barcode|sprite|iconfont|loading|blank/.test(meta)) return null;
+      let score = 0;
+      const ratio = rect.width / Math.max(rect.height, 1);
+      if (rect.top <= 180) score += 20;
+      if (rect.left <= 360) score += 20;
+      if (rect.width >= 24 && rect.width <= 96 && rect.height >= 24 && rect.height <= 96) score += 20;
+      if (ratio >= 0.7 && ratio <= 1.3) score += 16;
+      if (/logo|avatar|head|shop|store|merchant|brand|店铺|商家|头像|门店/.test(meta)) score += 24;
+      if (/wx|weixin|qlogo|mmbiz|res\.wx|weapp|wxa/.test(meta)) score += 8;
+      if (rect.width < 16 || rect.height < 16) score -= 20;
+      if (rect.top > 360 || rect.left > 720) score -= 24;
+      return { src, score };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+
+  return {
+    title,
+    logoUrl: candidates[0]?.score >= 36 ? candidates[0].src : ""
   };
 }
 
@@ -1728,6 +1850,7 @@ function registerIpc() {
 
   ipcMain.on("bot-status", (_event, status) => {
     lastBotHeartbeatAt = Date.now();
+    scheduleKfBrandInfoRefresh(1000);
     updateFloatingStatus(status?.status || status?.label || "检测中", status || {});
   });
 
@@ -5637,6 +5760,7 @@ async function inspectLoginState() {
     const pageState = await readLoginPageState(wc);
     if (pageState.hasInput || isAuthenticatedKfUrl(url)) {
       clearPendingLoginNotification();
+      scheduleKfBrandInfoRefresh(300);
       await notifyHealthRecovered("login", "客服页登录已恢复", "已检测到客服输入框，可以继续自动回复。", { eventType: "login" });
       return;
     }

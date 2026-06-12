@@ -29,7 +29,7 @@
         --contextbar: 46px;
         --chrome-control-size: 26px;
         --chrome-control-top: 10px;
-        --chrome-control-left: 92px;
+        --chrome-control-left: 76px;
         --chrome-control-gap: 8px;
       }
 
@@ -298,6 +298,11 @@
         border-radius: 10px;
         object-fit: contain;
         background: var(--card);
+      }
+
+      body.shop-logo-loaded .brand img {
+        object-fit: cover;
+        background: #fff;
       }
 
       .brand h1 {
@@ -1548,7 +1553,7 @@
             <span></span>
             <span></span>
           </button>
-          <img src="assets/logo.png" alt="">
+          <img id="brandLogo" src="assets/logo.png" data-default-src="assets/logo.png" alt="">
           <div class="brand-copy">
             <h1>小店AI客服控制台</h1>
             <p id="storeName">微信小店</p>

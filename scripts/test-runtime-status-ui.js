@@ -78,6 +78,7 @@ try {
     window.state.status = status;
     window.state.judgments = { enabled: true, hasCookie: true, records: 94 };
     window.state.view = "dashboard";
+    window.renderChrome();
     window.renderDashboard();
   }, payload);
 
@@ -131,6 +132,7 @@ function buildPayload(bot, history) {
       visible: true,
       url: "https://store.weixin.qq.com/shop/kf",
       title: "微信小店客服",
+      logoUrl: "https://res.wx.qq.com/test-shop-logo.png",
       loading: false,
       authenticated: true,
       scriptHealthy: true,
@@ -179,6 +181,13 @@ async function assertMainDashboard(page, expectedStatus) {
 
 async function assertNavigationStructure(page) {
   const result = await page.evaluate(async () => {
+    window.state.status.page = {
+      ...(window.state.status.page || {}),
+      authenticated: true,
+      logoUrl: "https://res.wx.qq.com/test-shop-logo.png"
+    };
+    window.renderChrome();
+    const initialBrandLogoSrc = document.querySelector("#brandLogo")?.getAttribute("src") || "";
     const navButtons = Array.from(document.querySelectorAll("#nav button"));
     const topItems = navButtons.map((node) => ({
       top: node.getAttribute("data-top"),
@@ -208,6 +217,7 @@ async function assertNavigationStructure(page) {
     const collapseHit = collapseBox
       ? document.elementFromPoint(collapseBox.left + collapseBox.width / 2, collapseBox.top + collapseBox.height / 2)?.closest("#sidebarCollapseTop")
       : null;
+    const controlGap = collapseBox && activeTabBox ? Math.round(activeTabBox.left - collapseBox.right) : null;
     document.querySelector("#sidebarCollapseTop")?.click();
     await new Promise((resolve) => setTimeout(resolve, 150));
     return {
@@ -216,14 +226,18 @@ async function assertNavigationStructure(page) {
       settingsTabs,
       contextSubtitleCount,
       tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40),
-      tabsContainerBorderless: tabsStyle.borderTopStyle === "none" || tabsStyle.borderTopWidth === "0px",
+      tabsContainerBorderless: tabsStyle.borderTopWidth === "0px",
+      tabsBorderTopWidth: tabsStyle.borderTopWidth,
+      tabsBorderTopStyle: tabsStyle.borderTopStyle,
       activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
+      brandLogoSrc: initialBrandLogoSrc,
       floatingActionIds,
       compactContextBar: Boolean(contextBox && contextBox.height <= 48),
       collapsedTopFullWidth: Boolean(collapsedContextBox && Math.round(collapsedContextBox.left) === 0 && Math.round(collapsedContextBox.width) >= window.innerWidth - 2),
       collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1),
       collapseButtonHit: Boolean(collapseHit),
       collapseButtonMatchesTabs: Boolean(collapseBox && activeTabBox && Math.abs(collapseBox.height - activeTabBox.height) < 1 && Math.abs(collapseBox.top - activeTabBox.top) < 1),
+      controlGap,
       collapseButtonKeepsPosition: Boolean(collapseBox && expandedCollapseBox && Math.abs(collapseBox.left - expandedCollapseBox.left) < 1 && Math.abs(collapseBox.top - expandedCollapseBox.top) < 1),
       expandedAfterTopClick: !document.body.classList.contains("sidebar-collapsed")
     };
@@ -244,6 +258,7 @@ async function assertNavigationStructure(page) {
   }
   if (result.contextSubtitleCount) throw new Error(`Context Bar 仍显示说明小字: ${JSON.stringify(result)}`);
   if (!result.tabsLeftAligned) throw new Error(`二级页签没有左置: ${JSON.stringify(result)}`);
+  if (result.brandLogoSrc !== "https://res.wx.qq.com/test-shop-logo.png") throw new Error(`登录店铺 Logo 没有替换: ${JSON.stringify(result)}`);
   if (JSON.stringify(result.floatingActionIds) !== JSON.stringify(["expandFloatDock", "miniFloatDock", "hideFloatDock"])) {
     throw new Error(`侧栏悬浮窗操作不符合预期: ${JSON.stringify(result)}`);
   }
@@ -252,6 +267,7 @@ async function assertNavigationStructure(page) {
   if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
   if (!result.collapseButtonHit) throw new Error(`折叠按钮被其他层遮挡: ${JSON.stringify(result)}`);
   if (!result.collapseButtonMatchesTabs) throw new Error(`折叠按钮没有和页签按钮同层对齐: ${JSON.stringify(result)}`);
+  if (result.controlGap !== 8) throw new Error(`折叠按钮和页签间距不一致: ${JSON.stringify(result)}`);
   if (!result.collapseButtonKeepsPosition) throw new Error(`折叠按钮展开/折叠位置不一致: ${JSON.stringify(result)}`);
   if (!result.expandedAfterTopClick) throw new Error(`折叠按钮无法恢复展开: ${JSON.stringify(result)}`);
 }
