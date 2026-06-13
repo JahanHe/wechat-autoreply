@@ -162,6 +162,8 @@ expect(workflow.includes("test-macos-package.sh"), "CI 未接入 macOS 安装包
 expect(pathExists("scripts/check-packaged-resources.js"), "缺少安装包资源完整性检查脚本");
 expect(pathExists("scripts/test-windows-packages.ps1"), "缺少 Windows 安装资产冒烟脚本");
 expect(pathExists("scripts/test-macos-package.sh"), "缺少 macOS 安装资产冒烟脚本");
+expect(pathExists("scripts/repair-macos-install.command"), "缺少 macOS 安装一键修复脚本");
+expect(workflow.includes("repair-macos-install.command") || readText("package.json").includes("repair-macos-install.command"), "DMG 未包含 macOS 安装一键修复脚本");
 
 if (failures.length) {
   console.error(JSON.stringify({ ok: false, failures }, null, 2));

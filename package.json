@@ -89,6 +89,12 @@
           "y": 360,
           "type": "file",
           "path": "docs/mac-install-troubleshooting.md"
+        },
+        {
+          "x": 270,
+          "y": 430,
+          "type": "file",
+          "path": "scripts/repair-macos-install.command"
         }
       ]
     },

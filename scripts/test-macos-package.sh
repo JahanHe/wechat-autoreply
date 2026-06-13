@@ -103,6 +103,12 @@ if [[ -z "$APP_IN_DMG" || ! -d "$APP_IN_DMG" ]]; then
   echo "DMG 内没有找到 .app: $DMG_PATH" >&2
   exit 1
 fi
+REPAIR_SCRIPT_IN_DMG="$(find "$MOUNT_DIR" -maxdepth 1 -type f -name 'repair-macos-install.command' | sort | head -1)"
+if [[ -z "$REPAIR_SCRIPT_IN_DMG" || ! -x "$REPAIR_SCRIPT_IN_DMG" ]]; then
+  find "$MOUNT_DIR" -maxdepth 1 -print >&2
+  echo "DMG 内没有找到可执行的一键修复脚本: repair-macos-install.command" >&2
+  exit 1
+fi
 cp -R "$APP_IN_DMG" "$INSTALL_DIR/"
 
 APP_PATH="$INSTALL_DIR/$(basename "$APP_IN_DMG")"
