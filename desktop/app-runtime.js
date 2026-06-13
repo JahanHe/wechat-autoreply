@@ -1976,6 +1976,9 @@ function registerIpc() {
   ipcMain.handle("main-get-knowledge-overview", () => getKnowledgeOverview());
   ipcMain.handle("main-get-knowledge-record", (_event, id = "") => getKnowledgeRecord(id));
   ipcMain.handle("main-search-local-knowledge", (_event, payload = {}) => searchLocalKnowledge(payload || {}));
+  ipcMain.handle("main-get-customer-memories", (_event, options = {}) => getCustomerMemoriesPayload(options || {}));
+  ipcMain.handle("main-compress-customer-memory", (_event, payload = {}) => compressCustomerMemory(payload || {}));
+  ipcMain.handle("main-compress-customer-memories", (_event, payload = {}) => compressCustomerMemories(payload || {}));
   ipcMain.handle("main-get-judgments-status", () => getJudgmentLibraryStatus());
   ipcMain.handle("main-open-runyu-login", (_event, options = {}) => openRunyuLoginWindow(options || {}));
   ipcMain.handle("main-capture-runyu-cookie", () => captureAndVerifyRunyuCookie("manual_capture"));
@@ -2214,7 +2217,8 @@ async function workbenchSnapshotPayload() {
     },
     customerMemories: {
       total: customerMemories.length,
-      recent: customerMemories.slice(-8).reverse()
+      stats: customerMemoryStats(customerMemories),
+      recent: getCustomerMemoriesPayload({ limit: 8 }).items
     },
     ruleCandidates: {
       summary: ruleCandidateStats(),
@@ -4451,6 +4455,214 @@ async function upsertCustomerMemory(memory = {}) {
   return saved;
 }
 
+function customerMemoryMessageCount(memory = {}) {
+  return Number(memory.messageCount || 0)
+    || Number(memory.recentCustomerMessages?.length || 0)
+    + Number(memory.recentKfReplies?.length || 0);
+}
+
+function customerMemoryNeedsCompression(memory = {}, threshold = 40) {
+  const count = customerMemoryMessageCount(memory);
+  const lastCompressedAt = Number(memory.summaryUpdatedAt || memory.compressedAt || 0);
+  const updatedAt = Number(memory.updatedAt || 0);
+  return count > threshold && (!memory.summary || updatedAt > lastCompressedAt);
+}
+
+function summarizeCustomerMemoryItem(memory = {}, options = {}) {
+  const threshold = clampInt(options.threshold || 40, 12, 500);
+  const customerId = String(memory.customerId || memory.sessionKey || "");
+  const recentCustomerMessages = Array.isArray(memory.recentCustomerMessages) ? memory.recentCustomerMessages : [];
+  const recentKfReplies = Array.isArray(memory.recentKfReplies) ? memory.recentKfReplies : [];
+  const messageCount = customerMemoryMessageCount(memory);
+  return {
+    ...memory,
+    customerId,
+    sessionKey: String(memory.sessionKey || customerId),
+    messageCount,
+    recentCustomerMessages,
+    recentKfReplies,
+    needsCompression: customerMemoryNeedsCompression(memory, threshold),
+    compressed: Boolean(memory.summary),
+    lastCompressionError: String(memory.lastCompressionError || "")
+  };
+}
+
+function customerMemoryStats(items = customerMemories, options = {}) {
+  const threshold = clampInt(options.threshold || 40, 12, 500);
+  const summaries = items.map((item) => summarizeCustomerMemoryItem(item, { threshold }));
+  return {
+    total: summaries.length,
+    needCompression: summaries.filter((item) => item.needsCompression).length,
+    compressed: summaries.filter((item) => item.compressed).length,
+    aiSummarized: summaries.filter((item) => item.summaryMethod === "ai").length,
+    localSummarized: summaries.filter((item) => item.summaryMethod === "local").length,
+    newCustomers: summaries.filter((item) => item.isNewCustomer).length,
+    unfinishedTasks: summaries.filter((item) => Array.isArray(item.unfinishedTasks) && item.unfinishedTasks.length).length,
+    withErrors: summaries.filter((item) => item.lastCompressionError).length,
+    threshold
+  };
+}
+
+function getCustomerMemoriesPayload(options = {}) {
+  const threshold = clampInt(options.threshold || 40, 12, 500);
+  const limit = clampInt(options.limit || 200, 1, CUSTOMER_MEMORY_LIMIT);
+  const query = String(options.query || "").trim().toLowerCase();
+  const onlyNeedsCompression = Boolean(options.onlyNeedsCompression);
+  let items = customerMemories
+    .map((item) => summarizeCustomerMemoryItem(item, { threshold }))
+    .filter((item) => {
+      if (onlyNeedsCompression && !item.needsCompression) return false;
+      if (!query) return true;
+      const haystack = [
+        item.customerId,
+        item.sessionKey,
+        item.summary,
+        ...(item.recentCustomerMessages || []).map((entry) => entry.text || entry.content || entry.message || ""),
+        ...(item.recentKfReplies || []).map((entry) => entry.text || entry.content || entry.message || "")
+      ].join("\n").toLowerCase();
+      return haystack.includes(query);
+    })
+    .sort((a, b) => Number(b.updatedAt || b.lastSeenAt || 0) - Number(a.updatedAt || a.lastSeenAt || 0))
+    .slice(0, limit);
+  return {
+    ok: true,
+    stats: customerMemoryStats(customerMemories, { threshold }),
+    items
+  };
+}
+
+function compactMemoryLine(entry = {}) {
+  if (typeof entry === "string") return entry;
+  return String(entry.text || entry.content || entry.message || entry.reply || entry.customerText || "").trim();
+}
+
+function trimMemoryEntries(entries = [], limit = 8) {
+  return (Array.isArray(entries) ? entries : []).slice(-limit);
+}
+
+function buildLocalCustomerMemorySummary(memory = {}) {
+  const customerMessages = (memory.recentCustomerMessages || []).map(compactMemoryLine).filter(Boolean).slice(-12);
+  const kfReplies = (memory.recentKfReplies || []).map(compactMemoryLine).filter(Boolean).slice(-12);
+  const sentRules = (memory.sentRules || []).slice(-10).map((item) => item.name || item.ruleName || item.id || item).filter(Boolean);
+  const sentActions = (memory.sentActions || []).slice(-10).map((item) => item.type || item.actionType || item.name || item).filter(Boolean);
+  const completion = (memory.completionResults || []).slice(-6).map((item) => item.result || item.status || item).filter(Boolean);
+  const solvedTopics = (memory.solvedTopics || []).slice(-10).filter(Boolean);
+  const lines = [
+    `客户ID：${memory.customerId || memory.sessionKey || "未知"}`,
+    `客户类型：${memory.isNewCustomer ? "新客户" : "老客户或已接触客户"}`,
+    customerMessages.length ? `最近客户问题：${customerMessages.join(" / ")}` : "",
+    kfReplies.length ? `最近客服回复：${kfReplies.join(" / ")}` : "",
+    sentRules.length ? `已触发规则：${sentRules.join("、")}` : "",
+    sentActions.length ? `已执行动作：${sentActions.join("、")}` : "",
+    completion.length ? `完成度记录：${completion.join("、")}` : "",
+    solvedTopics.length ? `已解决主题：${solvedTopics.join("、")}` : "",
+    memory.unfinishedTasks?.length ? `未完成任务：${memory.unfinishedTasks.length} 个，需要继续跟进` : ""
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+async function buildAiCustomerMemorySummary(memory = {}) {
+  const prompt = [
+    "请把下面这位微信小店客户的客服记忆压缩成可长期使用的中文摘要。",
+    "要求：保留客户诉求、已回复内容、已发规则/动作、未完成事项、风险点；不要编造；控制在 300 字以内。",
+    "",
+    JSON.stringify({
+      customerId: memory.customerId || memory.sessionKey || "",
+      isNewCustomer: Boolean(memory.isNewCustomer),
+      recentCustomerMessages: memory.recentCustomerMessages || [],
+      recentKfReplies: memory.recentKfReplies || [],
+      sentRules: memory.sentRules || [],
+      sentActions: memory.sentActions || [],
+      unfinishedTasks: memory.unfinishedTasks || [],
+      completionResults: memory.completionResults || [],
+      solvedTopics: memory.solvedTopics || []
+    }, null, 2)
+  ].join("\n");
+  const result = await testAiReply({
+    message: prompt,
+    context: [],
+    mode: "memory_summary",
+    includeExternalKnowledge: false,
+    timeoutMs: 60_000
+  });
+  if (!result.ok || !String(result.reply || "").trim()) {
+    throw new Error(result.message || "AI API 未返回客户记忆摘要");
+  }
+  return String(result.reply || "").trim();
+}
+
+async function compressCustomerMemory(payload = {}) {
+  const customerId = String(payload.customerId || payload.sessionKey || "").trim();
+  if (!customerId) return { ok: false, message: "客户 ID 不能为空" };
+  const method = String(payload.method || "local") === "ai" ? "ai" : "local";
+  const index = customerMemories.findIndex((item) => String(item.customerId || item.sessionKey || "") === customerId);
+  if (index < 0) return { ok: false, message: "没有找到这位客户的记忆" };
+
+  const current = summarizeCustomerMemoryItem(customerMemories[index], payload);
+  try {
+    const summary = method === "ai"
+      ? await buildAiCustomerMemorySummary(current)
+      : buildLocalCustomerMemorySummary(current);
+    const saved = {
+      ...customerMemories[index],
+      summary,
+      summaryMethod: method,
+      summaryUpdatedAt: Date.now(),
+      compressedMessageCount: customerMemoryMessageCount(current),
+      recentCustomerMessages: trimMemoryEntries(current.recentCustomerMessages, 8),
+      recentKfReplies: trimMemoryEntries(current.recentKfReplies, 8),
+      lastCompressionError: "",
+      updatedAt: Date.now()
+    };
+    customerMemories[index] = saved;
+    await saveCustomerMemories();
+    broadcastStatus();
+    return { ok: true, message: method === "ai" ? "AI 摘要已生成" : "本机摘要已生成", item: summarizeCustomerMemoryItem(saved, payload) };
+  } catch (error) {
+    const saved = {
+      ...customerMemories[index],
+      lastCompressionError: String(error?.message || error),
+      updatedAt: Date.now()
+    };
+    customerMemories[index] = saved;
+    await saveCustomerMemories();
+    broadcastStatus();
+    return { ok: false, message: saved.lastCompressionError, item: summarizeCustomerMemoryItem(saved, payload) };
+  }
+}
+
+async function compressCustomerMemories(payload = {}) {
+  const threshold = clampInt(payload.threshold || 40, 12, 500);
+  const method = String(payload.method || "local") === "ai" ? "ai" : "local";
+  const limit = clampInt(payload.limit || 100, 1, CUSTOMER_MEMORY_LIMIT);
+  const candidates = customerMemories
+    .map((item) => summarizeCustomerMemoryItem(item, { threshold }))
+    .filter((item) => payload.onlyOverThreshold === false || item.needsCompression)
+    .slice(0, limit);
+  const result = {
+    ok: true,
+    method,
+    processed: 0,
+    compressed: 0,
+    failed: 0,
+    skipped: 0,
+    errors: []
+  };
+  for (const item of candidates) {
+    result.processed += 1;
+    const compressed = await compressCustomerMemory({ customerId: item.customerId, method, threshold });
+    if (compressed.ok) result.compressed += 1;
+    else {
+      result.failed += 1;
+      result.errors.push({ customerId: item.customerId, message: compressed.message || "压缩失败" });
+    }
+  }
+  result.skipped = Math.max(0, customerMemories.length - candidates.length);
+  result.stats = customerMemoryStats(customerMemories, { threshold });
+  result.ok = result.failed === 0;
+  return result;
+}
+
 async function upsertRuleCandidate(candidate = {}) {
   const id = String(candidate.id || "").trim();
   if (!id) return null;
@@ -6346,7 +6558,7 @@ async function sendNotification(key, title, body, options = {}) {
 
   console.log(`[notify] ${title}: ${body}`);
   if (Notification.isSupported()) {
-    new Notification({ title, body }).show();
+    new Notification({ title, body, icon: APP_ICON_PATH }).show();
   }
 
   if (config?.notify?.enabled && config.notify.wecomWebhookUrl && shouldSendWebhookNotification(key, options)) {
@@ -6368,7 +6580,8 @@ async function sendNotification(key, title, body, options = {}) {
       if (Notification.isSupported()) {
         new Notification({
           title: "企业微信通知发送失败",
-          body: String(error?.message || error)
+          body: String(error?.message || error),
+          icon: APP_ICON_PATH
         }).show();
       }
     }
@@ -6466,7 +6679,7 @@ async function sendLoginScreenshotNotificationNow() {
   console.log(`[notify] ${title}: ${body}`);
 
   if (Notification.isSupported()) {
-    new Notification({ title, body }).show();
+    new Notification({ title, body, icon: APP_ICON_PATH }).show();
   }
 
   let screenshotPath = "";

@@ -10,7 +10,7 @@ const navItems = [
 
 const sectionGroups = {
   page: ["page"],
-  rules: ["knowledge", "rules", "aiReference", "testCenter"],
+  rules: ["knowledge", "rules", "aiReference", "testCenter", "customerMemory"],
   dashboard: ["dashboard", "logs"],
   settings: ["setup", "bot", "api", "judgments", "webhook", "floating", "help"]
 };
@@ -21,6 +21,7 @@ const viewLabels = {
   rules: "规则库",
   aiReference: "AI参考",
   testCenter: "测试中心",
+  customerMemory: "客户记忆",
   bot: "Bot策略",
   api: "AI API",
   judgments: "外部知识同步",
@@ -36,7 +37,27 @@ const icons = {
   messages: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
   reply: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>',
   activity: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
-  settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M2 14h4M10 8h4M18 16h4"/></svg>'
+  settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M2 14h4M10 8h4M18 16h4"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L7 21H3v-4L16.5 3.5z"/></svg>',
+  save: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><rect x="2" y="2" width="13" height="13" rx="2"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M3 18v-6h6"/><path d="M21 6v6h-6"/></svg>',
+  archive: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></svg>',
+  sparkles: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/><path d="m5 14 .8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14z"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7V5z"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  database: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  bot: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4"/><path d="M8 13h.01M16 13h.01"/><path d="M9 17h6"/></svg>',
+  webhook: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16.5a4 4 0 0 1-6.5 3.1"/><path d="M8 7.5A4 4 0 0 1 14.5 4"/><path d="M7 17a4 4 0 0 1-1.4-7.8"/><path d="M12 8l3 5H9l3-5z"/></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>'
 };
 
 const sourceLabels = {
@@ -73,6 +94,12 @@ const state = {
   ruleTestResult: null,
   pipelineTestResult: null,
   knowledgeOverview: null,
+  customerMemories: null,
+  memoryFilter: "",
+  expandedMemoryId: "",
+  memoryCompressionRunning: false,
+  aiEditor: null,
+  dashboardDetail: "",
   expandedRuleKey: "",
   ruleFilter: "all",
   apiKeyShown: false,
@@ -121,7 +148,7 @@ async function init() {
     if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
     renderChrome();
   });
-  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel, knowledgeOverview] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel, knowledgeOverview, customerMemories] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
@@ -129,7 +156,8 @@ async function init() {
     window.mainShell.getJudgmentsDownloadStatus(),
     window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null),
     window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(null),
-    window.mainShell.getKnowledgeOverview ? window.mainShell.getKnowledgeOverview() : Promise.resolve(null)
+    window.mainShell.getKnowledgeOverview ? window.mainShell.getKnowledgeOverview() : Promise.resolve(null),
+    window.mainShell.getCustomerMemories ? window.mainShell.getCustomerMemories({ limit: 200 }) : Promise.resolve(null)
   ]);
   state.settings = settings;
   state.status = status;
@@ -138,6 +166,7 @@ async function init() {
   state.workbench = workbench;
   state.menuModel = menuModel;
   state.knowledgeOverview = knowledgeOverview;
+  state.customerMemories = customerMemories;
   state.runyuAuth = judgments?.auth || status?.runyuAuth || null;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
@@ -311,6 +340,10 @@ async function switchView(view) {
     state.knowledgeOverview = await window.mainShell.getKnowledgeOverview().catch(() => state.knowledgeOverview);
     renderView();
   }
+  if (state.view === "customerMemory" && window.mainShell.getCustomerMemories) {
+    state.customerMemories = await window.mainShell.getCustomerMemories({ limit: 200, query: state.memoryFilter || "" }).catch(() => state.customerMemories);
+    renderView();
+  }
   try {
     state.status = await window.mainShell.setMode(state.view === "page" ? "page" : state.view);
     renderChrome();
@@ -387,6 +420,7 @@ function renderView() {
   else if (state.view === "api") renderApi();
   else if (state.view === "aiReference") renderAiReference();
   else if (state.view === "testCenter") renderTestCenter();
+  else if (state.view === "customerMemory") renderCustomerMemory();
   else if (state.view === "judgments") renderJudgments();
   else if (state.view === "webhook") renderWebhook();
   else if (state.view === "rules") renderRules();
@@ -433,6 +467,7 @@ function renderKnowledgeOverview() {
   const external = overview.externalSynced || {};
   const local = overview.local || {};
   const profile = state.settings?.assistantProfile || {};
+  const memoryStats = state.customerMemories?.stats || state.workbench?.customerMemories?.stats || {};
   content.innerHTML = `
     ${pageHead("知识总览", "集中查看直接回复规则、本机自建资料和已经下载到本机的外部同步资料。")}
     <div class="grid cols-4 knowledge-metrics">
@@ -440,6 +475,7 @@ function renderKnowledgeOverview() {
       ${overviewButton("本机自建资料", Number(local.chunks || 0) + Number(local.manualSections || 0), `${local.files || 0} 个文件 · ${local.manualSections || 0} 个人工区段`, "aiReference", "local")}
       ${overviewButton("外部同步资料", external.records || 0, `${(external.sources || []).length} 个来源 · ${external.updatedAt ? formatFullTime(external.updatedAt) : "尚未下载"}`, "aiReference", "external")}
       ${overviewButton("规则候选", state.status?.ruleCandidates?.pendingReview || 0, `总计 ${state.status?.ruleCandidates?.total || 0} 条`, "rules", "candidates")}
+      ${overviewButton("客户记忆", memoryStats.total || 0, `需压缩 ${memoryStats.needCompression || 0} · 未完成 ${memoryStats.unfinishedTasks || 0}`, "customerMemory", "")}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <section class="card">
@@ -485,26 +521,30 @@ function renderAiReference() {
   const overview = state.knowledgeOverview || {};
   const external = overview.externalSynced || {};
   content.innerHTML = `
-    ${pageHead("AI 参考", "统一管理回复人格、本机自建资料和已经下载到本机的外部同步资料。", `<button id="saveAiReference" class="primary">保存 AI 参考</button>`)}
+    ${pageHead("AI 参考", "统一管理回复人格、本机自建资料和已经下载到本机的外部同步资料。", `${iconTextButton("save", "保存开关", "id=\"saveAiReference\" class=\"primary\"")}`)}
     ${profileStatus(profile)}
-    <div class="grid cols-2">
+    <div class="grid cols-2 ai-reference-layout">
       <section class="card">
-        <h3>回复人格</h3>
-        <div class="form-grid">
-          ${toggleRow("sidebarContextEnabled", "读取客服页右侧上下文", "让 AI 参考当前页面可见的商品和用户信息。", profile.sidebarContextEnabled !== false, "span-2")}
-          ${toggleRow("reviewEnabled", "启用回复审核", "发送前过滤越界、承诺和联系方式风险。", profile.reviewEnabled !== false, "span-2")}
-          ${textareaField("stylePrompt", "回复语气", profile.stylePrompt || "", "客服说话的语气和措辞偏好。")}
-          ${textareaField("soulPrompt", "风格灵魂", profile.soulPrompt || "", "人设、判断方式和品牌感。")}
-          ${textareaField("guardrailsPrompt", "边界规则", profile.guardrailsPrompt || "", "不能说、不能承诺和不能引导的内容。")}
-          ${textareaField("reviewPrompt", "审核补充规则", profile.reviewPrompt || "", "二次审核的额外检查项。")}
+        <div class="section-title"><div><h3>回复人格</h3><div class="hint">开关在当前页直接切换；长文本点编辑进入 Markdown 弹窗。</div></div></div>
+        <div class="settings-list">
+          ${settingToggleRow("sidebarContextEnabled", "读取客服页右侧上下文", "AI API 生成回复时参考当前客服页可见信息。", profile.sidebarContextEnabled !== false, "eye")}
+          ${settingToggleRow("reviewEnabled", "启用回复审核", "发送前过滤越界、承诺和联系方式风险。", profile.reviewEnabled !== false, "alert")}
+        </div>
+        <div class="ai-card-grid">
+          ${aiReferenceCard("stylePrompt", "回复语气", "客服说话的语气和措辞偏好。", profile.stylePrompt || "", "messages")}
+          ${aiReferenceCard("soulPrompt", "风格灵魂", "人设、判断方式和品牌感。", profile.soulPrompt || "", "sparkles")}
+          ${aiReferenceCard("guardrailsPrompt", "边界规则", "不能说、不能承诺和不能引导的内容。", profile.guardrailsPrompt || "", "alert")}
+          ${aiReferenceCard("reviewPrompt", "审核补充规则", "二次审核的额外检查项。", profile.reviewPrompt || "", "check")}
         </div>
       </section>
       <section class="card">
-        <h3>本机自建资料</h3>
-        <div class="grid">
-          ${toggleRow("knowledgeFilesEnabled", "读取 knowledge-base 文件", "开启后检索应用内本机知识文件。", profile.knowledgeFilesEnabled !== false)}
-          ${textareaField("knowledgeText", "手动知识", profile.knowledgeText || "", "直接写入本机配置，作为 AI 参考。")}
-          ${textareaField("referenceText", "参考回复", profile.referenceText || "", "供 AI 学习表达方式，不会直接原样发送。")}
+        <div class="section-title"><div><h3>本机自建资料</h3><div class="hint">这里是 AI API 的本机参考资料，不会直接原样发送。</div></div></div>
+        <div class="settings-list">
+          ${settingToggleRow("knowledgeFilesEnabled", "读取 knowledge-base 文件", "开启后检索应用内本机知识文件。", profile.knowledgeFilesEnabled !== false, "database")}
+        </div>
+        <div class="ai-card-grid single">
+          ${aiReferenceCard("knowledgeText", "手动知识", "直接写入本机配置，作为 AI 参考。", profile.knowledgeText || "", "database")}
+          ${aiReferenceCard("referenceText", "参考回复", "供 AI 学习表达方式，不会直接原样发送。", profile.referenceText || "", "reply")}
         </div>
       </section>
     </div>
@@ -515,14 +555,23 @@ function renderAiReference() {
         <span class="badge">来源 ${(external.sources || []).join("、") || "无"}</span>
         <span class="badge">更新 ${external.updatedAt ? formatFullTime(external.updatedAt) : "尚未下载"}</span>
       </div>
-      <div class="toolbar" style="justify-content:flex-start;margin-top:12px"><button id="browseExternalKnowledge">查询本机同步资料</button></div>
+      <div class="toolbar" style="justify-content:flex-start;margin-top:12px">${iconTextButton("search", "查询本机同步资料", "id=\"browseExternalKnowledge\"")}</div>
       <div id="externalKnowledgeBrowser" class="knowledge-browser"></div>
     </section>
+    ${renderAiReferenceEditorModal()}
   `;
   bindToggleButtons();
   $("#saveAiReference").addEventListener("click", saveAiReferenceSettings);
   $("#openExternalSync").addEventListener("click", () => switchView("judgments"));
   $("#browseExternalKnowledge").addEventListener("click", () => runInlineKnowledgeSearch(true));
+  $$("[data-ai-edit]").forEach((button) => button.addEventListener("click", () => openAiReferenceEditor(button.dataset.aiEdit)));
+  $("#aiEditorCancel")?.addEventListener("click", closeAiReferenceEditor);
+  $("#aiEditorCloseText")?.addEventListener("click", closeAiReferenceEditor);
+  $("#aiEditorSave")?.addEventListener("click", saveAiReferenceEditor);
+  $("#aiEditorText")?.addEventListener("input", () => {
+    const preview = $("#aiEditorPreview");
+    if (preview) preview.innerHTML = renderMarkdown(value("aiEditorText"));
+  });
 }
 
 function renderTestCenter() {
@@ -552,6 +601,216 @@ function renderTestCenter() {
   `;
   $("#runPipelineSimulation").addEventListener("click", () => runPipelineTest(false));
   $("#runPipelineExecution").addEventListener("click", () => runPipelineTest(true));
+}
+
+function renderCustomerMemory() {
+  const payload = state.customerMemories || { stats: {}, items: [] };
+  const stats = payload.stats || {};
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  content.innerHTML = `
+    ${pageHead("客户记忆", "按客户保存历史上下文、已发送规则和未完成任务。内容过长时可以压缩成长期摘要。", `
+      ${iconTextButton("refresh", "刷新", "id=\"refreshMemories\"")}
+      ${iconTextButton("archive", "本机压缩", "id=\"compressMemoriesLocal\"")}
+      ${iconTextButton("sparkles", "AI压缩", "id=\"compressMemoriesAi\" class=\"primary\"")}
+    `)}
+    <div class="grid cols-4 memory-metrics">
+      ${visualStatTile("database", "客户", stats.total || 0, `新客户 ${stats.newCustomers || 0}`, "ok", "memory-total")}
+      ${visualStatTile("archive", "待压缩", stats.needCompression || 0, `阈值 ${stats.threshold || 40} 条`, stats.needCompression ? "warn" : "ok", "memory-compress")}
+      ${visualStatTile("clock", "未完成", stats.unfinishedTasks || 0, "需要继续跟进", stats.unfinishedTasks ? "bad" : "ok", "memory-open")}
+      ${visualStatTile("alert", "压缩错误", stats.withErrors || 0, `本机 ${stats.localSummarized || 0} / AI ${stats.aiSummarized || 0}`, stats.withErrors ? "bad" : "ok", "memory-errors")}
+    </div>
+    <section class="card" style="margin-top:14px">
+      <div class="memory-toolbar">
+        <div class="field">
+          <label for="memorySearch">搜索客户记忆</label>
+          <input id="memorySearch" value="${attr(state.memoryFilter || "")}" placeholder="客户ID、问题、摘要关键词">
+        </div>
+        ${iconButton("search", "搜索", "id=\"memorySearchButton\"")}
+        ${iconButton("close", "清空搜索", "id=\"memoryClearSearch\"")}
+      </div>
+      <div class="memory-list">
+        ${items.length ? items.map(renderCustomerMemoryRow).join("") : `<div class="empty">还没有客户记忆。客户消息进入并完成处理后，会自动写入这里。</div>`}
+      </div>
+    </section>
+  `;
+  $("#refreshMemories").addEventListener("click", refreshCustomerMemories);
+  $("#compressMemoriesLocal").addEventListener("click", () => compressCustomerMemories("local"));
+  $("#compressMemoriesAi").addEventListener("click", () => compressCustomerMemories("ai"));
+  $("#memorySearchButton").addEventListener("click", () => {
+    state.memoryFilter = value("memorySearch");
+    refreshCustomerMemories();
+  });
+  $("#memoryClearSearch").addEventListener("click", () => {
+    state.memoryFilter = "";
+    refreshCustomerMemories();
+  });
+  $("#memorySearch").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      state.memoryFilter = value("memorySearch");
+      refreshCustomerMemories();
+    }
+  });
+  $$(".memory-row [data-memory-command]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const commandNode = event.target.closest("[data-memory-command]") || button;
+      const row = commandNode.closest(".memory-row");
+      const id = row?.dataset.customerId || "";
+      const command = commandNode.dataset.memoryCommand;
+      if (command === "expand") {
+        state.expandedMemoryId = state.expandedMemoryId === id ? "" : id;
+        renderCustomerMemory();
+      } else if (command === "local") {
+        await compressCustomerMemory(id, "local");
+      } else if (command === "ai") {
+        await compressCustomerMemory(id, "ai");
+      } else if (command === "copy") {
+        await copyToClipboard(id);
+        showFlash("客户ID已复制", "ok");
+      }
+    });
+  });
+  $$(".memory-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      state.expandedMemoryId = state.expandedMemoryId === row.dataset.customerId ? "" : row.dataset.customerId;
+      renderCustomerMemory();
+    });
+  });
+}
+
+function renderCustomerMemoryRow(item = {}) {
+  const id = String(item.customerId || item.sessionKey || "");
+  const expanded = state.expandedMemoryId === id;
+  const lastCustomer = lastMemoryLine(item.recentCustomerMessages);
+  const lastReply = lastMemoryLine(item.recentKfReplies);
+  const statusClass = item.lastCompressionError ? "fail" : item.needsCompression ? "direct" : item.summary ? "rule" : "";
+  const statusText = item.lastCompressionError ? "压缩失败" : item.needsCompression ? "需压缩" : item.summary ? "已摘要" : "原始";
+  return `
+    <article class="memory-row ${expanded ? "expanded" : ""}" data-customer-id="${attr(id)}">
+      <div class="memory-summary-line">
+        <span class="signal"><i class="dot ${item.lastCompressionError ? "bad" : item.needsCompression ? "warn" : ""}"></i><strong>${escapeHtml(shortCustomerId(id))}</strong></span>
+        <span class="memory-last">${escapeHtml(lastCustomer || "暂无客户消息")}</span>
+        <span class="badge ${statusClass}">${escapeHtml(statusText)}</span>
+        <span class="memory-count">${Number(item.messageCount || 0)} 条</span>
+        <time>${formatFullTime(item.updatedAt || item.lastSeenAt || Date.now())}</time>
+        <div class="row-icon-actions">
+          ${iconButton("chevron", expanded ? "收起" : "展开", "data-memory-command=\"expand\"")}
+          ${iconButton("archive", "本机压缩", "data-memory-command=\"local\"")}
+          ${iconButton("sparkles", "AI压缩", "data-memory-command=\"ai\"")}
+          ${iconButton("copy", "复制客户ID", "data-memory-command=\"copy\"")}
+        </div>
+      </div>
+      ${expanded ? `<div class="memory-detail">
+        <div class="grid cols-2">
+          <div class="memory-block">
+            <h3>长期摘要</h3>
+            ${item.summary ? `<div class="markdown-preview">${renderMarkdown(item.summary)}</div>` : `<div class="hint">还没有摘要。可以点本机压缩或 AI 压缩。</div>`}
+            ${item.lastCompressionError ? `<div class="fail-text">最近错误：${escapeHtml(item.lastCompressionError)}</div>` : ""}
+          </div>
+          <div class="memory-block">
+            <h3>当前线索</h3>
+            <div class="badge-row">
+              <span class="badge">${item.isNewCustomer ? "新客户" : "老客户"}</span>
+              <span class="badge">方法 ${escapeHtml(item.summaryMethod || "未压缩")}</span>
+              <span class="badge">压缩 ${item.summaryUpdatedAt ? formatFullTime(item.summaryUpdatedAt) : "未执行"}</span>
+            </div>
+            <p class="hint">客服回复时会读取最近对话和长期摘要，避免重复固定话术。</p>
+          </div>
+        </div>
+        <div class="grid cols-2" style="margin-top:12px">
+          ${memoryTranscriptBlock("客户消息", item.recentCustomerMessages)}
+          ${memoryTranscriptBlock("客服回复", item.recentKfReplies)}
+        </div>
+        <div class="grid cols-3" style="margin-top:12px">
+          ${memoryTagBlock("已发送规则", item.sentRules)}
+          ${memoryTagBlock("已执行动作", item.sentActions)}
+          ${memoryTagBlock("未完成任务", item.unfinishedTasks)}
+        </div>
+      </div>` : ""}
+    </article>
+  `;
+}
+
+function memoryTranscriptBlock(title, entries = []) {
+  const items = Array.isArray(entries) ? entries.slice(-8) : [];
+  return `
+    <div class="memory-block">
+      <h3>${escapeHtml(title)}</h3>
+      ${items.length ? items.map((entry) => `<div class="memory-message"><span>${escapeHtml(formatFullTime(entry.at || entry.time || entry.createdAt || Date.now()))}</span><p>${escapeHtml(memoryEntryText(entry))}</p></div>`).join("") : `<div class="hint">暂无记录</div>`}
+    </div>
+  `;
+}
+
+function memoryTagBlock(title, entries = []) {
+  const items = Array.isArray(entries) ? entries.slice(-12) : [];
+  return `
+    <div class="memory-block">
+      <h3>${escapeHtml(title)}</h3>
+      ${items.length ? `<div class="badge-row">${items.map((entry) => `<span class="badge">${escapeHtml(memoryEntryText(entry))}</span>`).join("")}</div>` : `<div class="hint">暂无记录</div>`}
+    </div>
+  `;
+}
+
+function memoryEntryText(entry = {}) {
+  if (typeof entry === "string") return entry;
+  return String(entry.text || entry.content || entry.message || entry.reply || entry.name || entry.ruleName || entry.type || entry.taskId || "");
+}
+
+function lastMemoryLine(entries = []) {
+  const items = Array.isArray(entries) ? entries : [];
+  return memoryEntryText(items[items.length - 1] || "").slice(0, 90);
+}
+
+function shortCustomerId(value = "") {
+  const text = String(value || "未知客户");
+  return text.length > 18 ? `${text.slice(0, 8)}...${text.slice(-6)}` : text;
+}
+
+async function refreshCustomerMemories() {
+  state.customerMemories = await window.mainShell.getCustomerMemories({ limit: 200, query: state.memoryFilter || "" });
+  renderCustomerMemory();
+}
+
+async function compressCustomerMemory(customerId, method) {
+  if (!customerId || state.memoryCompressionRunning) return;
+  state.memoryCompressionRunning = true;
+  showFlash(method === "ai" ? "正在调用 AI 压缩客户记忆..." : "正在本机压缩客户记忆...");
+  try {
+    const result = await window.mainShell.compressCustomerMemory({ customerId, method });
+    showFlash(result.ok ? result.message : (result.message || "压缩失败"), result.ok ? "ok" : "error");
+    await refreshCustomerMemories();
+  } catch (error) {
+    showFlash(String(error?.message || error), "error");
+  } finally {
+    state.memoryCompressionRunning = false;
+  }
+}
+
+async function compressCustomerMemories(method) {
+  if (state.memoryCompressionRunning) return;
+  const aiWarning = method === "ai" ? "AI 压缩会逐条调用远方 AI API，耗时和费用都更高。" : "本机压缩不调用网络，适合批量整理。";
+  if (!window.confirm(`${aiWarning}\n是否继续压缩所有超过阈值的客户记忆？`)) return;
+  state.memoryCompressionRunning = true;
+  showFlash(method === "ai" ? "正在批量 AI 压缩..." : "正在批量本机压缩...");
+  try {
+    const result = await window.mainShell.compressCustomerMemories({ method, onlyOverThreshold: true, threshold: 40, limit: 100 });
+    showFlash(`处理 ${result.processed || 0} 条，成功 ${result.compressed || 0} 条，失败 ${result.failed || 0} 条`, result.ok ? "ok" : "error");
+    await refreshCustomerMemories();
+  } catch (error) {
+    showFlash(String(error?.message || error), "error");
+  } finally {
+    state.memoryCompressionRunning = false;
+  }
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(String(text || ""));
+  const area = document.createElement("textarea");
+  area.value = String(text || "");
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
 }
 
 function buildTopStates(payload) {
@@ -600,6 +859,10 @@ function renderDetailPanel() {
   }
   if (detail?.type === "log") {
     detailPanel.innerHTML = renderLogDetail(detail.payload);
+    return;
+  }
+  if (detail?.type === "dashboard") {
+    detailPanel.innerHTML = renderDashboardDetail(detail.payload);
     return;
   }
   detailPanel.innerHTML = renderDefaultDetail();
@@ -1020,62 +1283,39 @@ function renderDashboard() {
   const ruleCandidates = status.ruleCandidates || {};
   content.innerHTML = `
     ${pageHead("总览状态", "查看客服页、Bot、AI API、Webhook、悬浮窗和回复日志的真实运行状态。", `
-      <button id="dashRefresh">刷新</button>
-      <button id="dashCheckAi" class="primary">检查 AI API</button>
+      ${iconTextButton("refresh", "刷新", "id=\"dashRefresh\"")}
+      ${iconTextButton("sparkles", "检查 AI API", "id=\"dashCheckAi\" class=\"primary\"")}
     `)}
-    <div class="grid cols-3">
-      ${metricCard("当前步骤", shortStatus(runtime.label || runtime.status || "检测中"), runtime.detail || "等待运行状态", runtimeTone(runtime.tone))}
-      ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", `${runtime.category || "运行"} / ${formatFullTime(runtime.at || Date.now())}`, status.enabled ? "ok" : "warn")}
-      ${metricCard("AI API", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
-      ${metricCard("Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn")}
-      ${metricCard("外部同步资料", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺访问凭证") : "未启用", judgments.records ? `本机 ${judgments.records} 条` : "未下载", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
-      ${metricCard("客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad")}
-      ${metricCard("悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn")}
-      ${metricCard("长期运行", watchdog.enabled ? "守护中" : "已关闭", `${watchdog.autoStart ? "开机自启" : "未自启"} / ${watchdog.powerSaveBlockerActive ? "防休眠" : "未防休眠"}`, watchdog.enabled && watchdog.powerSaveBlockerActive ? "ok" : "warn")}
-      ${metricCard("回复记录", String(records.total || 0), `成功 ${records.sent || 0} / 失败 ${records.failed || 0} / 超时 ${records.timeout || 0}`, records.failed || records.timeout ? "warn" : "ok")}
-      ${metricCard("当前任务", String(replyTasks.open || 0), `等待AI ${replyTasks.pendingApi || 0} / 已承接 ${replyTasks.ackSent || 0}`, replyTasks.open ? "warn" : "ok")}
-      ${metricCard("延迟任务", String(replyTasks.delayed || 0), `补救 ${replyTasks.retrying || 0} / 待人工 ${replyTasks.waitingHuman || 0}`, replyTasks.delayed || replyTasks.waitingHuman ? "bad" : replyTasks.retrying ? "warn" : "ok")}
-      ${metricCard("规则候选", String(ruleCandidates.pendingReview || 0), `总计 ${ruleCandidates.total || 0} 条`, ruleCandidates.pendingReview ? "warn" : "ok")}
+    <div class="visual-dashboard-grid">
+      ${visualStatTile("activity", "当前步骤", shortStatus(runtime.label || runtime.status || "检测中"), runtime.detail || "等待运行状态", runtimeTone(runtime.tone), "runtime")}
+      ${visualStatTile("bot", "Bot接管", status.enabled ? "开启" : "暂停", `${runtime.category || "运行"} · ${formatFullTime(runtime.at || Date.now())}`, status.enabled ? "ok" : "warn", "bot")}
+      ${visualStatTile("sparkles", "AI API", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad", "ai")}
+      ${visualStatTile("webhook", "Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn", "webhook")}
+      ${visualStatTile("database", "外部资料", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺凭证") : "未启用", judgments.records ? `本机 ${judgments.records} 条` : "未下载", judgments.enabled && judgments.hasCookie ? "ok" : "warn", "judgments")}
+      ${visualStatTile("messages", "客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad", "page")}
+      ${visualStatTile("eye", "悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn", "floating")}
+      ${visualStatTile("clock", "长期运行", watchdog.enabled ? "守护中" : "已关闭", `${watchdog.autoStart ? "开机自启" : "未自启"} · ${watchdog.powerSaveBlockerActive ? "防休眠" : "未防休眠"}`, watchdog.enabled && watchdog.powerSaveBlockerActive ? "ok" : "warn", "watchdog")}
+      ${visualStatTile("reply", "回复记录", records.total || 0, `成功 ${records.sent || 0} · 失败 ${records.failed || 0} · 超时 ${records.timeout || 0}`, records.failed || records.timeout ? "warn" : "ok", "records")}
+      ${visualStatTile("archive", "当前任务", replyTasks.open || 0, `等待AI ${replyTasks.pendingApi || 0} · 已承接 ${replyTasks.ackSent || 0}`, replyTasks.open ? "warn" : "ok", "tasks")}
+      ${visualStatTile("alert", "延迟任务", replyTasks.delayed || 0, `补救 ${replyTasks.retrying || 0} · 待人工 ${replyTasks.waitingHuman || 0}`, replyTasks.delayed || replyTasks.waitingHuman ? "bad" : replyTasks.retrying ? "warn" : "ok", "delayed")}
+      ${visualStatTile("plus", "规则候选", ruleCandidates.pendingReview || 0, `总计 ${ruleCandidates.total || 0} 条`, ruleCandidates.pendingReview ? "warn" : "ok", "candidates")}
     </div>
-    <div class="grid cols-2" style="margin-top:14px">
-      <div class="card">
-        <h3>当前状态</h3>
-        <div class="runtime-current">
-          <i class="dot ${runtimeTone(runtime.tone) === "ok" ? "" : runtimeTone(runtime.tone)}"></i>
-          <div>
-            <strong>${escapeHtml(shortStatus(runtime.label || runtime.status || "检测中"))}</strong>
-            <span>${escapeHtml(runtime.detail || "等待运行状态")}</span>
-          </div>
-          <time>${escapeHtml(formatFullTime(runtime.at || Date.now()))}</time>
-        </div>
-        <p class="hint">控制台和悬浮窗使用同一状态源，实时显示当前处理阶段。</p>
-      </div>
-      <div class="card cream">
-        <h3>快捷操作</h3>
-        <div class="toolbar" style="justify-content:flex-start">
-          <button id="dashOpenPage" class="dark">打开客服页映射</button>
-          <button id="dashOpenFloat">打开悬浮窗</button>
-          <button id="dashReload">重载客服页</button>
-          <button id="dashCapture">捕捉页面结构</button>
-          <button id="dashJudgments">外部知识同步</button>
-        </div>
-      </div>
-      <div class="card span-2">
-        <h3>当前回复来源</h3>
-        <div class="badge-row">
-          ${sourceStatsBadges(records.bySource || {})}
-        </div>
-        <p class="hint">本地规则回复、15秒承接语、自动化页面动作和 AI API 回复会在日志库中分开显示，便于排查每次回复的来源。</p>
-      </div>
+    <div class="grid cols-2 dashboard-secondary" style="margin-top:14px">
+      <section class="card">
+        <div class="section-title"><div><h3>回复来源</h3><div class="hint">用比例条查看本地规则、动作、AI API 和同步资料增强占比。</div></div></div>
+        ${sourceStatsBars(records.bySource || {})}
+      </section>
+      <section class="card">
+        <div class="section-title"><div><h3>异常与补发</h3><div class="hint">正常项折叠，异常项优先显示。</div></div></div>
+        ${dashboardIssueList()}
+      </section>
     </div>
   `;
   $("#dashRefresh").addEventListener("click", refreshAll);
   $("#dashCheckAi").addEventListener("click", checkAi);
-  $("#dashOpenPage").addEventListener("click", () => switchView("page"));
-  $("#dashOpenFloat").addEventListener("click", () => window.mainShell.openFloating("compact"));
-  $("#dashReload").addEventListener("click", () => window.mainShell.reload());
-  $("#dashCapture").addEventListener("click", captureStructureFromUi);
-  $("#dashJudgments").addEventListener("click", () => switchView("judgments"));
+  $$("[data-dashboard-detail]").forEach((button) => {
+    button.addEventListener("click", () => setDetail("dashboard", dashboardDetailPayload(button.dataset.dashboardDetail)));
+  });
 }
 
 function renderBot() {
@@ -1200,6 +1440,110 @@ function profileStatus(profile) {
       <span class="badge">最近保存 ${profile.updatedAt ? formatFullTime(profile.updatedAt) : "未记录"}</span>
     </div>
   `;
+}
+
+function settingToggleRow(id, title, hint, on, iconName = "settings") {
+  return `
+    <div class="setting-toggle-row">
+      <span class="setting-icon">${svgIcon(iconName)}</span>
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(hint || "")}</span>
+      </div>
+      <input id="${attr(id)}" type="checkbox" ${on ? "checked" : ""} hidden>
+      <button type="button" class="toggle ${on ? "on" : ""}" aria-checked="${on ? "true" : "false"}" data-target="${attr(id)}" title="${on ? "关闭" : "开启"}">
+        <span></span>
+      </button>
+    </div>
+  `;
+}
+
+function aiReferenceCard(fieldName, title, hint, text, iconName = "edit") {
+  const hasValue = Boolean(String(text || "").trim());
+  return `
+    <article class="ai-reference-card ${hasValue ? "" : "empty-card"}">
+      <div class="ai-reference-head">
+        <span class="setting-icon">${svgIcon(iconName)}</span>
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(hint || "")}</span>
+        </div>
+        ${iconButton("edit", `编辑${title}`, `data-ai-edit="${attr(fieldName)}"`)}
+      </div>
+      <div class="markdown-preview">${hasValue ? renderMarkdown(text) : `<p class="hint">未填写，点击编辑配置。</p>`}</div>
+    </article>
+  `;
+}
+
+function aiReferenceFieldMeta(fieldName) {
+  return {
+    stylePrompt: ["回复语气", "客服说话的语气和措辞偏好。"],
+    soulPrompt: ["风格灵魂", "人设、判断方式和品牌感。"],
+    guardrailsPrompt: ["边界规则", "不能说、不能承诺和不能引导的内容。"],
+    reviewPrompt: ["审核补充规则", "二次审核的额外检查项。"],
+    knowledgeText: ["手动知识", "直接写入本机配置，作为 AI 参考。"],
+    referenceText: ["参考回复", "供 AI 学习表达方式，不会直接原样发送。"]
+  }[fieldName] || ["AI 参考", "编辑 AI 参考内容。"];
+}
+
+function renderAiReferenceEditorModal() {
+  if (!state.aiEditor?.field) return "";
+  const profile = state.settings.assistantProfile || {};
+  const [title, hint] = aiReferenceFieldMeta(state.aiEditor.field);
+  const text = profile[state.aiEditor.field] || "";
+  return `
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="aiEditorTitle">
+      <section class="editor-modal">
+        <div class="section-title">
+          <div>
+            <h3 id="aiEditorTitle">${escapeHtml(title)}</h3>
+            <div class="hint">${escapeHtml(hint)}</div>
+          </div>
+          ${iconButton("close", "关闭编辑器", "id=\"aiEditorCancel\"")}
+        </div>
+        <div class="editor-grid">
+          <div class="field">
+            <label for="aiEditorText">Markdown 内容</label>
+            <textarea id="aiEditorText" spellcheck="false">${escapeHtml(text)}</textarea>
+            <div class="hint">支持标题、列表、加粗、引用和链接。保存后立即写入本机配置。</div>
+          </div>
+          <div>
+            <label class="preview-label">预览</label>
+            <div id="aiEditorPreview" class="markdown-preview editor-preview">${renderMarkdown(text)}</div>
+          </div>
+        </div>
+        <div class="toolbar editor-actions">
+          <button type="button" id="aiEditorCloseText">取消</button>
+          ${iconTextButton("save", "保存内容", "id=\"aiEditorSave\" class=\"primary\"")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function openAiReferenceEditor(fieldName) {
+  state.aiEditor = { field: fieldName };
+  renderAiReference();
+  $("#aiEditorText")?.focus();
+}
+
+function closeAiReferenceEditor() {
+  state.aiEditor = null;
+  renderAiReference();
+}
+
+async function saveAiReferenceEditor() {
+  const fieldName = state.aiEditor?.field;
+  if (!fieldName) return;
+  const profile = {
+    ...(state.settings.assistantProfile || {}),
+    [fieldName]: value("aiEditorText"),
+    updatedAt: Date.now()
+  };
+  await saveSettings({ assistantProfile: profile }, "AI 参考内容已保存");
+  state.knowledgeOverview = await window.mainShell.getKnowledgeOverview().catch(() => state.knowledgeOverview);
+  state.aiEditor = null;
+  renderAiReference();
 }
 
 function renderJudgments() {
@@ -1431,9 +1775,9 @@ function renderRules() {
   const entries = visibleRuleEntries(bot, state.ruleFilter);
   content.innerHTML = `
     ${pageHead("规则库", "规则默认使用紧凑摘要显示，展开单条后才加载编辑器和图片预览。", `
-      <button id="addRule">新增规则</button>
-      <button id="validateRules">检查规则</button>
-      <button id="saveRules" class="primary">保存规则库</button>
+      ${iconTextButton("plus", "新增规则", "id=\"addRule\"")}
+      ${iconTextButton("check", "检查规则", "id=\"validateRules\"")}
+      ${iconTextButton("save", "保存规则库", "id=\"saveRules\" class=\"primary\"")}
     `)}
     <div class="tabs rule-category-tabs">
       ${ruleFilterButton("all", "全部")}
@@ -1535,10 +1879,10 @@ function renderRuleCard(type, rule, index) {
           <time>${rule.updatedAt ? formatFullTime(rule.updatedAt) : "未记录修改"}</time>
         </div>
         <div class="rule-actions">
-          <button type="button" data-rule-command="expand">${expanded ? "收起" : "展开"}</button>
-          <button type="button" data-rule-command="duplicate">复用</button>
-          <button type="button" data-rule-command="toggle-enabled">${enabled ? "停用" : "启用"}</button>
-          <button type="button" data-rule-command="delete" class="danger">删除</button>
+          ${iconButton("chevron", expanded ? "收起" : "展开", "data-rule-command=\"expand\"")}
+          ${iconButton("copy", "复用", "data-rule-command=\"duplicate\"")}
+          ${iconButton(enabled ? "close" : "check", enabled ? "停用" : "启用", "data-rule-command=\"toggle-enabled\"")}
+          ${iconButton("trash", "删除", "data-rule-command=\"delete\"", "danger")}
         </div>
       </div>
       ${expanded ? `<div class="rule-editor">
@@ -1547,7 +1891,7 @@ function renderRuleCard(type, rule, index) {
         ${textareaField("", "匹配关键词", keywords, "逗号、顿号或换行分隔，客户消息包含任一关键词就会命中。", "", "data-rule-field=\"keywords\"")}
         ${selectField("", "规则模式", rule.mode || "final", [["final", "直接完成"], ["quick_then_api", "快速回复后补 AI"], ["action_only", "只执行动作"], ["ignore", "忽略消息"]], "决定规则命中后的后续流程。", "span-2", "data-rule-field=\"mode\"")}
         ${renderRuleSpecificEditor(type, rule)}
-        <div class="span-2 toolbar rule-editor-footer"><button type="button" data-rule-command="cancel-edit">取消</button><button type="button" data-rule-command="save-one" class="primary">保存当前规则</button></div>
+        <div class="span-2 toolbar rule-editor-footer"><button type="button" data-rule-command="cancel-edit">取消</button>${iconTextButton("save", "保存当前规则", "data-rule-command=\"save-one\" class=\"primary\"")}</div>
       </div>` : ""}
     </section>
   `;
@@ -1574,7 +1918,7 @@ function renderRuleSpecificEditor(type, rule) {
         ${actions.length ? actions.map((action, actionIndex) => renderActionRow(action, actionIndex)).join("") : renderActionRow({ type: "text", text: "" }, 0)}
       </div>
       <div class="toolbar" style="justify-content:flex-start;margin-top:8px">
-        <button type="button" data-rule-command="add-action">添加动作</button>
+        ${iconTextButton("plus", "添加动作", "data-rule-command=\"add-action\"")}
       </div>
     </div>
   `;
@@ -1589,7 +1933,7 @@ function renderActionRow(action, index) {
           <span class="badge rule">动作 ${index + 1}</span>
           <strong>${escapeHtml(actionTypeLabel(type))}</strong>
         </div>
-        <button type="button" data-rule-command="remove-action" class="danger">删除</button>
+        ${iconButton("trash", "删除动作", "data-rule-command=\"remove-action\"", "danger")}
       </div>
       <div class="form-grid">
         ${selectField("", "动作类型", type, [
@@ -2010,17 +2354,14 @@ async function saveApiSettings() {
 }
 
 async function saveAiReferenceSettings() {
+  const profile = state.settings.assistantProfile || {};
   const payload = {
     assistantProfile: {
+      ...profile,
       knowledgeFilesEnabled: checked("knowledgeFilesEnabled"),
       sidebarContextEnabled: checked("sidebarContextEnabled"),
       reviewEnabled: checked("reviewEnabled"),
-      stylePrompt: value("stylePrompt"),
-      soulPrompt: value("soulPrompt"),
-      guardrailsPrompt: value("guardrailsPrompt"),
-      knowledgeText: value("knowledgeText"),
-      referenceText: value("referenceText"),
-      reviewPrompt: value("reviewPrompt")
+      updatedAt: Date.now()
     }
   };
   await saveSettings(payload, "AI 参考已保存");
@@ -2338,14 +2679,15 @@ async function saveSettings(payload, okMessage) {
 }
 
 async function refreshAll() {
-  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel, customerMemories] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
     window.mainShell.getJudgmentsDownloadStatus(),
     window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(state.workbench),
-    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(state.menuModel)
+    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(state.menuModel),
+    window.mainShell.getCustomerMemories ? window.mainShell.getCustomerMemories({ limit: 200, query: state.memoryFilter || "" }) : Promise.resolve(state.customerMemories)
   ]);
   state.settings = settings;
   state.status = status;
@@ -2354,6 +2696,7 @@ async function refreshAll() {
   state.judgmentDownload = judgmentDownload;
   state.workbench = workbench;
   state.menuModel = menuModel;
+  state.customerMemories = customerMemories;
   renderChrome();
   renderDesktopMenu();
   renderView();
@@ -2473,7 +2816,8 @@ function bindRuleActions() {
     }
   });
   $("#ruleList").addEventListener("click", async (event) => {
-    const command = event.target?.dataset?.ruleCommand;
+    const commandNode = event.target?.closest?.("[data-rule-command]");
+    const command = commandNode?.dataset?.ruleCommand || "";
     if (!command) {
       const card = event.target.closest(".rule-card");
       if (card && !event.target.closest("input, textarea, select, button")) {
@@ -2485,23 +2829,23 @@ function bindRuleActions() {
     }
     if (command === "choose-path") {
       event.preventDefault();
-      const fieldNode = event.target.closest(".path-field");
+      const fieldNode = commandNode.closest(".path-field");
       const input = $("input", fieldNode);
-      const row = event.target.closest(".action-row");
+      const row = commandNode.closest(".action-row");
       const actionType = row ? inputValue($("[data-action-field='type']", row)) : "";
       const configuredKind = fieldNode?.dataset.pathKind || "file";
       const kind = configuredKind === "auto" && actionType === "image" ? "image" : configuredKind === "image" ? "image" : "file";
       const picked = await window.mainShell.chooseFile({ kind });
       if (picked && input) {
         input.value = picked;
-        await hydrateRulePreviews(event.target.closest(".action-row") || event.target.closest(".rule-card"));
+        await hydrateRulePreviews(commandNode.closest(".action-row") || commandNode.closest(".rule-card"));
         showFlash(kind === "image" ? "图片路径已更新，记得保存规则库" : "文件路径已更新，记得保存规则库", "ok");
       }
       return;
     }
     if (command === "reveal-path") {
       event.preventDefault();
-      const fieldNode = event.target.closest(".path-field");
+      const fieldNode = commandNode.closest(".path-field");
       const input = $("input", fieldNode);
       const targetPath = inputValue(input);
       if (!targetPath) {
@@ -2512,7 +2856,7 @@ function bindRuleActions() {
       showFlash(result.ok ? (result.missing ? "文件不存在，已打开所在目录" : "已打开文件所在位置") : result.message, result.ok ? "ok" : "error");
       return;
     }
-    const card = event.target.closest(".rule-card");
+    const card = commandNode.closest(".rule-card");
     const index = Number(card?.dataset.index || -1);
     const type = card?.dataset.ruleType || currentRuleStorageType();
     const list = state.settings.config.bot[type] || [];
@@ -2574,7 +2918,7 @@ function bindRuleActions() {
       $(".action-list", card).insertAdjacentHTML("beforeend", renderActionRow({ type: "text", text: "" }, $$(".action-row", card).length));
     }
     if (command === "remove-action") {
-      const row = event.target.closest(".action-row");
+      const row = commandNode.closest(".action-row");
       row?.remove();
     }
   });
@@ -2926,6 +3270,84 @@ function pageHead(title, description, actions = "") {
   `;
 }
 
+function svgIcon(name) {
+  return icons[name] || icons.edit || "";
+}
+
+function iconButton(name, label, attrs = "", className = "") {
+  return `<button type="button" class="icon-button ${className}" title="${attr(label)}" aria-label="${attr(label)}" ${attrs}>${svgIcon(name)}</button>`;
+}
+
+function iconTextButton(name, label, attrs = "") {
+  const classMatch = String(attrs || "").match(/\sclass="([^"]*)"/);
+  const extraClass = classMatch ? classMatch[1] : "";
+  const safeAttrs = classMatch ? String(attrs || "").replace(classMatch[0], "") : String(attrs || "");
+  return `<button type="button" class="icon-text-button ${attr(extraClass)}" title="${attr(label)}" ${safeAttrs}>${svgIcon(name)}<span>${escapeHtml(label)}</span></button>`;
+}
+
+function visualStatTile(iconName, title, value, hint, tone = "ok", detailKey = "") {
+  const percent = Math.max(6, Math.min(100, Number(value || 0) ? 72 : 16));
+  return `
+    <button type="button" class="visual-tile ${tone || "ok"}" ${detailKey ? `data-dashboard-detail="${attr(detailKey)}"` : ""}>
+      <span class="tile-icon">${svgIcon(iconName)}</span>
+      <span class="tile-copy">
+        <span>${escapeHtml(title)}</span>
+        <strong>${escapeHtml(String(value))}</strong>
+        <small>${escapeHtml(hint || "")}</small>
+      </span>
+      <span class="tile-meter"><i style="width:${percent}%"></i></span>
+    </button>
+  `;
+}
+
+function renderMarkdown(markdown = "") {
+  const source = String(markdown || "").trim();
+  if (!source) return `<p class="hint">未填写</p>`;
+  const inline = (text) => escapeHtml(text)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  const blocks = [];
+  let inList = false;
+  const closeList = () => {
+    if (inList) {
+      blocks.push("</ul>");
+      inList = false;
+    }
+  };
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      closeList();
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      closeList();
+      blocks.push(`<h4>${inline(line.slice(4))}</h4>`);
+    } else if (line.startsWith("## ")) {
+      closeList();
+      blocks.push(`<h3>${inline(line.slice(3))}</h3>`);
+    } else if (line.startsWith("# ")) {
+      closeList();
+      blocks.push(`<h3>${inline(line.slice(2))}</h3>`);
+    } else if (/^[-*]\s+/.test(line)) {
+      if (!inList) {
+        blocks.push("<ul>");
+        inList = true;
+      }
+      blocks.push(`<li>${inline(line.replace(/^[-*]\s+/, ""))}</li>`);
+    } else if (line.startsWith("> ")) {
+      closeList();
+      blocks.push(`<blockquote>${inline(line.slice(2))}</blockquote>`);
+    } else {
+      closeList();
+      blocks.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  closeList();
+  return blocks.join("");
+}
+
 function metricCard(title, value, hint, level = "ok") {
   const dotClass = runtimeTone(level) === "ok" ? "" : runtimeTone(level);
   return `
@@ -2972,6 +3394,68 @@ function sourceStatsBadges(bySource) {
     const meta = sourceLabels[source] || sourceLabels.unknown;
     return `<span class="badge ${meta.className}">${escapeHtml(meta.label)} ${count}</span>`;
   }).join("");
+}
+
+function sourceStatsBars(bySource) {
+  const entries = Object.entries(bySource || {}).filter(([, count]) => Number(count || 0) > 0);
+  const total = entries.reduce((sum, [, count]) => sum + Number(count || 0), 0);
+  if (!entries.length) return `<div class="empty">暂无来源数据。</div>`;
+  return `
+    <div class="source-bars">
+      ${entries.map(([source, count]) => {
+        const meta = sourceLabels[source] || sourceLabels.unknown;
+        const percent = total ? Math.max(4, Math.round(Number(count || 0) / total * 100)) : 0;
+        return `<div class="source-bar"><div><span>${escapeHtml(meta.label)}</span><strong>${Number(count || 0)}</strong></div><i><b class="${meta.className || ""}" style="width:${percent}%"></b></i></div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function dashboardIssueList() {
+  const workbench = state.workbench || {};
+  const issues = Array.isArray(workbench.healthIssues) ? workbench.healthIssues : [];
+  const outbox = Array.isArray(workbench.notifyOutbox) ? workbench.notifyOutbox : [];
+  const items = [
+    ...issues.map((item) => ({ kind: "异常", title: item.title || item.key, body: item.body || "", tone: "fail" })),
+    ...outbox.slice(0, 6).map((item) => ({ kind: "补发", title: item.title || "通知待补发", body: item.error || item.body || "", tone: "direct" }))
+  ];
+  if (!items.length) return `<div class="empty">暂无健康异常和待补发通知。</div>`;
+  return `<div class="knowledge-list">${items.slice(0, 8).map((item) => `<div class="knowledge-row status"><span class="badge ${item.tone}">${escapeHtml(item.kind)}</span><strong>${escapeHtml(item.title || "")}</strong><span>${escapeHtml(item.body || "")}</span></div>`).join("")}</div>`;
+}
+
+function dashboardDetailPayload(key = "") {
+  const status = state.status || {};
+  const workbench = state.workbench || {};
+  const map = {
+    runtime: { title: "当前步骤", data: status.bot || {} },
+    bot: { title: "Bot接管", data: { enabled: status.enabled, bot: status.bot, tasks: status.replyTasks } },
+    ai: { title: "AI API", data: status.ai || {} },
+    webhook: { title: "Webhook", data: { notify: status.notify, outbox: workbench.notifyOutbox || [] } },
+    judgments: { title: "外部同步资料", data: state.judgments || {} },
+    page: { title: "客服页", data: status.page || {} },
+    floating: { title: "悬浮窗", data: status.floating || {} },
+    watchdog: { title: "长期运行", data: status.watchdog || {} },
+    records: { title: "回复记录", data: status.records || {} },
+    tasks: { title: "当前任务", data: { summary: status.replyTasks || {}, recent: workbench.replyTasks?.recent || [] } },
+    delayed: { title: "延迟任务", data: { summary: status.replyTasks || {}, recent: workbench.replyTasks?.recent || [] } },
+    candidates: { title: "规则候选", data: { summary: status.ruleCandidates || {}, recent: workbench.ruleCandidates?.recent || [] } },
+    "memory-total": { title: "客户记忆", data: state.customerMemories || workbench.customerMemories || {} },
+    "memory-compress": { title: "待压缩记忆", data: state.customerMemories || workbench.customerMemories || {} },
+    "memory-open": { title: "未完成客户任务", data: state.customerMemories || workbench.customerMemories || {} },
+    "memory-errors": { title: "客户记忆错误", data: state.customerMemories || workbench.customerMemories || {} }
+  };
+  return map[key] || { title: key || "状态详情", data: {} };
+}
+
+function renderDashboardDetail(payload = {}) {
+  return `
+    <h3>${escapeHtml(payload.title || "状态详情")}</h3>
+    <div class="hint">这里展示后台快照中的原始字段，便于定位问题。</div>
+    <div class="detail-block">
+      <strong>数据快照</strong>
+      <pre class="json-preview">${escapeHtml(JSON.stringify(payload.data || {}, null, 2))}</pre>
+    </div>
+  `;
 }
 
 function toggleRow(id, title, hint, on, extraClass = "", extraAttrs = "") {

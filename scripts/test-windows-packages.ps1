@@ -49,7 +49,7 @@ function Test-AppLaunch([string]$ExePath, [string]$Label, [int]$ControlPort, [in
 
 $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root "dist"
-$version = "0.4.5"
+$version = "0.4.6"
 $unpackedExe = Get-ChildItem -Path (Join-Path $dist "win-unpacked") -File -Filter "*.exe" |
   Where-Object { $_.Name -notmatch "Uninstall" } |
   Sort-Object Length -Descending |

@@ -100,6 +100,15 @@ contextBridge.exposeInMainWorld("mainShell", {
   searchLocalKnowledge(payload) {
     return ipcRenderer.invoke("main-search-local-knowledge", payload || {});
   },
+  getCustomerMemories(options) {
+    return ipcRenderer.invoke("main-get-customer-memories", options || {});
+  },
+  compressCustomerMemory(payload) {
+    return ipcRenderer.invoke("main-compress-customer-memory", payload || {});
+  },
+  compressCustomerMemories(payload) {
+    return ipcRenderer.invoke("main-compress-customer-memories", payload || {});
+  },
   getJudgmentsStatus() {
     return ipcRenderer.invoke("main-get-judgments-status");
   },

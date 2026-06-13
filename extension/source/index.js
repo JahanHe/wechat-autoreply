@@ -5,7 +5,7 @@ import { replySignature } from "./reply-memory.js";
 import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatchesSearchText } from "./rule-matcher.js";
 
 (() => {
-  const VERSION = "0.4.5";
+  const VERSION = "0.4.6";
 
   const CONFIG = {
     enabled: true,

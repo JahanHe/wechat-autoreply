@@ -11,6 +11,8 @@ const screenshots = {
   dashboard: "/tmp/xiaodian-ai-kefu-dashboard-status.png",
   knowledge: "/tmp/xiaodian-ai-kefu-knowledge-overview.png",
   rules: "/tmp/xiaodian-ai-kefu-rules-compact.png",
+  aiReference: "/tmp/xiaodian-ai-kefu-ai-reference.png",
+  customerMemory: "/tmp/xiaodian-ai-kefu-customer-memory.png",
   testCenter: "/tmp/xiaodian-ai-kefu-test-center.png",
   floating: "/tmp/xiaodian-ai-kefu-floating-status.png",
   mini: "/tmp/xiaodian-ai-kefu-floating-mini.png"
@@ -172,16 +174,29 @@ async function reportStatusThroughIpc(electronApp, status) {
 
 async function assertMainDashboard(page, expectedStatus) {
   const result = await page.evaluate(() => ({
+    ...(window.state.status.records = {
+      ...(window.state.status.records || {}),
+      total: 8,
+      sent: 7,
+      failed: 1,
+      timeout: 0,
+      bySource: { text_rule: 3, ai_followup: 4 }
+    }),
+    ...(window.renderDashboard(), {}),
     heading: document.querySelector(".page-head h2")?.textContent || "",
-    current: Array.from(document.querySelectorAll(".metric strong")).map((node) => node.textContent),
+    current: Array.from(document.querySelectorAll(".visual-tile strong")).map((node) => node.textContent),
+    visualTiles: document.querySelectorAll(".visual-tile").length,
     currentCount: document.querySelectorAll(".runtime-current").length,
-    recentTitleCount: Array.from(document.querySelectorAll("h3")).filter((node) => node.textContent === "最近步骤").length,
+    quickActionTitleCount: Array.from(document.querySelectorAll("h3")).filter((node) => node.textContent === "快捷操作").length,
+    sourceBars: document.querySelectorAll(".source-bar").length,
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
   }));
   if (result.heading !== "总览状态") throw new Error(`主面板未打开: ${result.heading}`);
   if (!result.current.includes(expectedStatus)) throw new Error(`主面板未显示当前步骤: ${expectedStatus}`);
-  if (!result.currentCount) throw new Error("主面板未显示当前状态");
-  if (result.recentTitleCount) throw new Error("主面板仍显示最近步骤");
+  if (result.visualTiles < 12) throw new Error(`主面板可视化卡片不足: ${JSON.stringify(result)}`);
+  if (result.currentCount) throw new Error("主面板仍显示旧当前状态卡片");
+  if (result.quickActionTitleCount) throw new Error("主面板仍显示重复快捷操作");
+  if (!result.sourceBars) throw new Error("主面板未显示回复来源比例条");
   if (result.overflow) throw new Error("主面板发生横向溢出");
 }
 
@@ -253,7 +268,7 @@ async function assertNavigationStructure(page) {
     throw new Error(`一级导航不符合预期: ${JSON.stringify(result.topItems)}`);
   }
   if (result.topItems.some((item) => !item.icon)) throw new Error(`一级导航缺少本地图标: ${JSON.stringify(result.topItems)}`);
-  if (JSON.stringify(result.rulesTabs) !== JSON.stringify(["知识总览", "规则库", "AI参考", "测试中心"])) {
+  if (JSON.stringify(result.rulesTabs) !== JSON.stringify(["知识总览", "规则库", "AI参考", "测试中心", "客户记忆"])) {
     throw new Error(`知识库二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
   }
   if (!result.settingsTabs.includes("Bot策略") || !result.settingsTabs.includes("AI API") || !result.settingsTabs.includes("外部知识同步") || !result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {
@@ -287,7 +302,7 @@ async function assertKnowledgeWorkspace(page) {
     metricButtons: document.querySelectorAll(".overview-button").length,
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
   }));
-  if (overview.heading !== "知识总览" || overview.metricButtons < 4 || overview.overflow) {
+  if (overview.heading !== "知识总览" || overview.metricButtons < 5 || overview.overflow) {
     throw new Error(`知识总览结构异常: ${JSON.stringify(overview)}`);
   }
 
@@ -309,6 +324,56 @@ async function assertKnowledgeWorkspace(page) {
   }));
   if (compactAfter.editors !== 1 || compactAfter.expanded !== 1) throw new Error(`规则单条展开异常: ${JSON.stringify(compactAfter)}`);
   await page.screenshot({ path: screenshots.rules });
+
+  await page.evaluate(() => window.switchView("aiReference"));
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: screenshots.aiReference });
+  const aiReference = await page.evaluate(() => ({
+    heading: document.querySelector(".page-head h2")?.textContent || "",
+    cards: document.querySelectorAll(".ai-reference-card").length,
+    editButtons: Array.from(document.querySelectorAll("[data-ai-edit]")).map((node) => ({
+      text: node.textContent.trim(),
+      label: node.getAttribute("aria-label")
+    }))
+  }));
+  if (aiReference.heading !== "AI 参考" || aiReference.cards < 6 || aiReference.editButtons.some((item) => item.text || !item.label)) {
+    throw new Error(`AI 参考结构异常: ${JSON.stringify(aiReference)}`);
+  }
+
+  await page.evaluate(() => {
+    window.state.customerMemories = {
+      ok: true,
+      stats: { total: 1, needCompression: 1, compressed: 0, aiSummarized: 0, localSummarized: 0, newCustomers: 1, unfinishedTasks: 1, withErrors: 0, threshold: 40 },
+      items: [{
+        customerId: "session_test_customer",
+        sessionKey: "session_test_customer",
+        isNewCustomer: true,
+        messageCount: 52,
+        needsCompression: true,
+        recentCustomerMessages: [{ text: "会员专区包含什么权益", at: Date.now() }],
+        recentKfReplies: [{ text: "会员专区包含视频回放、社群和专区问答", at: Date.now() }],
+        sentRules: [{ name: "会员权益回复" }],
+        sentActions: [{ type: "image" }],
+        unfinishedTasks: [{ taskId: "task_test" }],
+        updatedAt: Date.now()
+      }]
+    };
+    window.state.view = "customerMemory";
+    window.renderView();
+  });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: screenshots.customerMemory });
+  const memoryPage = await page.evaluate(() => ({
+    heading: document.querySelector(".page-head h2")?.textContent || "",
+    rows: document.querySelectorAll(".memory-row").length,
+    iconButtons: Array.from(document.querySelectorAll(".memory-row .icon-button")).map((node) => ({
+      text: node.textContent.trim(),
+      label: node.getAttribute("aria-label")
+    }))
+  }));
+  if (memoryPage.heading !== "客户记忆" || memoryPage.rows !== 1 || memoryPage.iconButtons.some((item) => item.text || !item.label)) {
+    throw new Error(`客户记忆结构异常: ${JSON.stringify(memoryPage)}`);
+  }
 
   await page.evaluate(() => window.switchView("testCenter"));
   await page.waitForTimeout(100);

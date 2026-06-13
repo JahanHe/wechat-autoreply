@@ -5,6 +5,7 @@ export const MAIN_IPC_CHANNELS = Object.freeze([
   "main-choose-image", "main-choose-file", "main-reveal-path", "main-get-file-preview",
   "main-get-reply-records", "main-test-ai-reply", "main-test-rule-trigger", "main-test-reply-pipeline",
   "main-get-knowledge-overview", "main-get-knowledge-record", "main-search-local-knowledge",
+  "main-get-customer-memories", "main-compress-customer-memory", "main-compress-customer-memories",
   "main-get-judgments-status", "main-open-runyu-login", "main-capture-runyu-cookie",
   "main-verify-runyu-auth", "main-bootstrap-runyu-library", "main-clear-runyu-login",
   "main-test-judgments", "main-refresh-judgments", "main-start-judgments-full-download",
