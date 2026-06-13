@@ -1,7 +1,7 @@
 # 小店AI客服
 
 [![构建安装包](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml/badge.svg)](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml)
-[![发布 v0.4.2](https://img.shields.io/badge/release-v0.4.2-111827)](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.4.2)
+[![发布 v0.4.3](https://img.shields.io/badge/release-v0.4.3-111827)](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.4.3)
 [![许可证 MIT](https://img.shields.io/badge/license-MIT-cc785c)](LICENSE)
 
 小店AI客服是一个微信小店客服桌面自动回复工具。它把微信小店客服页映射到 Electron 桌面应用里，并提供规则库、AI 回复、外部知识库、商品卡片/邀请下单、图片/文件发送、Webhook 通知、悬浮窗和长期运行守护。
@@ -14,13 +14,13 @@
 
 | 系统 | 文件 |
 | --- | --- |
-| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.2/xiaodian-ai-kefu-macos-arm64.dmg) |
-| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.2/xiaodian-ai-kefu-windows-setup.exe) |
-| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.2/xiaodian-ai-kefu-windows-portable.exe) |
+| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-macos-arm64.dmg) |
+| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-windows-setup.exe) |
+| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-windows-portable.exe) |
 
 macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md)。
 
-发布说明：[docs/release-notes/v0.4.2.md](docs/release-notes/v0.4.2.md)
+发布说明：[docs/release-notes/v0.4.3.md](docs/release-notes/v0.4.3.md)
 
 历史变更：[CHANGELOG.md](CHANGELOG.md)
 

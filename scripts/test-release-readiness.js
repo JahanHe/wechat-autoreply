@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const targetVersion = "0.4.2";
+const targetVersion = "0.4.3";
 const tag = `v${targetVersion}`;
 const gateBaselineVersion = "0.3.9";
 
@@ -128,9 +128,9 @@ for (const link of docLinks) {
 }
 
 expect(readme.includes(tag), `README 未指向 ${tag}`);
-expect(readme.includes("xiaodian-ai-kefu-macos-arm64.dmg"), "README 未使用 macOS v0.4.2 资产名");
-expect(readme.includes("xiaodian-ai-kefu-windows-setup.exe"), "README 未使用 Windows 安装版 v0.4.2 资产名");
-expect(readme.includes("xiaodian-ai-kefu-windows-portable.exe"), "README 未使用 Windows 便携版 v0.4.2 资产名");
+expect(readme.includes("xiaodian-ai-kefu-macos-arm64.dmg"), `README 未使用 macOS ${tag} 资产名`);
+expect(readme.includes("xiaodian-ai-kefu-windows-setup.exe"), `README 未使用 Windows 安装版 ${tag} 资产名`);
+expect(readme.includes("xiaodian-ai-kefu-windows-portable.exe"), `README 未使用 Windows 便携版 ${tag} 资产名`);
 expect(readme.includes("微信小店客服页属于第三方网页映射"), "README 缺少微信小店映射风险提示");
 expect(readme.includes("外部知识库是私有外部服务"), "README 缺少 外部知识库权限提示");
 
@@ -162,6 +162,8 @@ expect(workflow.includes("test-macos-package.sh"), "CI 未接入 macOS 安装包
 expect(pathExists("scripts/check-packaged-resources.js"), "缺少安装包资源完整性检查脚本");
 expect(pathExists("scripts/test-windows-packages.ps1"), "缺少 Windows 安装资产冒烟脚本");
 expect(pathExists("scripts/test-macos-package.sh"), "缺少 macOS 安装资产冒烟脚本");
+expect(pathExists("scripts/repair-macos-install.command"), "缺少 macOS 安装一键修复脚本");
+expect(workflow.includes("repair-macos-install.command") || readText("package.json").includes("repair-macos-install.command"), "DMG 未包含 macOS 安装一键修复脚本");
 
 if (failures.length) {
   console.error(JSON.stringify({ ok: false, failures }, null, 2));

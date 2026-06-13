@@ -2,7 +2,7 @@
 
 > 本文定位：macOS 安装拦截和打不开问题处理。上级入口：[README.md](../README.md)，发布和打包规则见 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
-> 这份文件会放在 DMG 里。遇到“无法打开”“开发者无法验证”“JavaScript error occurred in the main process”时，先按这里排查。
+> 这份文件会放在 DMG 里。遇到“无法打开”“开发者无法验证”“JavaScript error occurred in the main process”时，先按这里排查。DMG 里也会放一个 `repair-macos-install.command`，可以双击运行自动修复常见安装问题。
 
 ## 正常安装
 
@@ -10,6 +10,25 @@
 2. 把“小店AI客服”拖到 `Applications`。
 3. 第一次打开建议右键 App，选择“打开”，再点“打开”确认。
 4. 打开后在主控制台配置 DeepSeek API Key、企业微信 Webhook，并扫码登录微信小店客服页。
+
+## 一键修复脚本
+
+如果遇到下面情况，不需要复制终端命令，直接双击 DMG 里的 `repair-macos-install.command`：
+
+- 提示“开发者无法验证”。
+- 提示 App 已损坏或无法打开。
+- 已经拖到 `Applications`，但第一次打开仍然被拦截。
+- 不确定是否已经正确复制到 `Applications`。
+
+脚本会自动：
+
+1. 查找 DMG 里的 `小店AI客服.app`。
+2. 将 DMG 里的 App 复制到 `/Applications`；如果已经存在，会用当前 DMG 内 App 覆盖修复。
+3. 检查 `Info.plist`、`app.asar` 和启动文件。
+4. 清除 `com.apple.quarantine` 隔离属性。
+5. 打开 App。
+
+如果系统提示输入密码，说明脚本需要写入 `/Applications` 或清除隔离属性；这是 macOS 权限确认，不会上传任何密钥或登录信息。
 
 ## 提示开发者无法验证
 
@@ -23,7 +42,7 @@
 4. 选择“打开”。
 5. 在弹窗里再次点“打开”。
 
-如果仍然打不开，在终端执行：
+如果仍然打不开，优先双击 DMG 里的 `repair-macos-install.command`。也可以手动在终端执行：
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/小店AI客服.app"
