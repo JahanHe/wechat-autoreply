@@ -1,85 +1,85 @@
-# Changelog
+# 更新日志
 
-All notable changes to this project are documented here.
+本文件记录项目的重要变更。
 
-This project follows a practical Keep a Changelog style and uses semantic version tags where possible.
+本项目采用务实的更新日志写法，并尽量使用语义化版本标签。
 
 ## [0.4.2] - 2026-06-12
 
-### Changed
+### 变更
 
-- Renamed the user-facing judgment-library module to external knowledge base across the workbench, docs, release checks, and runtime messages.
-- Clarified that the external knowledge base can use network calls or local imports, with access credentials treated as local-only sensitive data.
-- Updated release metadata, download links, packaged resource checks, and installer smoke tests for `0.4.2`.
+- 将用户可见的旧知识库模块命名统一为“外部知识库”，覆盖工作台、文档、发布检查和运行状态文案。
+- 明确外部知识库既可以通过网络调用，也可以本地导入；访问凭证只能保存在本地，按敏感信息处理。
+- 将发布元数据、下载链接、打包资源检查和安装包冒烟测试同步到 `0.4.2`。
 
-### Fixed
+### 修复
 
-- Removed stale Runyu/judgment-library wording from current project rules and user-facing guidance.
-- Aligned GitHub documentation links with the canonical `JahanHe/Shop-ai-reply` repository.
+- 清理当前项目规则和用户说明里过期的专有知识库表述。
+- 将 GitHub 文档链接统一到规范仓库 `JahanHe/Shop-ai-reply`。
 
 ## [0.4.1] - 2026-06-12
 
-### Added
+### 新增
 
-- Added the implemented workbench shell with Sidebar, Top Bar, Context Bar, Main Workspace, and Detail Panel.
-- Added the read-only workbench snapshot IPC for status, settings health, reply summaries, judgment library status, notification outbox, health issues, and last Trace.
-- Added right-side details for rule cards and reply logs.
+- 落地新版工作台壳层：侧边栏、顶部栏、上下文栏、主工作区和详情面板。
+- 新增只读工作台快照 IPC，用于读取状态、设置健康度、回复摘要、外部知识库状态、通知发件箱、健康问题和最近一次追踪记录。
+- 新增规则卡片和回复日志的详情区域。
 
-### Changed
+### 变更
 
-- Shifted WeChat shop BrowserView below the main Top Bar so global controls remain visible during customer-service page mapping.
-- Updated the workbench optimization document from a proposal into implementation guidance.
-- Updated release readiness and packaged resource checks for `0.4.1`.
+- 将微信小店客服页 `BrowserView` 放到主顶部栏下方，避免全局控制入口被客服页遮住。
+- 将工作台优化文档从方案草案更新为实现规范。
+- 将发布就绪检查和打包资源检查同步到 `0.4.1`。
 
-### Fixed
+### 修复
 
-- Reduced the chance that the mapped customer-service page hides global controls.
-- Kept floating-window mini controls unchanged while aligning main control status order with the workbench layout.
+- 降低客服页映射遮挡全局控制入口的概率。
+- 保持悬浮窗最小化控制不变，同时让主控台状态顺序和工作台布局保持一致。
 
 ## [0.4.0] - 2026-06-12
 
-### Added
+### 新增
 
-- Added open-source project materials: `README.md`, `CHANGELOG.md`, `LICENSE`, and `CONTRIBUTING.md`.
-- Added `docs/release-notes/v0.4.0.md` as the release entry for the current stable baseline.
-- Added release readiness checks for packaged resource integrity and installer smoke tests.
+- 新增开源项目材料：`README.md`、`CHANGELOG.md`、`LICENSE` 和 `CONTRIBUTING.md`。
+- 新增 `docs/release-notes/v0.4.0.md`，作为当前稳定基线的发布入口。
+- 新增打包资源完整性和安装包冒烟测试的发布就绪检查。
 
-### Changed
+### 变更
 
-- Rewrote README as the main project entry with quick download, initialization, capability overview, risk notes, and documentation routes.
-- Updated package, extension, installer test, and release readiness versions to `0.4.0`.
-- Updated release documentation to treat `v0.4.0` as the recommended version.
+- 重写 `README.md`，作为项目主入口，包含快速下载、初始化、能力概览、风险说明和文档路线。
+- 将 package、扩展、安装包测试和发布就绪检查版本同步到 `0.4.0`。
+- 将发布文档更新为以 `v0.4.0` 作为推荐版本。
 
-### Fixed
+### 修复
 
-- Fixed live chat rule matching so it shares the same normalization and matching path as manual rule tests.
-- Restored floating window mini mode controls: open console, expand, and hide.
-- Made Windows installer smoke tests compatible with PowerShell runner behavior.
+- 修复真实客服会话的规则匹配，使它和手动规则测试共用同一套归一化与匹配路径。
+- 恢复悬浮窗最小化控制：打开控制台、展开和隐藏。
+- 让 Windows 安装包冒烟测试兼容 PowerShell 运行器行为。
 
-### Security
+### 安全
 
-- Documented that API Key, Webhook, Cookie, control Token, personal cache, and private judgment-library data must not be committed.
-- Clarified that WeChat shop page automation and Runyu judgment library access require the user's own permissions.
+- 明确 API Key、Webhook、Cookie、控制 Token、个人缓存和私有外部知识库数据不得提交入仓库。
+- 明确微信小店客服页自动化和外部知识库访问必须使用用户自己的权限。
 
 ## [0.3.9] - 2026-06-12
 
-### Added
+### 新增
 
-- Rebuilt the desktop app around a v0.3.7 behavior baseline after deprecating v0.3.8 UI direction.
-- Added backend modularization, status center, IPC contracts, config validation, lifecycle checks, and release gates.
-- Added fixed floating window layout and synchronized runtime status display.
+- 在废弃 `v0.3.8` UI 方向后，以 `v0.3.7` 行为基线重建桌面应用。
+- 新增后端模块化、状态中心、IPC 契约、配置校验、生命周期检查和发布门禁。
+- 新增固定悬浮窗布局和同步运行状态展示。
 
-### Fixed
+### 修复
 
-- Preserved text, image, file, product card, order invitation, rule library, AI, judgment library, and async reply behavior.
-- Fixed packaged resource coverage for macOS and Windows builds.
+- 保留文本、图片、文件、商品卡片、邀单、规则库、AI、外部知识库和异步回复行为。
+- 修复 macOS 和 Windows 打包产物的资源覆盖。
 
 ## [0.3.8] - 2026-06-12
 
-### Deprecated
+### 废弃
 
-- Deprecated the v0.3.8 UI direction. Useful security and lifecycle fixes were manually carried forward into later versions.
+- 废弃 `v0.3.8` UI 方向，其中有价值的安全和生命周期修复已手动迁移到后续版本。
 
-## Older Versions
+## 更早版本
 
-See [docs/project-journey.md](docs/project-journey.md) and [docs/release-notes](docs/release-notes) for the full project history from `v0.1.0` to `v0.3.7`.
+从 `v0.1.0` 到 `v0.3.7` 的完整项目历史见 [docs/project-journey.md](docs/project-journey.md) 和 [docs/release-notes](docs/release-notes)。

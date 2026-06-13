@@ -1,8 +1,8 @@
 # 小店AI客服
 
-[![Build installers](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml/badge.svg)](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml)
-[![Release v0.4.2](https://img.shields.io/badge/release-v0.4.2-111827)](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.4.2)
-[![License: MIT](https://img.shields.io/badge/license-MIT-cc785c)](LICENSE)
+[![构建安装包](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml/badge.svg)](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml)
+[![发布 v0.4.2](https://img.shields.io/badge/release-v0.4.2-111827)](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.4.2)
+[![许可证 MIT](https://img.shields.io/badge/license-MIT-cc785c)](LICENSE)
 
 小店AI客服是一个微信小店客服桌面自动回复工具。它把微信小店客服页映射到 Electron 桌面应用里，并提供规则库、AI 回复、外部知识库、商品卡片/邀请下单、图片/文件发送、Webhook 通知、悬浮窗和长期运行守护。
 
@@ -10,7 +10,7 @@
 
 ## 下载
 
-正式安装包在 GitHub Releases，不在 Packages。
+正式安装包在 GitHub 发布页，不在 Packages。
 
 | 系统 | 文件 |
 | --- | --- |
@@ -56,7 +56,7 @@ macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubles
 | --- | --- |
 | 客服工作台 | 微信小店客服原网页映射，扫码、选会话、聊天都在这里 |
 | 回复中心 | 管理动作规则、文字规则、图片规则、Bot 策略、AI 风格和外部知识库 |
-| 运行监控 | 查看当前状态、回复日志、AI Trace、外部知识库命中、Webhook 队列和失败原因 |
+| 运行监控 | 查看当前状态、回复日志、AI 追踪记录、外部知识库命中、Webhook 队列和失败原因 |
 | 系统设置 | 初始化、Webhook、悬浮窗、开机启动、帮助说明和彻底退出 |
 | 悬浮窗 | 显示当前状态，并保留打开控制台、暂停/开启 Bot 等高频动作 |
 | 托盘 / Dock | 主窗口隐藏后恢复程序，或执行后台运行相关动作 |
@@ -82,14 +82,14 @@ flowchart TD
   K --> L{"60 秒内返回"}
   L -- "是" --> J
   L -- "否" --> M["发送兜底语"]
-  E --> R["记录日志、Trace 和状态"]
+  E --> R["记录日志、追踪记录和状态"]
   G --> R
   J --> R
   M --> R
   R --> S["Webhook 总结和状态同步"]
 ```
 
-确定性规则优先，AI 只做 fallback 或补充判断。
+确定性规则优先，AI 只做兜底或补充判断。
 
 ## 本地开发
 
@@ -135,7 +135,7 @@ npm run dist:win
 
 ## 开源和边界
 
-本项目使用 MIT License 开源。代码可以学习、修改和分发，但使用者必须自行确认：
+本项目使用 MIT 许可证开源。代码可以学习、修改和分发，但使用者必须自行确认：
 
 - 微信小店账号、客服页、商品、会话和自动化行为符合平台规则。
 - 外部知识库、DeepSeek API、企业微信机器人等外部服务已经获得合法授权。

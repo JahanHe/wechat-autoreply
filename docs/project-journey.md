@@ -14,7 +14,7 @@
 | 本地文档 | `README.md`、`docs/customer-reply-rule-library.md`、`docs/wechat-kf-page-structure.md` |
 | 规则资产 | `config/replies.json`、`config/reply-images/`、`config/assistant-profile.json` |
 | 页面探索 | 微信小店客服页结构捕捉、商品面板、素材库、快捷语、上传弹窗 |
-| 发布产物 | GitHub Release `v0.1.0` 的 macOS DMG 和 Windows EXE |
+| 发布产物 | GitHub 发布页 `v0.1.0` 的 macOS DMG 和 Windows EXE |
 
 ## 时间线
 
@@ -211,7 +211,7 @@ flowchart TD
 
 `6bb9920 Publish releases for version tags` 和 `8ad9c46 Fix release workflow notes syntax` 让 GitHub Actions 在版本标签发布时自动上传安装包。
 
-当前 Release：
+当前发布页：
 
 - [v0.3.6 发布页](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.3.6)
 - [macOS Apple Silicon DMG](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.3.6/wechat-autoreply-macos-arm64.dmg)
@@ -230,8 +230,8 @@ flowchart TD
 | 发布收敛 | `581a89a` | 避免 main 每次自动发布 |
 | 稳定运行 | `31c14b2` | 固定 Electron 版本，降低运行崩溃风险 |
 | 默认规则 | `438f14a` | 安装包首次运行自动初始化规则和图片 |
-| Release | `6bb9920` | 标签触发正式 Release 上传 |
-| 语法修复 | `8ad9c46` | 修复 Release Notes 工作流语法 |
+| 发布 | `6bb9920` | 标签触发正式发布上传 |
+| 语法修复 | `8ad9c46` | 修复发布说明工作流语法 |
 | 文档化 | `d3d989c` | 增加富文本使用说明和项目历程 |
 
 ## 项目现在的运行逻辑
@@ -284,7 +284,7 @@ flowchart TD
 | 版本标签 | `v0.1.0` 到 `v0.3.7` 的连续发行记录 |
 | 关键提交 | 控制台、外部知识库、安装修复、长期运行、Cookie 修复、自动登录和统一状态机 |
 | 跨电脑反馈 | 另一台 Mac 缺少模块、未签名应用被拦截、访问凭证导入 404、规则和图片动作未初始化 |
-| 真实验证 | 图片、文件、商品卡片、邀请下单、Runyu 真实查询、重启恢复和状态 UI 自动化测试 |
+| 真实验证 | 图片、文件、商品卡片、邀请下单、外部知识库真实查询、重启恢复和状态 UI 自动化测试 |
 | 产品要求 | 初始化向导、可视化配置、浅色界面、详细状态、Webhook 故障与恢复通知 |
 
 ## 版本长路
@@ -457,7 +457,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A["打开独立Runyu配置窗口"] --> B["用户完成网页登录"]
+  A["打开独立外部知识库配置窗口"] --> B["用户完成网页登录"]
   B --> C["用户确认配置完成"]
   C --> D["应用读取session_token"]
   D --> E["只写入本机.env"]
@@ -541,11 +541,11 @@ flowchart TD
 | `v0.3.4` | `bfe0e11` | 外部知识库网页配置、自动取凭证、真实查询和重启恢复 |
 | `v0.3.5` | `4258bc3` | 42 个详细状态、双窗口同步、脚本心跳和状态 UI 自动化测试 |
 | `v0.3.6` | 已发布 | Cookie 引导、自检追溯、异步最终回复和图片发送确认闭环 |
-| `v0.3.7` | 已发布 | 非文本消息兜底、规则手动激发测试、AI 外部知识库 Trace 和图片发送等待确认 |
+| `v0.3.7` | 已发布 | 非文本消息兜底、规则手动激发测试、AI 外部知识库追踪记录和图片发送等待确认 |
 | `v0.3.8` | 已废弃 | 尝试过的新 UI 方案，不作为当前交付基线 |
 | `v0.3.9` | 已发布 | 回到 v0.3.7 功能基线，重构后端、脚本、退出闭环、四入口主控台和发布门禁 |
 | `v0.4.0` | 已发布 | 固化新版工作台优化方案，补齐开源入口、规则匹配修复、悬浮窗 mini 控制和安装包验证 |
-| `v0.4.1` | 已发布 | 真正实现新版工作台 UI：Top Bar、Context Bar、Detail Panel 和 BrowserView 顶部留白 |
+| `v0.4.1` | 已发布 | 真正实现新版工作台 UI：顶部栏、上下文栏、详情面板和 BrowserView 顶部留白 |
 | `v0.4.2` | 本次发布 | 统一外部知识库命名、访问凭证说明、发布文档和安装包门禁 |
 
 ## 第十四阶段：重建城墙
@@ -561,7 +561,7 @@ flowchart TD
 | AI 与知识库 | DeepSeek 改为原生 fetch，知识库建立内存索引，外部知识库记录线路、命中和耗时 |
 | 客服页脚本 | 使用 esbuild 生成单个 IIFE，不再靠正则拼接模块；非文本消息和异步回复有独立状态 |
 | 前端 | 一级入口收敛为客服工作台、回复中心、运行监控、系统设置；悬浮窗提供固定展开态和三按钮最小化态 |
-| 发布 | 新增 release-readiness 门禁，README、Release Notes、CI、版本号和资产名必须同时对齐 |
+| 发布 | 新增发布就绪门禁，README、发布说明、CI、版本号和资产名必须同时对齐 |
 
 这次真正带回来的不是某个按钮，而是“每一层都能被检查”的交付方式。以后新增商品库同步、素材库规则或更多外部知识库来源时，不应该再靠记忆确认没有破坏旧能力。
 
@@ -576,7 +576,7 @@ flowchart TD
 | 工作台方案 | 新增 [新版工作台优化方案](workbench-optimization-plan.md)，把客服工作台、回复中心、运行监控、系统设置、悬浮窗和验收标准写成后续 UI 优化蓝图 |
 | 开源入口 | README 改成第一章，新增 CHANGELOG、LICENSE、CONTRIBUTING，明确微信小店映射页要谨慎使用，外部知识库需要私有权限 |
 | 稳定修复 | 真实会话规则匹配和手动测试共用同一套逻辑，减少“测试命中、实际不回复”的问题 |
-| 发布验证 | macOS/Windows 安装包资源完整性、启动冒烟测试、Release Notes 和 README 链接进入发布门禁 |
+| 发布验证 | macOS/Windows 安装包资源完整性、启动冒烟测试、发布说明和 README 链接进入发布门禁 |
 
 从这一版开始，项目不仅要“能跑”，还要“能被别人接手”。README 负责带路，CHANGELOG 负责讲变化，CONTRIBUTING 负责说明怎么安全改，LICENSE 负责明确开源边界。
 
@@ -586,10 +586,10 @@ flowchart TD
 
 | 层级 | 交付 |
 | --- | --- |
-| 全局框架 | 主控台改为 Sidebar、Top Bar、Context Bar、Main Workspace、Detail Panel |
-| 状态入口 | Top Bar 固定显示当前状态、AI、本地、脚本、登录和高频动作 |
-| 页面映射 | BrowserView 给 Top Bar 留出空间，客服页不再覆盖全局控制入口 |
-| 对象详情 | 规则卡片和日志行可以在右侧详情面板查看摘要、动作和 Trace |
+| 全局框架 | 主控台改为侧边栏、顶部栏、上下文栏、主工作区、详情面板 |
+| 状态入口 | 顶部栏固定显示当前状态、AI、本地、脚本、登录和高频动作 |
+| 页面映射 | BrowserView 给顶部栏留出空间，客服页不再覆盖全局控制入口 |
+| 对象详情 | 规则卡片和日志行可以在右侧详情面板查看摘要、动作和追踪记录 |
 | 数据接口 | 新增只读工作台快照，聚合状态、配置健康、回复摘要、外部知识库、异常和通知队列 |
 
 这次改动刻意不重写自动回复核心逻辑。规则、图片、商品、AI、外部知识库、Webhook 和悬浮窗能力继续沿用原实现，只把主控台组织方式改成更适合值守的工作台。

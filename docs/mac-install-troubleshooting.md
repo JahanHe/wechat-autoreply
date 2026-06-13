@@ -44,7 +44,7 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 
 1. 退出正在运行的“小店AI客服”。
 2. 删除 `/Applications/小店AI客服.app`。
-3. 下载最新 Release 的 DMG。
+3. 下载最新发布页的 DMG。
 4. 重新拖到 `Applications`。
 5. 第一次打开如被拦截，按上一节执行 `xattr` 命令。
 

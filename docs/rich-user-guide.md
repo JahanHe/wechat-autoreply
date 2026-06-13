@@ -10,7 +10,7 @@
 
 ## 下载安装
 
-正式安装包在 GitHub Releases：
+正式安装包在 GitHub 发布页：
 
 - [macOS Apple Silicon DMG](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.2/xiaodian-ai-kefu-macos-arm64.dmg)
 - [Windows 安装版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.2/xiaodian-ai-kefu-windows-setup.exe)

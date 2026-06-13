@@ -162,7 +162,7 @@ macOS：
 
 Windows：
 
-1. 运行 Windows 安装包或 portable 版本。
+1. 运行 Windows 安装包或便携版。
 2. 第一次打开后，在主控制台 > 初始化 填 DeepSeek API Key、企业微信 Webhook，并点击“打开网络配置页”“获取访问凭证”完成外部知识库配置。
 3. 点“保存并自检”，确认 AI、Webhook、外部知识库、规则库和长期运行状态通过。
 4. 登录微信小店客服页。
@@ -269,6 +269,6 @@ dist/
 产物：
 
 - `wechat-autoreply-macos`：macOS DMG
-- `wechat-autoreply-windows`：Windows 安装包和 portable 包
+- `wechat-autoreply-windows`：Windows 安装包和便携包
 
 GitHub Actions 不需要 DeepSeek API Key 和企业微信 Webhook。API Key 和 Webhook 是运行时配置，用户第一次打开应用后在悬浮窗里填写。

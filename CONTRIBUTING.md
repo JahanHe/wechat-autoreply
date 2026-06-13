@@ -1,4 +1,4 @@
-# Contributing
+# 贡献规范
 
 本文是协作者改动项目时的准入规则。架构和模块边界以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；用户入口以 [README.md](README.md) 为准。
 
@@ -56,7 +56,7 @@ npm run doctor
 ## 代码和 UI 规则
 
 - 保持现有 Electron + plain JavaScript 结构，除非已有明确迁移计划。
-- 确定性规则优先，AI 只做 fallback 或补充判断。
+- 确定性规则优先，AI 只做兜底或补充判断。
 - 用户界面保持紧凑、浅色、可扫描，适合客服长期值守。
 - 全局命令遵守 `docs/desktop-native-menu-guidelines.md`：Mac 用系统菜单栏，Windows 用小型三条杠菜单。
 - 状态标签遵守 `docs/runtime-statuses.md`，短状态不要随意新增或改名。
@@ -69,7 +69,7 @@ npm run doctor
 - 测试页面状态和 URL。
 - 触发的客户消息或人工操作。
 - 实际发送的类型：文字、图片、文件、商品卡片、邀请下单、素材或忽略。
-- 是否产生回复记录、状态 Trace 和 Webhook 摘要。
+- 是否产生回复记录、状态追踪和 Webhook 摘要。
 - 页面结构是否需要重新捕捉并更新 `docs/wechat-kf-page-structure.md`。
 
 禁止用猜测替换已验证 selector。页面结构变化时，先捕捉结构，再改动作逻辑。
@@ -92,7 +92,7 @@ npm run doctor
 以下改动必须同步文档：
 
 - Electron 窗口、菜单、托盘、悬浮窗。
-- 回复决策顺序、规则匹配、AI fallback。
+- 回复决策顺序、规则匹配、AI 兜底。
 - 外部知识库网络调用、本地导入、访问凭证和查询。
 - Webhook、通知补发、回复记录。
 - 配置文件、运行目录、打包文件。
@@ -100,6 +100,8 @@ npm run doctor
 - 发布流程、安装包命名和下载链接。
 
 文档优先级：`ARCHITECTURE.md` > `CONTRIBUTING.md` > `README.md` > `docs/README.md` > `docs/*`。
+
+文档语言默认中文优先。除文件名、命令、代码标识、API、产品名、错误原文、URL、安装包名等必须保留英文的格式内容外，标题、说明、表格、发布记录和规范条款都要用中文表达。新增或修改 Markdown 时要主动清理非必要英文，不能把 fallback、source of truth、Top Bar、Release Notes 这类普通说明词继续写成英文。
 
 ## 发布和版本
 
@@ -111,9 +113,9 @@ npm run doctor
 - `docs/release-notes/` 下对应版本说明。
 - 发布检查脚本或打包资源检查，如果产物命名或资源列表改变。
 
-正式安装包在 GitHub Releases，不在 Packages。
+正式安装包在 GitHub 发布页，不在 Packages。
 
-## Commit Style
+## 提交风格
 
 优先使用简短前缀：
 
