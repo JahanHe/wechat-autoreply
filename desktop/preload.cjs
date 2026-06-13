@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const storageListeners = new Set();
 
-contextBridge.exposeInMainWorld("chrome", {
+const storageBridge = {
   storage: {
     local: {
       get(defaults, callback) {
@@ -25,9 +25,10 @@ contextBridge.exposeInMainWorld("chrome", {
       }
     }
   }
-});
+};
 
 contextBridge.exposeInMainWorld("wechatKfDesktop", {
+  ...storageBridge,
   reportStatus(status) {
     ipcRenderer.send("bot-status", status || {});
   },

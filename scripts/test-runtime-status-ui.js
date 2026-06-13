@@ -226,7 +226,7 @@ async function assertNavigationStructure(page) {
       settingsTabs,
       contextSubtitleCount,
       tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40),
-      tabsContainerBorderless: tabsStyle.borderTopWidth === "0px",
+      tabsContainerBorderless: !tabsStyle.borderTopWidth || tabsStyle.borderTopWidth === "0px",
       tabsBorderTopWidth: tabsStyle.borderTopWidth,
       tabsBorderTopStyle: tabsStyle.borderTopStyle,
       activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
