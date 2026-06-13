@@ -18,7 +18,7 @@ const checks = [
   ["非文本识别", ["image", "emoji", "product", "file", "video"].every((kind) => content.includes(kind))],
   ["AI 回复", server.includes('req.url !== "/reply"') && content.includes("askLocalAi")],
   ["异步回复", content.includes("pendingAiFollowups") && content.includes("ai_followup")],
-  ["判断库", server.includes("/judgments/search") && preload.includes("testJudgments")],
+  ["外部知识库", server.includes("/judgments/search") && preload.includes("testJudgments")],
   ["Webhook 补发", main.includes("notifyOutbox") && main.includes("postWecomWithRetry")],
   ["状态同步", main.includes('ipcMain.handle("main-get-status"') && main.includes('ipcMain.handle("float-get-status"')],
   ["窗口恢复", main.includes("showMainWindow") && preload.includes("openFloating")],

@@ -601,7 +601,7 @@ import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatch
         return fallbackPromise;
       };
 
-      setStep("querying_judgment", "查询判断库", "正在检索外部判断库和本地缓存", { customer: latest.text });
+      setStep("querying_judgment", "查外部库", "正在检索外部知识库和本地缓存", { customer: latest.text });
       if (shouldSendQuickAck(sessionKey)) {
         waitingTimer = window.setTimeout(() => {
           startSlowReply().catch((error) => warn("slow reply failed", error));
@@ -653,7 +653,7 @@ import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatch
         return;
       }
 
-      setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送判断库和AI生成的回复" : "正在发送AI生成的文字回复", { customer: latest.text, actionType: "text" });
+      setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送外部知识库和 AI 生成的回复" : "正在发送AI生成的文字回复", { customer: latest.text, actionType: "text" });
       const sessionReady = await ensureSessionActive(sessionKey);
       const followupSent = sessionReady ? await sendReplyParts(aiReply) : false;
       let fallbackAfterSendFailure = false;
@@ -671,7 +671,7 @@ import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatch
           usedJudgmentLibrary,
           reason,
           customer: latest.text,
-          status: usedJudgmentLibrary ? "判断库/AI 已发送" : "AI 已发送",
+          status: usedJudgmentLibrary ? "外部知识库 / AI 已发送" : "AI 已发送",
           reply: aiReply,
           latencyMs: aiResult?.latencyMs || null,
           aiTrace: aiResult?.trace || null,
@@ -686,7 +686,7 @@ import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatch
         }
       }
       const completed = followupSent || fallbackAfterSendFailure;
-      setStep(completed ? "text_sent" : "reply_failed", completed ? "文字已发" : "回复失败", followupSent ? (usedJudgmentLibrary ? "判断库和AI生成的回复已发送" : "AI文字回复已发送") : fallbackAfterSendFailure ? "AI补充发送失败，已发送兜底回复" : "AI补充回复未能发送", { customer: latest.text, actionType: "text" });
+      setStep(completed ? "text_sent" : "reply_failed", completed ? "文字已发" : "回复失败", followupSent ? (usedJudgmentLibrary ? "外部知识库和 AI 生成的回复已发送" : "AI文字回复已发送") : fallbackAfterSendFailure ? "AI补充发送失败，已发送兜底回复" : "AI补充回复未能发送", { customer: latest.text, actionType: "text" });
       log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply, judgments: aiResult?.judgments || null });
     } finally {
       state.pendingAiFollowups.delete(key);
@@ -1522,7 +1522,7 @@ import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatch
     try {
       setStep("collecting", "收集上下文", "正在读取最近消息和客服页上下文", { customer: message });
       const sideContext = await collectSidebarContext(message);
-      setStep("api_calling", "调用API", "正在请求本地AI服务和外部判断库", { customer: message });
+      setStep("api_calling", "调用API", "正在请求本地AI服务和外部知识库", { customer: message });
       const request = fetch(CONFIG.aiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1533,7 +1533,7 @@ import { buildRuleSearchText, normalizeKeywordList, normalizeRuleText, ruleMatch
           sideContext
         })
       });
-      setStep("ai_thinking", "AI思考中", "AI正在结合判断库和会话上下文生成回复", { customer: message });
+      setStep("ai_thinking", "AI思考中", "AI正在结合外部知识库和会话上下文生成回复", { customer: message });
       const response = await request;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();

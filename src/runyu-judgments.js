@@ -167,8 +167,8 @@ export async function searchJudgmentLibrary(query, options = {}) {
 
 export async function refreshJudgmentCache(options = {}) {
   const config = options.config || getRunyuJudgmentConfig(options.env);
-  if (!config.enabled) return { ok: false, message: "判断库未启用" };
-  if (!config.cookie) return { ok: false, message: "缺少 RUNYU_WEB_COOKIE" };
+  if (!config.enabled) return { ok: false, message: "外部知识库未启用" };
+  if (!config.cookie) return { ok: false, message: "缺少外部知识库访问凭证" };
 
   const keywords = listValue(options.keywords, config.refreshKeywords);
   if (!keywords.length) return { ok: false, message: "缺少刷新关键词" };
@@ -324,7 +324,7 @@ async function postRunyuJsonWithDirectResolve(url, body, config) {
     return {
       ok: false,
       status: 0,
-      data: { message: "当前 Base URL 不是 Runyu 默认域名，无法使用直连备用线路" },
+      data: { message: "当前 Base URL 不支持直连备用线路" },
       transport: "direct-resolve"
     };
   }
@@ -422,16 +422,16 @@ function shouldUseDirectResolveFallback(result, url) {
 
 function apiErrorMessage(status, data, url = "", previous = null) {
   const message = data?.message || data?.error || data?.code || JSON.stringify(data || {});
-  if (status === 401) return "判断库未登录或 Cookie 已过期。请在 Chrome 登录 Runyu 后，从 Application > Cookies > runyuai.zhiduoke.com.cn 复制新的 session_token，不要用 Session Storage";
-  if (status === 403) return "当前账号没有判断库查询权限";
+  if (status === 401) return "外部知识库访问凭证已过期或无效。请重新配置并获取新的访问凭证，不要使用浏览器临时存储里的值";
+  if (status === 403) return "当前账号没有外部知识库查询权限";
   if (status === 404) {
     const previousHint = previous?.status
       ? `；首次请求状态 ${previous.status}`
       : "";
-    return `判断库 API 404：请求地址不可用${previousHint}。请确认 Runyu Base URL 只填 ${DEFAULT_BASE_URL}，不要带 ${QUERY_ROUTE}。当前请求：${url}`;
+    return `外部知识库 API 404：请求地址不可用${previousHint}。请确认 Base URL 只填服务域名，不要带 ${QUERY_ROUTE}。当前请求：${url}`;
   }
-  if (!status) return `判断库请求失败：${message}`;
-  return `判断库 API ${status}: ${message}`;
+  if (!status) return `外部知识库请求失败：${message}`;
+  return `外部知识库 API ${status}: ${message}`;
 }
 
 function stripWrappingQuotes(value) {

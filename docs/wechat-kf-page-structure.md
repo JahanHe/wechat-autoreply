@@ -1,5 +1,7 @@
 # 微信小店客服页结构记录
 
+> 本文定位：微信小店客服页 DOM、selector 和页面动作依据。上级规范：[ARCHITECTURE.md](../ARCHITECTURE.md)，页面自动化改动要求见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+
 捕捉时间：2026-06-09
 页面：`https://store.weixin.qq.com/shop/kf`
 

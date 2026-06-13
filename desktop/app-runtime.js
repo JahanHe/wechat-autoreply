@@ -37,8 +37,9 @@ const APP_DISPLAY_NAME = "小店AI客服";
 const APP_USER_DATA_DIR_NAME = "小店AI客服";
 const LEGACY_USER_DATA_DIR_NAME = "wechat-shop-kf-bot";
 const BOT_CONFIG_VERSION = "desktop-0.3.0";
-const MAIN_SHELL_SIDEBAR_WIDTH = 236;
-const MAIN_SHELL_TOP_BAR_HEIGHT = 64;
+const MAIN_SHELL_SIDEBAR_WIDTH = 268;
+const MAIN_SHELL_SIDEBAR_COLLAPSED_WIDTH = 64;
+const MAIN_SHELL_CONTEXT_BAR_HEIGHT = 46;
 const RUNYU_BASE_URL = "https://runyuai.zhiduoke.com.cn";
 const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
 const RUNYU_LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -72,6 +73,12 @@ let aiRestarting = false;
 let isQuitting = false;
 let blockerId = null;
 let lastBotHeartbeatAt = 0;
+let kfBrandInfo = {
+  title: "",
+  logoUrl: "",
+  updatedAt: 0
+};
+let kfBrandInfoTimer = null;
 let lastBotStatus = {
   code: "starting",
   label: "启动中",
@@ -117,7 +124,7 @@ let runyuAuthVerificationPromise = null;
 let runyuAuthHistory = [];
 let runyuAuthState = {
   status: "unconfigured",
-  message: "尚未登录润宇判断库",
+  message: "尚未配置外部知识库",
   source: "",
   errorCode: "",
   httpStatus: 0,
@@ -128,6 +135,7 @@ let runyuAuthState = {
 };
 let watchdogTimers = [];
 let configValidationState = { valid: true, version: DESKTOP_CONFIG_SCHEMA_VERSION, errors: [], backupPath: "" };
+let mainShellSidebarWidth = MAIN_SHELL_SIDEBAR_WIDTH;
 
 const gotLock = process.env.WECHAT_KF_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -165,6 +173,7 @@ async function startDesktopApp() {
   await loadRunyuAuthHistory();
   initializeRunyuAuthState();
   await saveConfig();
+  installApplicationMenu();
   await loadNotifyOutbox();
   await loadReplyRecords();
   await loadReplySummaryState();
@@ -838,6 +847,362 @@ function readControlJson(req) {
   });
 }
 
+function installApplicationMenu() {
+  if (process.platform !== "darwin") {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMacApplicationMenuTemplate()));
+}
+
+function buildMacApplicationMenuTemplate() {
+  return [
+    {
+      label: APP_DISPLAY_NAME,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { label: `隐藏${APP_DISPLAY_NAME}`, role: "hide" },
+        { label: "隐藏其他", role: "hideOthers" },
+        { label: "全部显示", role: "unhide" },
+        { type: "separator" },
+        { label: `彻底退出${APP_DISPLAY_NAME}`, accelerator: "Cmd+Q", click: () => confirmQuitFromNativeMenu() }
+      ]
+    },
+    ...desktopMenuModel().sections.map((section) => ({
+      label: section.label,
+      submenu: section.items.map((item) => macMenuItemForCommand(item))
+    })),
+    {
+      label: "编辑",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" }
+      ]
+    },
+    {
+      label: "窗口",
+      submenu: [
+        { role: "minimize" },
+        { role: "close" },
+        { type: "separator" },
+        { role: "front" }
+      ]
+    }
+  ];
+}
+
+function macMenuItemForCommand(item) {
+  if (item.type === "separator") return { type: "separator" };
+  const menuItem = {
+    label: item.label,
+    enabled: item.enabled !== false,
+    click: () => runDesktopMenuCommand(item.id, { source: "mac-menu" }).catch((error) => {
+      console.error("[menu] command failed", item.id, error);
+      showNativeMenuResult("菜单执行失败", safeErrorMessage(error));
+    })
+  };
+  if (item.accelerator) menuItem.accelerator = item.accelerator;
+  if (item.checked !== undefined) {
+    menuItem.type = "checkbox";
+    menuItem.checked = Boolean(item.checked);
+  }
+  return menuItem;
+}
+
+function desktopMenuModel() {
+  const status = menuStatusSnapshot();
+  return {
+    platform: process.platform,
+    appName: APP_DISPLAY_NAME,
+    sections: [
+      {
+        id: "settings",
+        label: "设置",
+        items: [
+          commandItem("settings.open", "打开设置", { accelerator: "CmdOrCtrl+," }),
+          commandItem("settings.autostart", "开机启动", { checked: status.autoStart }),
+          commandItem("settings.notifications", "通知设置"),
+          commandItem("settings.preventSleep", "防休眠", { checked: status.preventSleep }),
+          commandItem("settings.repair", "初始化与修复"),
+          separatorItem(),
+          commandItem("settings.quit", "彻底退出程序", { danger: true })
+        ]
+      },
+      {
+        id: "workbench",
+        label: "工作台设定",
+        items: [
+          commandItem("workbench.open", "打开工作台", { accelerator: "CmdOrCtrl+1" }),
+          commandItem("workbench.page", "工作台"),
+          commandItem("workbench.rules", "知识库"),
+          commandItem("workbench.dashboard", "监控"),
+          commandItem("workbench.settings", "设置"),
+          separatorItem(),
+          commandItem("workbench.reload", "重载客服页", { accelerator: "CmdOrCtrl+R" }),
+          commandItem("workbench.capture", "捕捉页面结构")
+        ]
+      },
+      {
+        id: "bot",
+        label: "Bot",
+        items: [
+          commandItem("bot.enable", "开启 Bot", { enabled: !status.botEnabled }),
+          commandItem("bot.pause", "暂停 Bot", { enabled: status.botEnabled, accelerator: "CmdOrCtrl+Shift+B" }),
+          commandItem("bot.settings", "Bot 设定"),
+          separatorItem(),
+          commandItem("bot.testReply", "测试回复"),
+          commandItem("bot.testRule", "测试规则命中"),
+          commandItem("bot.recent", "查看最近回复")
+        ]
+      },
+      {
+        id: "floating",
+        label: "悬浮窗",
+        items: [
+          commandItem("floating.show", "开启悬浮窗", { accelerator: "CmdOrCtrl+2" }),
+          commandItem("floating.hide", "关闭悬浮窗", { enabled: status.floatingVisible }),
+          separatorItem(),
+          commandItem("floating.compact", "展开尺寸", { checked: status.floatingMode === "compact" }),
+          commandItem("floating.mini", "迷你尺寸", { checked: status.floatingMode === "mini" }),
+          commandItem("floating.alwaysOnTop", "置顶显示", { checked: status.floatingAlwaysOnTop }),
+          separatorItem(),
+          commandItem("floating.presetTopLeft", "位置预设：左上", { enabled: status.floatingVisible }),
+          commandItem("floating.presetTopRight", "位置预设：右上", { enabled: status.floatingVisible }),
+          commandItem("floating.presetBottomLeft", "位置预设：左下", { enabled: status.floatingVisible }),
+          commandItem("floating.presetBottomRight", "位置预设：右下", { enabled: status.floatingVisible }),
+          separatorItem(),
+          commandItem("floating.settings", "悬浮窗设定")
+        ]
+      },
+      {
+        id: "api",
+        label: "API",
+        items: [
+          commandItem("api.checkAi", "检查 AI 连通性"),
+          commandItem("api.settings", "API 设定"),
+          commandItem("api.webhookSettings", "Webhook 设定"),
+          commandItem("api.testWebhook", "测试 Webhook", { enabled: status.webhookConfigured }),
+          separatorItem(),
+          commandItem("api.runyuLogin", "外部知识库配置"),
+          commandItem("api.verifyRunyu", "检查外部知识库授权"),
+          commandItem("api.refreshJudgments", "刷新外部知识库")
+        ]
+      }
+    ]
+  };
+}
+
+function menuStatusSnapshot() {
+  return {
+    botEnabled: Boolean(config?.bot?.enabled),
+    autoStart: Boolean(config?.autoStart),
+    preventSleep: config?.watchdog?.preventAppSuspension !== false,
+    floatingVisible: Boolean(floatWindow && !floatWindow.isDestroyed() && floatWindow.isVisible()),
+    floatingMode: normalizeFloatingMode(config?.floatWindow?.mode),
+    floatingAlwaysOnTop: Boolean(config?.floatWindow?.alwaysOnTop),
+    webhookConfigured: Boolean(config?.notify?.wecomWebhookUrl)
+  };
+}
+
+function commandItem(id, label, options = {}) {
+  return {
+    type: "command",
+    id,
+    label,
+    enabled: options.enabled !== false,
+    checked: options.checked,
+    accelerator: options.accelerator || "",
+    danger: Boolean(options.danger)
+  };
+}
+
+function separatorItem() {
+  return { type: "separator" };
+}
+
+async function runDesktopMenuCommand(commandId, options = {}) {
+  const id = String(commandId || "");
+  const source = String(options.source || "menu");
+  if (!id) return { ok: false, message: "菜单命令为空" };
+
+  if (id === "settings.open" || id === "settings.repair" || id === "workbench.settings") return openMainShellView("setup");
+  if (id === "settings.notifications" || id === "api.webhookSettings") return openMainShellView("webhook");
+  if (id === "settings.autostart") return toggleAutoStartFromMenu();
+  if (id === "settings.preventSleep") return togglePreventSleepFromMenu();
+  if (id === "settings.quit") {
+    if (source === "mac-menu") return confirmQuitFromNativeMenu();
+    return requestFullQuit({ confirm: options.confirm, source });
+  }
+
+  if (id === "workbench.open") return openMainShellView(mainMode === "page" ? "page" : "dashboard");
+  if (id === "workbench.page") return openMainShellView("page");
+  if (id === "workbench.rules") return openMainShellView("rules");
+  if (id === "workbench.dashboard") return openMainShellView("dashboard");
+  if (id === "workbench.reload") {
+    reloadKfPage();
+    return { ok: true, message: "客服页正在重载", status: statusPayload() };
+  }
+  if (id === "workbench.capture") return runCaptureStructureFromMenu(source);
+
+  if (id === "bot.enable") return setBotEnabled(true);
+  if (id === "bot.pause") return setBotEnabled(false);
+  if (id === "bot.settings") return openMainShellView("bot");
+  if (id === "bot.testReply") return openMainShellView("api");
+  if (id === "bot.testRule") return openMainShellView("rules");
+  if (id === "bot.recent") return openMainShellView("logs");
+
+  if (id === "floating.show") {
+    showFloatingWindow();
+    refreshDesktopMenuSurfaces();
+    return { ok: true, message: "悬浮窗已打开", status: statusPayload() };
+  }
+  if (id === "floating.hide") {
+    await hideFloatingWindowFromMenu();
+    return { ok: true, message: "悬浮窗已隐藏", status: statusPayload() };
+  }
+  if (id === "floating.compact") return setFloatingModeFromMenu("compact");
+  if (id === "floating.mini") return setFloatingModeFromMenu("mini");
+  if (id === "floating.alwaysOnTop") return setFloatingAlwaysOnTopFromMenu(!Boolean(config?.floatWindow?.alwaysOnTop));
+  if (id === "floating.presetTopLeft") return setFloatingPresetFromMenu("top-left");
+  if (id === "floating.presetTopRight") return setFloatingPresetFromMenu("top-right");
+  if (id === "floating.presetBottomLeft") return setFloatingPresetFromMenu("bottom-left");
+  if (id === "floating.presetBottomRight") return setFloatingPresetFromMenu("bottom-right");
+  if (id === "floating.settings") return openMainShellView("floating");
+
+  if (id === "api.checkAi") return checkAiFromMenu(source);
+  if (id === "api.settings") return openMainShellView("api");
+  if (id === "api.testWebhook") return testWebhookFromMenu(source);
+  if (id === "api.runyuLogin") return openRunyuLoginWindow({ source });
+  if (id === "api.verifyRunyu") return selfCheckRunyuAuth({ notify: true, source });
+  if (id === "api.refreshJudgments") return refreshJudgmentLibrary({ notify: true, source });
+
+  return { ok: false, message: `未知菜单命令：${id}` };
+}
+
+async function openMainShellView(view) {
+  const normalized = String(view || "dashboard");
+  showMainWindow();
+  await setMainMode(normalized === "page" ? "page" : normalized);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("main-open-view", { view: normalized });
+  }
+  return { ok: true, view: normalized, status: statusPayload() };
+}
+
+async function toggleAutoStartFromMenu() {
+  config.autoStart = !Boolean(config.autoStart);
+  applyLoginItemSetting();
+  await saveConfig();
+  refreshDesktopMenuSurfaces();
+  return { ok: true, checked: Boolean(config.autoStart), status: statusPayload() };
+}
+
+async function togglePreventSleepFromMenu() {
+  config.watchdog = normalizeWatchdogConfig({
+    ...config.watchdog,
+    preventAppSuspension: config?.watchdog?.preventAppSuspension === false
+  });
+  syncPowerBlocker();
+  await saveConfig();
+  refreshDesktopMenuSurfaces();
+  return { ok: true, checked: config.watchdog.preventAppSuspension !== false, status: statusPayload() };
+}
+
+async function hideFloatingWindowFromMenu() {
+  if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide();
+  config.floatWindow.visible = false;
+  await saveConfig();
+  refreshDesktopMenuSurfaces();
+}
+
+async function setFloatingModeFromMenu(mode) {
+  showFloatingWindow();
+  await setFloatingMode(mode);
+  refreshDesktopMenuSurfaces();
+  return { ok: true, mode: normalizeFloatingMode(mode), status: statusPayload() };
+}
+
+async function setFloatingAlwaysOnTopFromMenu(value) {
+  await setFloatingAlwaysOnTop(value);
+  refreshDesktopMenuSurfaces();
+  return { ok: true, checked: Boolean(value), status: statusPayload() };
+}
+
+async function setFloatingPresetFromMenu(preset) {
+  showFloatingWindow();
+  const ok = await setFloatingPreset(preset);
+  refreshDesktopMenuSurfaces();
+  return { ok, preset, status: statusPayload() };
+}
+
+async function checkAiFromMenu(source) {
+  await checkAiHealth({ notifyOk: source === "mac-menu" });
+  refreshDesktopMenuSurfaces();
+  if (source === "mac-menu") {
+    showNativeMenuResult("AI 连通性", lastAiHealth.ok ? "AI 服务连接正常。" : lastAiHealth.message || "AI 服务检查失败。");
+  }
+  return { ok: Boolean(lastAiHealth.ok), ai: lastAiHealth, status: statusPayload() };
+}
+
+async function testWebhookFromMenu(source) {
+  const env = readEnvValues();
+  const webhookUrl = config?.notify?.wecomWebhookUrl || env.WECOM_BOT_WEBHOOK_URL || process.env.WECOM_BOT_WEBHOOK_URL || "";
+  if (!webhookUrl) return { ok: false, message: "Webhook 未配置" };
+  const result = await testWebhookUrl(webhookUrl);
+  if (source === "mac-menu") {
+    showNativeMenuResult("Webhook 测试", result.ok ? "Webhook 测试已发送。" : result.message || "Webhook 测试失败。");
+  }
+  return result;
+}
+
+async function runCaptureStructureFromMenu(source) {
+  const result = await capturePageStructure();
+  if (source === "mac-menu") {
+    showNativeMenuResult("页面结构捕捉", result.ok ? `页面结构已保存：${result.count || 0} 个节点。` : result.message || "捕捉失败。");
+  }
+  return result;
+}
+
+async function confirmQuitFromNativeMenu() {
+  const targetWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+  const result = await dialog.showMessageBox(targetWindow || undefined, {
+    type: "warning",
+    buttons: ["取消", "彻底退出"],
+    defaultId: 0,
+    cancelId: 0,
+    title: `退出${APP_DISPLAY_NAME}`,
+    message: `彻底退出${APP_DISPLAY_NAME}？`,
+    detail: "Bot、AI、本机控制服务、Webhook 调度和悬浮窗都会停止。"
+  });
+  if (result.response !== 1) return { ok: false, cancelled: true };
+  return requestFullQuit({ confirm: APP_DISPLAY_NAME, source: "mac-menu" });
+}
+
+function showNativeMenuResult(title, message) {
+  const targetWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+  dialog.showMessageBox(targetWindow || undefined, {
+    type: "info",
+    title,
+    message: title,
+    detail: String(message || "")
+  }).catch((error) => console.error("[menu] show result failed", error));
+}
+
+function refreshDesktopMenuSurfaces() {
+  installApplicationMenu();
+  updateTrayMenu();
+  broadcastStatus();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("desktop-menu-model", desktopMenuModel());
+  }
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -846,6 +1211,11 @@ function createMainWindow() {
     minHeight: 720,
     title: APP_DISPLAY_NAME,
     icon: APP_ICON_PATH,
+    autoHideMenuBar: process.platform !== "darwin",
+    ...(process.platform === "darwin" ? {
+      titleBarStyle: "hiddenInset",
+      trafficLightPosition: { x: 16, y: 17 }
+    } : {}),
     show: true,
     webPreferences: {
       preload: resolve(__dirname, "main-shell-preload.cjs"),
@@ -888,6 +1258,14 @@ function createMainWindow() {
   mainWindow.on("resize", layoutKfView);
   mainWindow.on("maximize", layoutKfView);
   mainWindow.on("unmaximize", layoutKfView);
+  mainWindow.on("enter-full-screen", () => {
+    layoutKfView();
+    broadcastStatus();
+  });
+  mainWindow.on("leave-full-screen", () => {
+    layoutKfView();
+    broadcastStatus();
+  });
 
   mainWindow.webContents.on("did-fail-load", (_event, code, description, url) => {
     sendNotification("shell_load_failed", "控制台加载失败", `${description || code}\n${url || ""}`, {
@@ -948,6 +1326,7 @@ function createKfView() {
     injectBotScript();
     persistAuthenticatedKfUrlSoon();
     flushKfSessionSoon();
+    scheduleKfBrandInfoRefresh();
     broadcastStatus();
   });
 
@@ -957,6 +1336,7 @@ function createKfView() {
     injectBotScript();
     persistAuthenticatedKfUrlSoon();
     flushKfSessionSoon();
+    scheduleKfBrandInfoRefresh();
     broadcastStatus();
   });
 
@@ -1036,6 +1416,7 @@ function pageInfoPayload() {
       visible: false,
       url: "",
       title: "",
+      logoUrl: "",
       loading: false,
       authenticated: false,
       scriptHealthy: false,
@@ -1050,11 +1431,124 @@ function pageInfoPayload() {
     ready: true,
     visible: Boolean(kfViewAttached && mainMode === "page"),
     url,
-    title: wc.getTitle(),
+    title: kfBrandInfo.title || wc.getTitle(),
+    logoUrl: isAuthenticatedKfUrl(url) ? kfBrandInfo.logoUrl : "",
     loading: wc.isLoading(),
     authenticated: isAuthenticatedKfUrl(url),
     scriptHealthy: Boolean(lastBotHeartbeatAt && Date.now() - lastBotHeartbeatAt < heartbeatLimit),
     scriptUpdatedAt: lastBotHeartbeatAt
+  };
+}
+
+function scheduleKfBrandInfoRefresh(delayMs = 800) {
+  clearTimeout(kfBrandInfoTimer);
+  kfBrandInfoTimer = setTimeout(() => {
+    refreshKfBrandInfo().catch((error) => console.error("[desktop] refresh kf brand failed", error));
+  }, delayMs);
+}
+
+async function refreshKfBrandInfo() {
+  const wc = getKfWebContents();
+  if (!wc || wc.isDestroyed()) return;
+  const url = wc.getURL();
+  if (!isAuthenticatedKfUrl(url)) {
+    const hadBrand = Boolean(kfBrandInfo.title || kfBrandInfo.logoUrl);
+    kfBrandInfo = { title: "", logoUrl: "", updatedAt: 0 };
+    if (hadBrand) broadcastStatus();
+    return;
+  }
+
+  const info = await wc.executeJavaScript(`(${extractKfBrandInfoScript.toString()})()`, true).catch(() => null);
+  if (!info || typeof info !== "object") return;
+  const next = {
+    title: String(info.title || "").trim().slice(0, 40),
+    logoUrl: normalizeImageUrl(info.logoUrl),
+    updatedAt: Date.now()
+  };
+  const changed = next.title !== kfBrandInfo.title || next.logoUrl !== kfBrandInfo.logoUrl;
+  kfBrandInfo = next;
+  if (changed) broadcastStatus();
+}
+
+function normalizeImageUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^data:image\//i.test(url)) return url;
+  return "";
+}
+
+function extractKfBrandInfoScript() {
+  const visible = (node) => {
+    if (!node) return false;
+    const style = window.getComputedStyle(node);
+    if (!style || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+    const rect = node.getBoundingClientRect();
+    return rect.width >= 8 && rect.height >= 8 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+  };
+  const textOf = (node) => String(node?.textContent || node?.getAttribute?.("aria-label") || node?.getAttribute?.("title") || "").replace(/\s+/g, " ").trim();
+  const normalizeSrc = (src) => {
+    const value = String(src || "").trim();
+    if (!value || /^(blob:|file:|about:|javascript:)/i.test(value)) return "";
+    try {
+      return new URL(value, window.location.href).href;
+    } catch {
+      return "";
+    }
+  };
+  const cleanTitle = (value) => String(value || "")
+    .replace(/微信小店|客服|工作台|商家|后台|PC端|[-_|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+
+  const titleSelectors = [
+    "[class*='shop'][class*='name']",
+    "[class*='store'][class*='name']",
+    "[class*='merchant'][class*='name']",
+    "[class*='seller'][class*='name']",
+    "[class*='brand'][class*='name']",
+    "[class*='account'][class*='name']"
+  ];
+  const title = titleSelectors
+    .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+    .filter(visible)
+    .map(textOf)
+    .map(cleanTitle)
+    .find((text) => text.length >= 2 && text.length <= 30) || cleanTitle(document.title);
+
+  const candidates = Array.from(document.images)
+    .filter(visible)
+    .map((img) => {
+      const rect = img.getBoundingClientRect();
+      const src = normalizeSrc(img.currentSrc || img.src || img.getAttribute("src"));
+      const meta = [
+        img.alt,
+        img.title,
+        img.getAttribute("aria-label"),
+        img.className,
+        img.id,
+        src
+      ].join(" ").toLowerCase();
+      if (!src || /qrcode|qr_code|captcha|barcode|sprite|iconfont|loading|blank/.test(meta)) return null;
+      let score = 0;
+      const ratio = rect.width / Math.max(rect.height, 1);
+      if (rect.top <= 180) score += 20;
+      if (rect.left <= 360) score += 20;
+      if (rect.width >= 24 && rect.width <= 96 && rect.height >= 24 && rect.height <= 96) score += 20;
+      if (ratio >= 0.7 && ratio <= 1.3) score += 16;
+      if (/logo|avatar|head|shop|store|merchant|brand|店铺|商家|头像|门店/.test(meta)) score += 24;
+      if (/wx|weixin|qlogo|mmbiz|res\.wx|weapp|wxa/.test(meta)) score += 8;
+      if (rect.width < 16 || rect.height < 16) score -= 20;
+      if (rect.top > 360 || rect.left > 720) score -= 24;
+      return { src, score };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+
+  return {
+    title,
+    logoUrl: candidates[0]?.score >= 36 ? candidates[0].src : ""
   };
 }
 
@@ -1079,12 +1573,22 @@ function layoutKfView() {
   if (!mainWindow || mainWindow.isDestroyed() || !kfView || !kfViewAttached) return;
   const [width, height] = mainWindow.getContentSize();
   kfView.setBounds({
-    x: MAIN_SHELL_SIDEBAR_WIDTH,
-    y: MAIN_SHELL_TOP_BAR_HEIGHT,
-    width: Math.max(0, width - MAIN_SHELL_SIDEBAR_WIDTH),
-    height: Math.max(0, height - MAIN_SHELL_TOP_BAR_HEIGHT)
+    x: mainShellSidebarWidth,
+    y: MAIN_SHELL_CONTEXT_BAR_HEIGHT,
+    width: Math.max(0, width - mainShellSidebarWidth),
+    height: Math.max(0, height - MAIN_SHELL_CONTEXT_BAR_HEIGHT)
   });
   kfView.setAutoResize({ width: true, height: true });
+}
+
+function setMainShellSidebarWidth(width) {
+  const numeric = Number(width);
+  const next = numeric <= 120 ? MAIN_SHELL_SIDEBAR_COLLAPSED_WIDTH : MAIN_SHELL_SIDEBAR_WIDTH;
+  if (mainShellSidebarWidth !== next) {
+    mainShellSidebarWidth = next;
+    layoutKfView();
+  }
+  return { ok: true, width: mainShellSidebarWidth, status: statusPayload() };
 }
 
 async function setMainMode(mode) {
@@ -1134,7 +1638,7 @@ function createFloatingWindow() {
   });
   floatWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   floatWindow.loadFile(FLOATING_HTML_PATH);
-  floatWindow.once("ready-to-show", () => broadcastStatus());
+  floatWindow.once("ready-to-show", () => refreshDesktopMenuSurfaces());
   floatWindow.on("move", persistFloatingBoundsSoon);
   floatWindow.on("resize", persistFloatingBoundsSoon);
   floatWindow.on("close", (event) => {
@@ -1143,7 +1647,7 @@ function createFloatingWindow() {
     floatWindow.hide();
     config.floatWindow.visible = false;
     saveConfig().catch((error) => console.error("[desktop] save floating visible failed", error));
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
   });
 }
 
@@ -1158,18 +1662,15 @@ function updateTrayMenu() {
   if (!tray) return;
   const enabled = Boolean(config.bot.enabled);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `打开${APP_DISPLAY_NAME}`, click: showMainWindow },
-    { label: "显示悬浮窗", click: showFloatingWindow },
-    { label: enabled ? "暂停 Bot 接管" : "开启 Bot 接管", click: () => setBotEnabled(!enabled) },
-    { label: "重载客服页", click: reloadKfPage },
-    { label: "检查 AI 服务", click: () => checkAiHealth({ notifyOk: true }) },
+    { label: `打开${APP_DISPLAY_NAME}`, click: () => runDesktopMenuCommand("workbench.open", { source: "tray" }) },
+    { label: "显示悬浮窗", click: () => runDesktopMenuCommand("floating.show", { source: "tray" }) },
+    { label: enabled ? "暂停 Bot 接管" : "开启 Bot 接管", click: () => runDesktopMenuCommand(enabled ? "bot.pause" : "bot.enable", { source: "tray" }) },
+    { label: "重载客服页", click: () => runDesktopMenuCommand("workbench.reload", { source: "tray" }) },
+    { label: "检查 AI 服务", click: () => runDesktopMenuCommand("api.checkAi", { source: "tray" }) },
     { type: "separator" },
     {
       label: "退出程序",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      }
+      click: () => confirmQuitFromNativeMenu()
     }
   ]));
 }
@@ -1239,7 +1740,7 @@ function showFloatingWindow() {
     saveConfig().catch((error) => console.error("[desktop] save floating visible failed", error));
     floatWindow.show();
     floatWindow.focus();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return;
   }
 
@@ -1247,6 +1748,7 @@ function showFloatingWindow() {
   config.floatWindow.visible = true;
   saveConfig().catch((error) => console.error("[desktop] save floating enabled failed", error));
   createFloatingWindow();
+  refreshDesktopMenuSurfaces();
 }
 
 async function setFloatingMode(mode) {
@@ -1259,7 +1761,7 @@ async function setFloatingMode(mode) {
   floatWindow.setSize(width, height, true);
   config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
   await saveConfig();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   return true;
 }
 
@@ -1290,7 +1792,7 @@ async function setFloatingAlwaysOnTop(value) {
     floatWindow.setAlwaysOnTop(Boolean(value));
   }
   await saveConfig();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   return true;
 }
 
@@ -1342,13 +1844,13 @@ function registerIpc() {
     }
     await saveConfig();
     sendConfigChanges(changes);
-    updateTrayMenu();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return true;
   });
 
   ipcMain.on("bot-status", (_event, status) => {
     lastBotHeartbeatAt = Date.now();
+    scheduleKfBrandInfoRefresh(1000);
     updateFloatingStatus(status?.status || status?.label || "检测中", status || {});
   });
 
@@ -1381,7 +1883,7 @@ function registerIpc() {
     }
     config.floatWindow.visible = false;
     await saveConfig();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return true;
   });
   ipcMain.handle("float-quit", () => requestFullQuit({ confirm: APP_DISPLAY_NAME, source: "floating" }));
@@ -1398,19 +1900,25 @@ function registerIpc() {
 
   ipcMain.handle("main-get-status", () => statusPayload());
   ipcMain.handle("main-get-workbench-snapshot", () => workbenchSnapshotPayload());
+  ipcMain.handle("main-get-menu-model", () => desktopMenuModel());
+  ipcMain.handle("main-run-menu-command", (_event, commandId, options = {}) => runDesktopMenuCommand(commandId, {
+    ...(options || {}),
+    source: "windows-menu"
+  }));
   ipcMain.handle("main-get-settings", () => settingsPayload());
   ipcMain.handle("main-save-settings", (_event, payload) => saveDesktopSettings(payload || {}));
   ipcMain.handle("main-set-mode", (_event, mode) => setMainMode(mode));
+  ipcMain.handle("main-set-sidebar-width", (_event, width) => setMainShellSidebarWidth(width));
   ipcMain.handle("main-open-floating", async (_event, mode = "compact") => {
     showFloatingWindow();
-    if (mode === "settings") await setFloatingMode("settings");
+    if (["compact", "mini", "settings"].includes(String(mode || ""))) await setFloatingMode(mode);
     return statusPayload();
   });
   ipcMain.handle("main-hide-floating", async () => {
     if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide();
     config.floatWindow.visible = false;
     await saveConfig();
-    broadcastStatus();
+    refreshDesktopMenuSurfaces();
     return statusPayload();
   });
   ipcMain.handle("main-toggle-enabled", () => setBotEnabled(!config.bot.enabled));
@@ -1502,11 +2010,11 @@ async function setBotEnabled(enabled) {
   config.bot.enabled = enabled;
   await saveConfig();
   sendConfigChanges({ enabled: { oldValue, newValue: enabled } });
-  updateTrayMenu();
   updateFloatingStatus(enabled ? "检测中" : "暂停中", {
     code: enabled ? "monitoring" : "paused",
     detail: enabled ? "Bot已开启，正在检测客户消息" : "Bot已暂停，不会自动发送回复"
   });
+  refreshDesktopMenuSurfaces();
   return statusPayload();
 }
 
@@ -1581,6 +2089,8 @@ function statusPayload() {
   const records = replyRecordStats(replyRecords);
   const payload = {
     appName: APP_DISPLAY_NAME,
+    platform: process.platform,
+    fullscreen: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen()),
     bot: lastBotStatus,
     botHistory: botStatusHistory,
     ai: lastAiHealth,
@@ -1903,8 +2413,7 @@ async function saveDesktopSettings(payload) {
       detail: config.bot.enabled ? "Bot已开启，正在检测客户消息" : "Bot已暂停，不会自动发送回复"
     });
   }
-  updateTrayMenu();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   flushNotifyOutbox().catch((error) => console.error("[notify] flush after settings failed", error));
   return settingsPayload();
 }
@@ -2143,7 +2652,7 @@ async function setFloatingPreset(preset) {
   floatWindow.setBounds(next, true);
   config.floatWindow.bounds = normalizeBounds(floatWindow.getBounds());
   await saveConfig();
-  broadcastStatus();
+  refreshDesktopMenuSurfaces();
   return true;
 }
 
@@ -3706,7 +4215,7 @@ function runtimeStatusForReplyEvent(payload = {}) {
     return { code: "text_sent", label: "文字已发", detail: "兜底回复已发送给当前客户", customer, actionType: stage };
   }
   if (stage === "judgment_ai") {
-    return { code: "text_sent", label: "文字已发", detail: "判断库和AI生成的回复已发送", customer, actionType: stage };
+    return { code: "text_sent", label: "文字已发", detail: "外部知识库和 AI 生成的回复已发送", customer, actionType: stage };
   }
   return { code: "text_sent", label: "文字已发", detail: "文字回复已发送给当前客户", customer, actionType: stage || "text" };
 }
@@ -3841,7 +4350,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (payload.usedJudgmentLibrary === true || stage === "judgment_ai") {
     return {
       sourceType: "judgment_ai",
-      sourceLabel: "判断库补充",
+      sourceLabel: "外部知识库补充",
       usedRuleLibrary: false,
       usedDirectReply: false,
       usedAi: true
@@ -4502,7 +5011,7 @@ function initializeRunyuAuthState() {
   runyuAuthState = hasCookie
     ? {
         status: "configured",
-        message: "已保存登录凭证，等待真实查询验证",
+        message: "已保存访问凭证，等待真实查询验证",
         source: "saved",
         errorCode: "",
         httpStatus: 0,
@@ -4513,7 +5022,7 @@ function initializeRunyuAuthState() {
       }
     : {
         status: "unconfigured",
-        message: "尚未登录润宇判断库",
+        message: "尚未配置外部知识库",
         source: "",
         errorCode: "",
         httpStatus: 0,
@@ -4608,8 +5117,8 @@ async function validateRunyuAuthOnStartup() {
     await saveRunyuCookie(persisted, "browser_session");
   }
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
-  if (!configured) return setRunyuAuthState("unconfigured", "尚未登录润宇判断库");
-  setRunyuAuthState("checking", "正在验证已保存的润宇登录状态");
+  if (!configured) return setRunyuAuthState("unconfigured", "尚未配置外部知识库");
+  setRunyuAuthState("checking", "正在验证已保存的外部知识库访问凭证");
   const result = await verifyRunyuConnection({ notify: false, source: persisted ? "browser_session" : "saved" });
   if (["connected", "ready"].includes(result.status) && !Number(result.downloadedRecords || 0)) {
     return bootstrapRunyuJudgmentLibrary({ notify: false, source: "startup_bootstrap" });
@@ -4620,14 +5129,14 @@ async function validateRunyuAuthOnStartup() {
 async function selfCheckRunyuAuth(options = {}) {
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
   if (!configured) {
-    return setRunyuAuthState("unconfigured", "这台电脑没有判断库 Cookie Token，请重新登录获取", {
+    return setRunyuAuthState("unconfigured", "这台电脑没有外部知识库访问凭证，请重新配置后获取", {
       source: options.source || "auth_check",
       cookieDetected: false,
       errorCode: "RUNYU_COOKIE_NOT_CONFIGURED",
-      errorDetail: "本机配置中没有 RUNYU_WEB_COOKIE"
+      errorDetail: "本机配置中没有外部知识库访问凭证"
     });
   }
-  setRunyuAuthState("checking", "正在强制查询远端判断库，自检 Cookie Token", {
+  setRunyuAuthState("checking", "正在强制查询远端外部知识库，检查访问凭证", {
     source: options.source || "auth_check",
     cookieDetected: true
   });
@@ -4648,7 +5157,7 @@ async function openRunyuLoginWindow(options = {}) {
   }
 
   startRunyuLoginDeadline();
-  setRunyuAuthState("monitoring", "登录窗口已打开，5分钟内完成登录后点击“捕捉 Cookie Token”", {
+  setRunyuAuthState("monitoring", "配置窗口已打开，5分钟内完成授权后点击“获取访问凭证”", {
     source: "browser_login",
     cookieDetected: false
   });
@@ -4657,7 +5166,7 @@ async function openRunyuLoginWindow(options = {}) {
     height: 780,
     minWidth: 900,
     minHeight: 620,
-    title: "登录润宇判断库",
+    title: "外部知识库配置",
     icon: APP_ICON_PATH,
     parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
     show: false,
@@ -4690,7 +5199,7 @@ async function openRunyuLoginWindow(options = {}) {
   });
   wc.on("did-navigate-in-page", () => scheduleRunyuCookieInspection("in_page"));
   wc.on("did-fail-load", (_event, code, description, validatedUrl) => {
-    setRunyuAuthState("error", `润宇登录页加载失败：${description || code}`, {
+    setRunyuAuthState("error", `外部知识库配置页加载失败：${description || code}`, {
       source: "browser_login",
       errorCode: "RUNYU_LOGIN_PAGE_LOAD_FAILED",
       httpStatus: Number(code || 0),
@@ -4710,7 +5219,7 @@ async function openRunyuLoginWindow(options = {}) {
     runyuLoginWindow = null;
     clearRunyuLoginDeadline();
     if (["login_required", "monitoring", "cookie_detected", "timeout"].includes(runyuAuthState.status)) {
-      setRunyuAuthState("unconfigured", "登录窗口已关闭，尚未完成凭证验证", {
+      setRunyuAuthState("unconfigured", "配置窗口已关闭，尚未完成凭证验证", {
         source: "browser_login",
         cookieDetected: Boolean(runyuAuthState.cookieDetected)
       });
@@ -4727,10 +5236,10 @@ function startRunyuLoginDeadline() {
   clearRunyuLoginDeadline();
   runyuLoginDeadlineAt = Date.now() + RUNYU_LOGIN_TIMEOUT_MS;
   runyuLoginTimeoutTimer = setTimeout(() => {
-    setRunyuAuthState("timeout", "5分钟登录时间已到，请点击“重新登录”后再试", {
+    setRunyuAuthState("timeout", "5分钟配置时间已到，请点击“重新配置”后再试", {
       source: "browser_login",
       errorCode: "RUNYU_LOGIN_TIMEOUT",
-      errorDetail: "登录窗口打开后 5 分钟内未完成 Cookie Token 验证"
+      errorDetail: "配置窗口打开后 5 分钟内未完成访问凭证验证"
     });
   }, RUNYU_LOGIN_TIMEOUT_MS);
 }
@@ -4759,14 +5268,14 @@ async function inspectRunyuLoginCookie(source = "browser_login") {
   const cookie = await readRunyuSessionCookie();
   if (!cookie) {
     if (!["connected", "checking", "timeout"].includes(runyuAuthState.status)) {
-      setRunyuAuthState("monitoring", "正在监控登录状态，登录成功后点击“捕捉 Cookie Token”", {
+      setRunyuAuthState("monitoring", "正在监控配置状态，授权成功后点击“获取访问凭证”", {
         source,
         cookieDetected: false
       });
     }
     return runyuAuthStatusPayload();
   }
-  return setRunyuAuthState("cookie_detected", "已检测到登录 Cookie，请点击“捕捉 Cookie Token”完成验证", {
+  return setRunyuAuthState("cookie_detected", "已检测到访问凭证，请点击“获取访问凭证”完成验证", {
     source,
     cookieDetected: true
   });
@@ -4778,18 +5287,18 @@ async function captureAndVerifyRunyuCookie(source = "browser_login") {
   try {
     const cookie = await readRunyuSessionCookie();
     if (!cookie) {
-      setRunyuAuthState("login_required", "没有检测到 session_token，请先在登录窗口完成登录", {
+      setRunyuAuthState("login_required", "没有检测到访问凭证，请先在配置窗口完成授权", {
         source,
         cookieDetected: false,
         errorCode: "RUNYU_SESSION_TOKEN_NOT_FOUND",
-        errorDetail: "Cookie 存储中没有找到 runyuai.zhiduoke.com.cn 的 session_token"
+        errorDetail: "外部知识库会话中没有找到可用访问凭证"
       });
       return runyuAuthStatusPayload();
     }
     const normalized = normalizeRunyuCookie(cookie);
     const current = normalizeRunyuCookie(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE || "");
     if (normalized !== current) await saveRunyuCookie(normalized, source);
-    setRunyuAuthState("checking", "已捕捉 Cookie Token，正在执行真实查询验证", {
+    setRunyuAuthState("checking", "已获取访问凭证，正在执行真实查询验证", {
       source,
       cookieDetected: true
     });
@@ -4828,7 +5337,7 @@ async function readRunyuSessionCookie() {
 
 async function saveRunyuCookie(cookie, source = "browser_login") {
   const normalized = normalizeRunyuCookie(cookie);
-  if (!normalized) throw new Error("没有读取到有效的 session_token");
+  if (!normalized) throw new Error("没有读取到有效的外部知识库访问凭证");
   await writeEnvValues({
     RUNYU_WEB_COOKIE: normalized,
     RUNYU_WEB_BASE_URL: RUNYU_BASE_URL,
@@ -4842,7 +5351,7 @@ async function saveRunyuCookie(cookie, source = "browser_login") {
   });
   await saveConfig();
   await session.fromPartition(RUNYU_AUTH_PARTITION).flushStorageData();
-  setRunyuAuthState("configured", "登录凭证已保存到这台电脑，等待验证", { source });
+  setRunyuAuthState("configured", "访问凭证已保存到这台电脑，等待验证", { source });
 }
 
 async function verifyRunyuConnection(options = {}) {
@@ -4868,7 +5377,7 @@ async function performRunyuConnectionVerification(options = {}) {
   if (result.ok) {
     const cacheStatus = await fetchJson(localAiUrl("/judgments/status"), 5000).catch(() => ({ records: 0 }));
     const records = Number(cacheStatus.records || 0);
-    const state = setRunyuAuthState(records > 0 ? "ready" : "connected", `Cookie 自检通过，远端返回 ${result.results?.length || 0} 条，本地缓存 ${records} 条`, {
+    const state = setRunyuAuthState(records > 0 ? "ready" : "connected", `访问凭证检查通过，远端返回 ${result.results?.length || 0} 条，本地缓存 ${records} 条`, {
       source: options.source || runyuAuthState.source || "saved",
       cookieDetected: true,
       queryVerified: true,
@@ -4877,11 +5386,11 @@ async function performRunyuConnectionVerification(options = {}) {
       verifiedAt: Date.now()
     });
     if (options.notify !== false) {
-      await notifyHealthRecovered("runyu_auth", "判断库 Cookie 已恢复", `远端查询成功，本地缓存 ${records} 条。`, { eventType: "health" });
+      await notifyHealthRecovered("runyu_auth", "外部知识库凭证已恢复", `远端查询成功，本地缓存 ${records} 条。`, { eventType: "health" });
     }
     return state;
   }
-  const message = String(result.message || result.error || "判断库验证失败");
+  const message = String(result.message || result.error || "外部知识库验证失败");
   const diagnosis = diagnoseRunyuError(message);
   if (/没有.*权限|403|FORBIDDEN/i.test(message)) {
     const state = setRunyuAuthState("forbidden", diagnosis.message, { source: options.source || runyuAuthState.source, cookieDetected: true, ...diagnosis });
@@ -4900,13 +5409,13 @@ async function performRunyuConnectionVerification(options = {}) {
 
 async function notifyRunyuAuthFailure(state = {}) {
   const action = state.status === "expired"
-    ? "请打开控制台，在判断库页面点击“重新登录”，登录后点击“我已登录，获取凭证”。"
+    ? "请打开控制台，在外部知识库页面点击“重新配置”，授权后点击“获取访问凭证”。"
     : state.status === "forbidden"
-      ? "请改用有判断库权限的账号重新登录。"
+      ? "请改用有外部知识库权限的账号重新配置。"
       : "请打开控制台查看错误码，按页面引导重试。";
   await sendNotification(
     `runyu_auth:${state.errorCode || state.status}`,
-    "判断库 Cookie 自检失败",
+    "外部知识库凭证自检失败",
     [`错误码：${state.errorCode || "RUNYU_VERIFY_FAILED"}`, state.httpStatus ? `HTTP：${state.httpStatus}` : "", state.message || "", action].filter(Boolean).join("\n"),
     {
       severity: "warning",
@@ -4920,11 +5429,11 @@ async function notifyRunyuAuthFailure(state = {}) {
 async function bootstrapRunyuJudgmentLibrary(options = {}) {
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
   if (!configured) {
-    return setRunyuAuthState("unconfigured", "缺少 Cookie Token，无法初始化判断库缓存", {
+    return setRunyuAuthState("unconfigured", "缺少访问凭证，无法初始化外部知识库缓存", {
       source: options.source || "bootstrap",
       cookieDetected: false,
       errorCode: "RUNYU_COOKIE_NOT_CONFIGURED",
-      errorDetail: "请先打开登录网页，完成登录后获取凭证"
+      errorDetail: "请先打开网络配置页，完成授权后获取凭证"
     });
   }
   setRunyuAuthState("syncing", "远端查询已通过，正在下载首次引用缓存", {
@@ -4962,7 +5471,7 @@ async function bootstrapRunyuJudgmentLibrary(options = {}) {
     if (options.notify !== false) await notifyRunyuAuthFailure(state);
     return state;
   }
-  const state = setRunyuAuthState("ready", `判断库已就绪：远端查询成功，本地可引用 ${records} 条`, {
+  const state = setRunyuAuthState("ready", `外部知识库已就绪：远端查询成功，本地可引用 ${records} 条`, {
     source: options.source || "bootstrap",
     cookieDetected: true,
     queryVerified: true,
@@ -4972,13 +5481,13 @@ async function bootstrapRunyuJudgmentLibrary(options = {}) {
     verifiedAt: Date.now()
   });
   if (options.notify !== false) {
-    await notifyHealthRecovered("runyu_auth", "判断库已恢复并可引用", `远端查询成功，本地可引用 ${records} 条。`, { eventType: "health" });
+    await notifyHealthRecovered("runyu_auth", "外部知识库已恢复并可引用", `远端查询成功，本地可引用 ${records} 条。`, { eventType: "health" });
   }
   return state;
 }
 
 function diagnoseRunyuError(input) {
-  const message = String(input || "判断库验证失败").trim();
+  const message = String(input || "外部知识库验证失败").trim();
   const httpMatch = message.match(/(?:API|HTTP|状态)\s*(401|403|404|408|429|5\d\d)/i);
   const httpStatus = Number(httpMatch?.[1] || 0);
   let errorCode = "RUNYU_VERIFY_FAILED";
@@ -5012,7 +5521,7 @@ async function clearRunyuLogin() {
   if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) runyuLoginWindow.close();
   clearRunyuLoginDeadline();
   await clearRunyuBrowserSession({ clearSavedCookie: true });
-  setRunyuAuthState("unconfigured", "已清除这台电脑上的润宇登录状态", { source: "", cookieDetected: false });
+  setRunyuAuthState("unconfigured", "已清除这台电脑上的外部知识库访问凭证", { source: "", cookieDetected: false });
   return runyuAuthStatusPayload();
 }
 
@@ -5028,14 +5537,14 @@ async function testJudgmentLibrary(payload = {}) {
     errorCode: error?.code || "JUDGMENT_SEARCH_FAILED",
     httpStatus: Number(error?.status || 0),
     message: error?.code === "LOCAL_AI_ROUTE_404"
-      ? "本机 AI 服务缺少判断库路由，程序将切换到兼容服务端口"
+      ? "本机 AI 服务缺少外部知识库路由，程序将切换到兼容服务端口"
       : String(error?.message || error),
     results: []
   }));
   if (result.ok && payload.notify !== false) {
-    await notifyHealthRecovered("judgments", "判断库接入已恢复", `测试关键词：${query}\n返回 ${result.results?.length || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识库已恢复", `测试关键词：${query}\n返回 ${result.results?.length || 0} 条。`);
   } else if (!result.ok && payload.notify !== false) {
-    await sendNotification("judgments_test_failed", "判断库接入测试失败", result.message || "请检查 Cookie、Base URL、权限和网络", {
+    await sendNotification("judgments_test_failed", "外部知识库测试失败", result.message || "请检查访问凭证、Base URL、权限和网络", {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
@@ -5062,9 +5571,9 @@ async function refreshJudgmentLibrary(payload = {}) {
     errors: [{ message: String(error?.message || error) }]
   }));
   if (result.ok) {
-    await notifyHealthRecovered("judgments", "判断库刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识库刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
   } else if (payload.notify !== false) {
-    await sendNotification("judgments_refresh_manual_failed", "判断库刷新失败", result.message || "请检查 Cookie、Base URL、权限和网络", {
+    await sendNotification("judgments_refresh_manual_failed", "外部知识库刷新失败", result.message || "请检查访问凭证、Base URL、权限和网络", {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
@@ -5080,8 +5589,8 @@ async function startJudgmentFullDownload(payload = {}) {
     ...(payload || {})
   });
   const status = await getJudgmentLibraryStatus();
-  if (!library.enabled && !status.enabled) return { ok: false, message: "判断库未启用" };
-  if (!status.configured) return { ok: false, message: "缺少 Runyu Session Cookie" };
+  if (!library.enabled && !status.enabled) return { ok: false, message: "外部知识库未启用" };
+  if (!status.configured) return { ok: false, message: "缺少外部知识库访问凭证" };
 
   const keywords = normalizeList(payload.keywords || library.refreshKeywords);
   const sources = normalizeList(payload.sources || library.sources);
@@ -5119,7 +5628,7 @@ async function startJudgmentFullDownload(payload = {}) {
     judgmentDownloadJob.finishedAt = Date.now();
     judgmentDownloadJob.errors.push({ message: String(error?.message || error) });
     judgmentDownloadJob.progress = 100;
-    sendNotification("judgments_full_download_failed", "判断库全量下载失败", String(error?.message || error), {
+    sendNotification("judgments_full_download_failed", "外部知识库全量下载失败", String(error?.message || error), {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
@@ -5184,13 +5693,13 @@ async function runJudgmentFullDownload({ library, combinations }) {
   config.judgmentLibrary.lastAutoRefreshAt = Date.now();
   await saveConfig();
   if (judgmentDownloadJob.errors.length) {
-    await sendNotification("judgments_full_download_partial", "判断库全量下载有失败项", `已获取 ${judgmentDownloadJob.fetched || 0} 条，失败 ${judgmentDownloadJob.errors.length} 项，请在控制台查看详情。`, {
+    await sendNotification("judgments_full_download_partial", "外部知识库全量下载有失败项", `已获取 ${judgmentDownloadJob.fetched || 0} 条，失败 ${judgmentDownloadJob.errors.length} 项，请在控制台查看详情。`, {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
     });
   } else {
-    await notifyHealthRecovered("judgments", "判断库全量下载已恢复", `已获取 ${judgmentDownloadJob.fetched || 0} 条，新增 ${judgmentDownloadJob.added || 0} 条，更新 ${judgmentDownloadJob.updated || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识库全量下载已恢复", `已获取 ${judgmentDownloadJob.fetched || 0} 条，新增 ${judgmentDownloadJob.added || 0} 条，更新 ${judgmentDownloadJob.updated || 0} 条。`);
   }
   broadcastStatus();
 }
@@ -5222,13 +5731,13 @@ async function maybeAutoRefreshJudgments() {
   config.judgmentLibrary.lastAutoRefreshAt = Date.now();
   await saveConfig();
   if (!result.ok) {
-    await sendNotification("judgments_refresh_failed", "判断库自动刷新失败", result.message || "请打开控制台检查 Cookie、权限和关键词", {
+    await sendNotification("judgments_refresh_failed", "外部知识库自动刷新失败", result.message || "请打开控制台检查访问凭证、权限和关键词", {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 6 * 60 * 60_000
     });
   } else {
-    await notifyHealthRecovered("judgments", "判断库自动刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识库自动刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
   }
 }
 
@@ -5251,6 +5760,7 @@ async function inspectLoginState() {
     const pageState = await readLoginPageState(wc);
     if (pageState.hasInput || isAuthenticatedKfUrl(url)) {
       clearPendingLoginNotification();
+      scheduleKfBrandInfoRefresh(300);
       await notifyHealthRecovered("login", "客服页登录已恢复", "已检测到客服输入框，可以继续自动回复。", { eventType: "login" });
       return;
     }

@@ -2,10 +2,10 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 const navItems = [
-  { id: "page", target: "page", title: "客服工作台", hint: "聊天", icon: "messages", description: "客服页映射、扫码登录和当前接管状态。" },
-  { id: "rules", target: "rules", title: "回复中心", hint: "规则", icon: "reply", description: "规则库、Bot策略、AI风格和外部判断库。" },
-  { id: "dashboard", target: "dashboard", title: "运行监控", hint: "状态", icon: "activity", description: "实时状态、回复日志和异常追踪。" },
-  { id: "settings", target: "setup", title: "系统设置", hint: "配置", icon: "settings", description: "初始化、Webhook、悬浮窗和退出设置。" }
+  { id: "page", target: "page", title: "工作台", icon: "messages", description: "客服页映射、扫码登录和当前接管状态。" },
+  { id: "rules", target: "rules", title: "知识库", icon: "reply", description: "规则库、Bot策略、AI风格和外部知识库。" },
+  { id: "dashboard", target: "dashboard", title: "监控", icon: "activity", description: "实时状态、回复日志和异常追踪。" },
+  { id: "settings", target: "setup", title: "设置", icon: "settings", description: "初始化、Webhook、悬浮窗和退出设置。" }
 ];
 
 const sectionGroups = {
@@ -20,7 +20,7 @@ const viewLabels = {
   rules: "规则库",
   bot: "Bot策略",
   api: "API风格",
-  judgments: "判断库",
+  judgments: "外部知识库",
   dashboard: "总览",
   logs: "日志",
   webhook: "Webhook",
@@ -45,7 +45,7 @@ const sourceLabels = {
   waiting_reply: { label: "等待补偿", className: "direct" },
   fallback_reply: { label: "60秒兜底", className: "direct" },
   ai_followup: { label: "AI 接管", className: "ai" },
-  judgment_ai: { label: "判断库补充", className: "judgment" },
+  judgment_ai: { label: "外部知识库补充", className: "judgment" },
   ignore: { label: "忽略", className: "direct" },
   unknown: { label: "未分类", className: "" }
 };
@@ -58,6 +58,7 @@ const state = {
   records: null,
   judgments: null,
   workbench: null,
+  menuModel: null,
   runyuAuth: null,
   judgmentDownload: null,
   judgmentPollTimer: null,
@@ -68,7 +69,8 @@ const state = {
   apiKeyShown: false,
   runyuCookieShown: false,
   loading: false,
-  detail: null
+  detail: null,
+  sidebarCollapsed: window.localStorage?.getItem("mainShellSidebarCollapsed") === "1"
 };
 window.state = state;
 
@@ -83,6 +85,7 @@ init().catch((error) => {
 });
 
 async function init() {
+  applySidebarState();
   renderNav();
   bindGlobalActions();
   window.mainShell.onStatus((payload) => {
@@ -90,6 +93,13 @@ async function init() {
     if (payload?.runyuAuth) state.runyuAuth = payload.runyuAuth;
     renderChrome();
     if (["dashboard", "logs", "judgments"].includes(state.view)) renderView();
+  });
+  window.mainShell.onMenuModel?.((payload) => {
+    state.menuModel = payload || null;
+    renderDesktopMenu();
+  });
+  window.mainShell.onOpenView?.((payload) => {
+    if (payload?.view) switchView(payload.view);
   });
   window.mainShell.onRunyuAuth(async (payload) => {
     state.runyuAuth = payload || {};
@@ -102,22 +112,25 @@ async function init() {
     if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
     renderChrome();
   });
-  const [settings, status, records, judgments, judgmentDownload, workbench] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
     window.mainShell.getJudgmentsDownloadStatus(),
-    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null)
+    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null),
+    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(null)
   ]);
   state.settings = settings;
   state.status = status;
   state.records = records;
   state.judgments = judgments;
   state.workbench = workbench;
+  state.menuModel = menuModel;
   state.runyuAuth = judgments?.auth || status?.runyuAuth || null;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
+  renderDesktopMenu();
   await switchView(needsInitialSetup() ? "setup" : "page");
 }
 
@@ -125,8 +138,7 @@ function renderNav() {
   $("#nav").innerHTML = navItems.map((item) => `
     <button type="button" data-top="${item.id}" data-view="${item.target || item.id}" title="${attr(item.description)}">
       <span class="nav-icon">${icons[item.icon] || ""}</span>
-      <span class="nav-copy"><span class="nav-title">${escapeHtml(item.title)}</span><span class="nav-desc">${escapeHtml(item.description)}</span></span>
-      <small>${escapeHtml(item.hint)}</small>
+      <span class="nav-copy"><span class="nav-title">${escapeHtml(item.title)}</span></span>
     </button>
   `).join("");
   $$("#nav button").forEach((button) => {
@@ -134,25 +146,148 @@ function renderNav() {
   });
 }
 
-function bindGlobalActions() {
-  $("#openFloat").addEventListener("click", async () => {
-    await window.mainShell.openFloating("compact");
-    showFlash("悬浮窗已打开", "ok");
+function renderDesktopMenu() {
+  const menu = $("#desktopMenu");
+  if (!menu) return;
+  const model = state.menuModel;
+  if (!model?.sections?.length) {
+    menu.innerHTML = `<div class="hint">菜单正在加载...</div>`;
+    return;
+  }
+  menu.innerHTML = model.sections.map((section, index) => `
+    <details class="menu-section" ${index === 0 ? "open" : ""}>
+      <summary>${escapeHtml(section.label)}</summary>
+      <div class="menu-items">
+        ${(section.items || []).map((item) => renderMenuItem(item)).join("")}
+      </div>
+    </details>
+  `).join("");
+  $$("[data-command]", menu).forEach((button) => {
+    button.addEventListener("click", () => executeMenuCommand(button.dataset.command));
   });
-  $("#toggleBot").addEventListener("click", async () => {
-    state.status = await window.mainShell.toggleEnabled();
+}
+
+function renderMenuItem(item = {}) {
+  if (item.type === "separator") return `<div class="menu-separator" role="separator"></div>`;
+  return `
+    <button type="button" class="menu-command ${item.danger ? "danger" : ""}" data-command="${attr(item.id)}" ${item.enabled === false ? "disabled" : ""}>
+      <span class="menu-check">${item.checked === true ? "✓" : ""}</span>
+      <span>${escapeHtml(item.label || item.id || "命令")}</span>
+      <span class="menu-accelerator">${escapeHtml(formatAccelerator(item.accelerator || ""))}</span>
+    </button>
+  `;
+}
+
+function toggleDesktopMenu(force) {
+  const menu = $("#desktopMenu");
+  const button = $("#desktopMenuButton");
+  if (!menu || !button) return;
+  const next = force == null ? !menu.classList.contains("open") : Boolean(force);
+  menu.classList.toggle("open", next);
+  button.classList.toggle("active", next);
+  button.setAttribute("aria-expanded", String(next));
+}
+
+function closeDesktopMenu() {
+  toggleDesktopMenu(false);
+}
+
+async function executeMenuCommand(commandId) {
+  if (!commandId) return;
+  const options = {};
+  if (commandId === "settings.quit") {
+    const confirmed = window.confirm("彻底退出小店AI客服？Bot、AI、本机控制服务、Webhook 调度和悬浮窗都会停止。");
+    if (!confirmed) return;
+    options.confirm = "小店AI客服";
+  }
+  closeDesktopMenu();
+  const result = await window.mainShell.runMenuCommand(commandId, options);
+  await handleMenuCommandResult(commandId, result);
+}
+
+async function handleMenuCommandResult(commandId, result = {}) {
+  if (result.status) state.status = result.status;
+  if (result.view) {
+    await switchView(result.view);
+    return;
+  }
+  if (["settings.autostart", "settings.preventSleep", "floating.alwaysOnTop", "floating.compact", "floating.mini", "floating.show", "floating.hide"].includes(commandId)) {
     state.settings = await window.mainShell.getSettings();
+  }
+  if (commandId === "workbench.capture") {
+    showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message || "捕捉失败", result.ok ? "ok" : "error");
+  } else if (commandId === "api.checkAi") {
+    showFlash(result.ok ? "AI 服务连接正常" : result.ai?.message || "AI 服务检查失败", result.ok ? "ok" : "error");
+  } else if (commandId === "api.testWebhook") {
+    showFlash(result.ok ? "Webhook 测试已发送" : result.message || "Webhook 测试失败", result.ok ? "ok" : "error");
+  } else if (result.message) {
+    showFlash(result.message, result.ok === false ? "error" : "ok");
+  }
+  await refreshMenuModel();
+  renderChrome();
+  renderView();
+}
+
+async function refreshMenuModel() {
+  if (!window.mainShell.getMenuModel) return;
+  state.menuModel = await window.mainShell.getMenuModel();
+  renderDesktopMenu();
+}
+
+function formatAccelerator(value) {
+  return String(value || "")
+    .replace(/CmdOrCtrl/g, state.menuModel?.platform === "darwin" ? "Cmd" : "Ctrl")
+    .replace(/CommandOrControl/g, state.menuModel?.platform === "darwin" ? "Cmd" : "Ctrl");
+}
+
+function bindGlobalActions() {
+  $("#desktopMenuButton").addEventListener("click", () => toggleDesktopMenu());
+  document.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-sidebar-toggle]");
+    if (!toggle) return;
+    event.preventDefault();
+    setSidebarCollapsed(!state.sidebarCollapsed);
+  });
+  $("#expandFloatDock")?.addEventListener("click", async () => {
+    state.status = await window.mainShell.openFloating("compact");
     renderChrome();
-    renderView();
+    await refreshMenuModel();
   });
-  $("#reloadPage").addEventListener("click", async () => {
-    await window.mainShell.reload();
-    showFlash("客服页正在重载");
+  $("#miniFloatDock")?.addEventListener("click", async () => {
+    state.status = await window.mainShell.openFloating("mini");
+    renderChrome();
+    await refreshMenuModel();
   });
-  $("#captureStructure").addEventListener("click", async () => {
-    showFlash("正在捕捉页面结构...");
-    const result = await window.mainShell.capturePageStructure();
-    showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message, result.ok ? "ok" : "error");
+  $("#hideFloatDock")?.addEventListener("click", async () => {
+    state.status = await window.mainShell.hideFloating();
+    renderChrome();
+    await refreshMenuModel();
+  });
+  document.addEventListener("click", (event) => {
+    if (!$("#desktopMenu")?.classList.contains("open")) return;
+    if (event.target.closest("#desktopMenu") || event.target.closest("#desktopMenuButton")) return;
+    closeDesktopMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDesktopMenu();
+  });
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = Boolean(collapsed);
+  window.localStorage?.setItem("mainShellSidebarCollapsed", state.sidebarCollapsed ? "1" : "0");
+  applySidebarState();
+}
+
+function applySidebarState() {
+  document.body.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
+  $$("[data-sidebar-toggle]").forEach((button) => {
+    button.setAttribute("aria-expanded", String(!state.sidebarCollapsed));
+    button.title = state.sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏";
+    button.setAttribute("aria-label", button.title);
+  });
+  window.mainShell?.setSidebarWidth?.(state.sidebarCollapsed ? 64 : 268).catch((error) => {
+    console.warn("[shell] sidebar width sync failed", error);
   });
 }
 
@@ -171,37 +306,52 @@ async function switchView(view) {
 
 function renderChrome() {
   const status = state.status || {};
-  const botEnabled = Boolean(status.enabled);
-  const aiOk = Boolean(status.ai?.ok && status.ai?.hasKey);
-  const aiHasKey = Boolean(status.ai?.hasKey);
-  const notifyConfigured = Boolean(status.notify?.configured || status.notifyEnabled);
+  document.body.classList.toggle("platform-darwin", status.platform === "darwin" || state.menuModel?.platform === "darwin");
+  document.body.classList.toggle("window-fullscreen", Boolean(status.fullscreen));
   const page = status.page || {};
-  const botTone = runtimeTone(status.bot?.tone);
+  const storeName = page.authenticated ? (page.title || "微信小店") : "微信小店";
+  const logoUrl = page.authenticated ? safeLogoUrl(page.logoUrl) : "";
+  const brandLogo = $("#brandLogo");
+  const floatingState = buildSidebarFloatingState(status);
 
-  $("#botDot").className = `dot ${botEnabled ? botTone : "warn"}`;
-  $("#aiDot").className = `dot ${aiOk ? "" : aiHasKey ? "warn" : "bad"}`;
-  $("#botMini").textContent = shortStatus(status.bot?.label || status.bot?.status || "检测中");
-  $("#botModeMini").textContent = botEnabled ? "开启" : "暂停";
-  $("#aiMini").textContent = aiOk ? "AI 正常" : aiHasKey ? "AI 待测" : "缺 Key";
-  $("#notifyMini").textContent = notifyConfigured ? `通知 ${status.notify?.outboxCount || 0}` : "未配置";
-  $("#pageMini").textContent = page.loading ? "客服页加载中" : page.title || "客服页映射";
-  $("#toggleBot").textContent = botEnabled ? "暂停 Bot" : "开启 Bot";
-  $("#toggleBot").classList.toggle("primary", !botEnabled);
-
-  const runtime = status.bot || {};
-  const topTone = runtimeTone(runtime.tone);
-  $("#topRuntimeDot").className = `dot ${topTone === "ok" ? "" : topTone}`;
-  $("#topRuntimeLabel").textContent = shortStatus(runtime.label || runtime.status || "检测中");
-  $("#topRuntimeDetail").textContent = runtime.detail || runtime.status || "等待运行状态";
-  const topStates = buildTopStates(status);
-  setTopLamp("Ai", topStates.ai);
-  setTopLamp("Local", topStates.local);
-  setTopLamp("Script", topStates.script);
-  setTopLamp("Login", topStates.login);
-
+  if (brandLogo) {
+    const nextLogo = logoUrl || brandLogo.dataset.defaultSrc || "assets/logo.png";
+    if (brandLogo.getAttribute("src") !== nextLogo) brandLogo.setAttribute("src", nextLogo);
+    document.body.classList.toggle("shop-logo-loaded", Boolean(logoUrl));
+  }
+  $("#floatDot").className = `dot ${floatingState.dotClass}`;
+  $("#floatTitle").textContent = floatingState.title;
+  $("#floatSubtitle").textContent = floatingState.subtitle;
+  $("#storeName").textContent = page.loading ? "客服页加载中" : storeName;
   $$("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.top === topNavIdFor(state.view));
   });
+}
+
+function safeLogoUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^data:image\//i.test(url)) return url;
+  return "";
+}
+
+function buildSidebarFloatingState(payload = {}) {
+  const bot = payload.bot || {};
+  const tone = runtimeTone(bot.tone);
+  const tones = [
+    tone,
+    payload.ai?.ok ? "ok" : payload.ai?.hasKey ? "warn" : "bad",
+    payload.page?.scriptHealthy ? "ok" : payload.page?.loading ? "warn" : "bad"
+  ];
+  const overallTone = tones.includes("bad") ? "bad" : tone === "active" ? "active" : tones.includes("warn") || !payload.enabled ? "warn" : "ok";
+  const title = shortStatus(bot.label || bot.status || "检测中");
+  const detail = String(bot.detail || bot.status || "状态同步").trim();
+  return {
+    dotClass: overallTone === "ok" ? "" : overallTone,
+    title,
+    subtitle: shortText(detail)
+  };
 }
 
 function renderView() {
@@ -235,18 +385,16 @@ function topNavIdFor(view) {
 
 function renderSectionTabs() {
   const group = sectionGroups[topNavIdFor(state.view)] || [];
-  const nav = navItems.find((item) => item.id === topNavIdFor(state.view));
+  const tabs = group.length ? group : [state.view];
   contextBar.innerHTML = `
-    <div class="context-title">
-      <strong>${escapeHtml(viewLabels[state.view] || nav?.title || "工作台")}</strong>
-      <span>${escapeHtml(nav?.description || "当前页面上下文")}</span>
+    <button id="sidebarCollapseTop" class="top-collapse-button" type="button" title="展开侧边栏" aria-label="展开侧边栏" aria-expanded="false" data-sidebar-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 5v14"/><path class="collapse-arrow" d="m15 9-3 3 3 3"/></svg>
+    </button>
+    <div class="section-tabs" aria-label="二级功能导航">
+      ${tabs.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
     </div>
-    ${group.length > 1 ? `
-      <div class="section-tabs" aria-label="二级功能导航">
-        ${group.map((id) => `<button type="button" data-subview="${id}" class="${id === state.view ? "active" : ""}">${escapeHtml(viewLabels[id] || id)}</button>`).join("")}
-      </div>
-    ` : `<div class="badge-row"><span class="badge">${escapeHtml(nav?.hint || "当前")}</span></div>`}
   `;
+  applySidebarState();
   $$("[data-subview]", contextBar).forEach((button) => button.addEventListener("click", () => switchView(button.dataset.subview)));
 }
 
@@ -255,7 +403,7 @@ function renderPageView() {
     <div class="page-placeholder">
       <div class="card">
         <h3>客服页映射已打开</h3>
-        <p class="muted">微信小店客服页显示在当前工作区。顶部状态栏始终保留，可随时打开悬浮窗、暂停 Bot、重载页面或捕捉页面结构。</p>
+        <p class="muted">微信小店客服页显示在当前工作区。全局操作已迁移到 Mac 菜单栏、Windows 三条杠菜单、托盘和快捷键。</p>
       </div>
     </div>
   `;
@@ -402,14 +550,14 @@ function renderSetup() {
   const missing = setupMissingItems();
   const runyuAuth = currentRunyuAuth();
   content.innerHTML = `
-    ${pageHead("初始化配置", "首次运行配置 DeepSeek Key、企业微信 Webhook，并在这台电脑登录润宇判断库；保存后会自动做功能安全自检。", `
+    ${pageHead("初始化配置", "首次运行配置 DeepSeek Key、企业微信 Webhook，并在这台电脑配置外部知识库；保存后会自动做功能安全自检。", `
       <button id="runSetupSelfCheck" class="primary">${state.setupRunning ? "自检中..." : "保存并自检"}</button>
       <button id="skipToKfPage" class="dark">去扫码登录</button>
     `)}
     <div class="grid cols-3">
       ${metricCard("DeepSeek Key", missing.apiKey ? "待配置" : "已填写", "用于 AI 精准回复和审核。", missing.apiKey ? "warn" : "ok")}
       ${metricCard("Webhook", missing.webhook ? "待配置" : "已填写", "用于扫码、异常、总结通知。", missing.webhook ? "warn" : "ok")}
-      ${metricCard("判断库连接", runyuAuthLabel(runyuAuth), runyuAuth.message || "用于复杂问题先查外部判断库。", runyuAuthTone(runyuAuth))}
+      ${metricCard("外部知识库", runyuAuthLabel(runyuAuth), runyuAuth.message || "用于复杂问题先查外部知识库。", runyuAuthTone(runyuAuth))}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
@@ -418,35 +566,35 @@ function renderSetup() {
           ${passwordField("setupDeepseekApiKey", "DeepSeek API Key", env.deepseekApiKey || "", "只保存到本机 .env，不会提交到 GitHub。", "span-2")}
           ${field("setupWebhookUrl", "企业微信 Webhook", env.wecomWebhookUrl || notify.wecomWebhookUrl || "", "用于发送扫码截图、异常告警、小时总结和每日总览。", "span-2")}
           <div class="field span-2">
-            <label>润宇判断库登录</label>
+            <label>外部知识库网络配置</label>
             <div class="toolbar" style="justify-content:flex-start">
-              <button id="setupRunyuLogin" type="button" class="primary">打开登录网页</button>
-              <button id="setupCaptureRunyuCookie" type="button">我已登录，获取凭证</button>
-              <button id="setupVerifyRunyuAuth" type="button">自检 Cookie</button>
-              <button id="setupBootstrapRunyu" type="button">初始化引用库</button>
-              <button id="setupRunyuRelogin" type="button">重新登录</button>
+              <button id="setupRunyuLogin" type="button" class="primary">打开网络配置页</button>
+              <button id="setupCaptureRunyuCookie" type="button">获取访问凭证</button>
+              <button id="setupVerifyRunyuAuth" type="button">检查连通性</button>
+              <button id="setupBootstrapRunyu" type="button">初始化本地缓存</button>
+              <button id="setupRunyuRelogin" type="button">重新配置</button>
             </div>
-            <div class="hint">每台新电脑都要单独完成一次：打开页面、确认登录成功、再获取本机 Cookie Token。</div>
+            <div class="hint">网络调用模式需要在每台新电脑单独完成一次配置；本地导入模式可以跳过网络凭证，直接导入数据缓存。</div>
             ${runyuLoginFlowHtml(runyuAuth)}
             ${runyuNextActionHtml(runyuAuth)}
             ${runyuAuthMonitorHtml(runyuAuth, "setup")}
           </div>
-          ${passwordField("setupRunyuWebCookie", "Session Cookie（手工备用）", env.runyuWebCookie || "", "只有自动登录不可用时才需要手工粘贴。必须来自 Cookies 中的 session_token。", "span-2")}
+          ${passwordField("setupRunyuWebCookie", "访问凭证（手工备用）", env.runyuWebCookie || "", "只有自动获取不可用时才需要手工粘贴。凭证只保存在本机。", "span-2")}
           ${field("setupDeepseekModel", "模型", env.deepseekModel || "deepseek-v4-flash", "默认不用改。")}
-          ${field("setupRunyuBaseUrl", "判断库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填域名，不要带 /api/sync/judgments/query。")}
+          ${field("setupRunyuBaseUrl", "外部知识库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "网络调用模式只填服务域名，不要带具体接口路径。")}
         </div>
       </div>
       <div class="card">
         <h3>初始化流程</h3>
         <div class="grid">
-          ${setupStep("1", "完成本机配置", "写入 Key 和 Webhook，并通过网页登录取得本机判断库凭证。", !missing.apiKey && !missing.webhook && !missing.cookie)}
-          ${setupStep("2", "功能安全自检", "检查 AI Key、Webhook、判断库测试查询、规则库和守护状态。", state.setupChecks.length > 0 && state.setupChecks.every((item) => item.ok))}
+          ${setupStep("1", "完成本机配置", "写入 Key 和 Webhook，并配置外部知识库网络调用或本地导入。", !missing.apiKey && !missing.webhook && !missing.cookie)}
+          ${setupStep("2", "功能安全自检", "检查 AI Key、Webhook、外部知识库测试查询、规则库和守护状态。", state.setupChecks.length > 0 && state.setupChecks.every((item) => item.ok))}
           ${setupStep("3", "扫码小店客服", "自检完成后进入客服页映射，扫码登录并选择会话。", Boolean(state.status?.page?.ready))}
         </div>
         <div id="setupCheckResult" class="download-panel" style="margin-top:12px">
           ${renderSetupChecks()}
         </div>
-        <p class="hint">判断库会默认启用本地缓存和远端查询；后续可以在“判断库”页调整来源、类型、刷新周期和全量下载。</p>
+        <p class="hint">外部知识库支持网络调用和本地缓存；后续可以在“外部知识库”页调整来源、类型、刷新周期和本地数据。</p>
       </div>
     </div>
   `;
@@ -465,7 +613,7 @@ function renderSetup() {
 function currentRunyuAuth() {
   return state.runyuAuth || state.judgments?.auth || state.status?.runyuAuth || {
     status: "unconfigured",
-    message: "尚未登录润宇判断库"
+    message: "尚未配置外部知识库"
   };
 }
 
@@ -480,52 +628,52 @@ function runyuLoginFlowHtml(auth = {}) {
   const downloaded = Boolean(Number(auth.downloadedRecords || state.judgments?.records || 0));
   return `
     <div class="grid" style="gap:6px;margin-top:10px">
-      ${setupStep("1", "打开登录页面", "应用使用这台电脑独立的登录窗口。", pageOpened)}
-      ${setupStep("2", "确认网页已登录", "看到判断库登录后的页面，再回到控制台。", loginConfirmed)}
-      ${setupStep("3", "获取并验证凭证", "点击“我已登录，获取凭证”，通过真实查询后完成。", connected)}
-      ${setupStep("4", "下载首次引用库", "验证成功后自动下载 10 条测试数据，本地可引用后才算完成。", downloaded)}
+      ${setupStep("1", "打开网络配置页", "应用使用这台电脑独立的配置窗口。", pageOpened)}
+      ${setupStep("2", "确认配置完成", "看到外部知识库授权或配置完成后，再回到控制台。", loginConfirmed)}
+      ${setupStep("3", "获取并验证凭证", "点击“获取访问凭证”，通过真实查询后完成。", connected)}
+      ${setupStep("4", "初始化本地缓存", "验证成功后自动下载 10 条测试数据，本地可引用后才算完成。", downloaded)}
     </div>
   `;
 }
 
 function runyuNextActionHtml(auth = {}) {
   const code = String(auth.errorCode || "");
-  let title = "下一步：打开登录页面";
-  let body = "点击“打开登录网页”，在独立窗口完成账号登录。每台新电脑都需要单独登录一次。";
+  let title = "下一步：打开网络配置页";
+  let body = "点击“打开网络配置页”，在独立窗口完成外部知识库授权或网络配置。每台新电脑都需要单独配置一次；本地导入模式可跳过网络凭证。";
   if (["monitoring", "login_required"].includes(auth.status)) {
-    title = "需要您确认网页登录";
+    title = "需要您确认网络配置";
     body = auth.cookieDetected
-      ? "系统已发现 Cookie。请确认网页已经进入登录后的判断库页面，再点击“我已登录，获取凭证”。"
-      : "请在登录窗口完成登录。确认已经进入判断库页面后，回到这里点击“我已登录，获取凭证”。";
+      ? "系统已发现访问凭证。请确认页面已经进入外部知识库授权后的状态，再点击“获取访问凭证”。"
+      : "请在配置窗口完成授权。确认已经进入外部知识库页面后，回到这里点击“获取访问凭证”。";
   } else if (auth.status === "cookie_detected") {
     title = "下一步：获取并验证凭证";
-    body = "Cookie 已检测到。请点击“我已登录，获取凭证”，系统会强制查询远端接口，不会用本地缓存冒充成功。";
+    body = "访问凭证已检测到。请点击“获取访问凭证”，系统会强制查询网络接口，不会用本地缓存冒充成功。";
   } else if (["checking", "syncing"].includes(auth.status)) {
-    title = auth.status === "checking" ? "正在验证 Cookie" : "正在初始化引用库";
-    body = auth.status === "checking" ? "正在执行远端真实查询，请等待结果。" : "查询已通过，正在下载首次 10 条引用数据。";
+    title = auth.status === "checking" ? "正在验证访问凭证" : "正在初始化本地缓存";
+    body = auth.status === "checking" ? "正在执行网络真实查询，请等待结果。" : "查询已通过，正在下载首次 10 条引用数据。";
   } else if (["connected", "ready"].includes(auth.status)) {
-    title = auth.status === "ready" ? "判断库已经可用" : "连接已通过，继续初始化缓存";
+    title = auth.status === "ready" ? "外部知识库已经可用" : "连接已通过，继续初始化缓存";
     body = auth.status === "ready"
       ? `远端查询和本地引用缓存均已通过，目前可引用 ${Number(auth.downloadedRecords || state.judgments?.records || 0)} 条。后续可按需全部下载。`
-      : "点击“初始化引用库”，下载首次可引用数据。";
+      : "点击“初始化本地缓存”，下载首次可引用数据。";
   } else if (auth.status === "expired" || code === "RUNYU_AUTH_EXPIRED") {
-    title = "Cookie 已失效，需要重新登录";
-    body = "点击“重新登录”，在新窗口完成登录，再点击“我已登录，获取凭证”。旧 Token 会被新 Token 替换。";
+    title = "访问凭证已失效，需要重新配置";
+    body = "点击“重新配置”，在新窗口完成授权，再点击“获取访问凭证”。旧凭证会被新凭证替换。";
   } else if (auth.status === "forbidden" || code === "RUNYU_PERMISSION_DENIED") {
     title = "账号没有查询权限";
-    body = "Cookie 已获取，但当前账号不能调用判断库。请换有权限的账号重新登录，或联系判断库提供方开通权限。";
+    body = "访问凭证已获取，但当前账号不能调用外部知识库。请换有权限的账号重新配置，或联系外部知识库提供方开通权限。";
   } else if (code === "RUNYU_API_404") {
     title = "接口地址不可用";
-    body = "确认 Base URL 只填写 https://runyuai.zhiduoke.com.cn，不带接口路径；保存后点“自检 Cookie”。仍失败时复制错误信息反馈。";
+    body = "确认 Base URL 只填写服务域名，不带接口路径；保存后点“检查连通性”。仍失败时复制错误信息反馈。";
   } else if (code === "RUNYU_SESSION_TOKEN_NOT_FOUND") {
-    title = "没有发现 Cookie Token";
-    body = "返回登录窗口确认已经登录成功，并等待页面加载完成；然后再次点击“我已登录，获取凭证”。";
+    title = "没有发现访问凭证";
+    body = "返回配置窗口确认已经授权成功，并等待页面加载完成；然后再次点击“获取访问凭证”。";
   } else if (code === "RUNYU_NETWORK_FAILED" || code === "RUNYU_REQUEST_TIMEOUT") {
-    title = "网络暂时无法访问判断库";
-    body = "检查网络、代理或防火墙后点击“自检 Cookie”。无需重复登录，除非随后显示 Cookie 已失效。";
+    title = "网络暂时无法访问外部知识库";
+    body = "检查网络、代理或防火墙后点击“检查连通性”。无需重复配置，除非随后显示访问凭证已失效。";
   } else if (code === "RUNYU_BOOTSTRAP_EMPTY") {
     title = "查询通过但缓存为空";
-    body = "点击“初始化引用库”重试；仍为空时复制错误信息和最近凭证记录反馈。";
+    body = "点击“初始化本地缓存”重试；仍为空时复制错误信息和最近凭证记录反馈。";
   } else if (["error", "timeout"].includes(auth.status)) {
     title = "本次接入没有完成";
     body = "按错误码处理后重试。可以复制错误信息和最近凭证记录，便于准确追溯。";
@@ -540,17 +688,17 @@ function runyuNextActionHtml(auth = {}) {
 
 function runyuAuthLabel(auth = {}) {
   return ({
-    unconfigured: "待登录",
+    unconfigured: "待配置",
     configured: "待验证",
-    monitoring: "监控登录",
-    cookie_detected: "已发现Token",
-    login_required: "等待登录",
+    monitoring: "监控配置",
+    cookie_detected: "已发现凭证",
+    login_required: "等待配置",
     checking: "验证中",
     connected: "已连接",
     syncing: "下载缓存",
     ready: "已就绪",
-    timeout: "登录超时",
-    expired: "登录已过期",
+    timeout: "配置超时",
+    expired: "凭证已过期",
     forbidden: "账号无权限",
     error: "连接异常"
   })[auth.status] || "未确认";
@@ -569,7 +717,7 @@ function runyuAuthMonitorHtml(auth = {}, prefix = "runyu") {
   return `
     <div class="download-panel runyu-monitor" style="margin-top:10px">
       <div class="download-head">
-        <strong>登录监控</strong>
+        <strong>配置监控</strong>
         <span class="badge ${["connected", "ready"].includes(auth.status) ? "rule" : ["error", "expired", "forbidden", "timeout"].includes(auth.status) ? "fail" : "direct"}">${escapeHtml(runyuAuthLabel(auth))}</span>
       </div>
       <div class="grid" style="gap:7px;margin-top:8px">
@@ -578,7 +726,7 @@ function runyuAuthMonitorHtml(auth = {}, prefix = "runyu") {
           <span class="badge ${auth.loginWindowOpen ? "rule" : ""}">${auth.loginWindowOpen ? "监控中" : "未打开"}</span>
         </div>
         <div class="switch-row">
-          <div><strong>Cookie Token</strong><div class="hint">只显示检测状态，不会在页面暴露 Token 内容。</div></div>
+          <div><strong>访问凭证</strong><div class="hint">只显示检测状态，不会在页面暴露凭证内容。</div></div>
           <span class="badge ${auth.cookieDetected ? "rule" : "direct"}">${auth.cookieDetected ? "已检测" : "未检测"}</span>
         </div>
         <div class="switch-row">
@@ -601,7 +749,7 @@ function runyuAuthMonitorHtml(auth = {}, prefix = "runyu") {
 
 function runyuAuthHistoryHtml(history = []) {
   const items = Array.isArray(history) ? history.slice(0, 8) : [];
-  if (!items.length) return `<div class="hint" style="margin-top:10px">还没有 Cookie 自检记录。</div>`;
+  if (!items.length) return `<div class="hint" style="margin-top:10px">还没有访问凭证自检记录。</div>`;
   return `
     <details style="margin-top:10px">
       <summary>最近凭证记录（${items.length}）</summary>
@@ -658,7 +806,7 @@ async function copyRunyuDiagnostic(auth = {}) {
   ].filter(Boolean).join("\n");
   try {
     await navigator.clipboard.writeText(diagnostic);
-    showFlash("判断库错误信息已复制", "ok");
+    showFlash("外部知识库错误信息已复制", "ok");
   } catch (error) {
     showFlash(`复制失败：${String(error?.message || error)}`, "error");
   }
@@ -721,7 +869,7 @@ function renderDashboard() {
       ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", `${runtime.category || "运行"} / ${formatFullTime(runtime.at || Date.now())}`, status.enabled ? "ok" : "warn")}
       ${metricCard("AI 服务", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
       ${metricCard("Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn")}
-      ${metricCard("判断库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺 Cookie") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
+      ${metricCard("外部知识库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺访问凭证") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
       ${metricCard("客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad")}
       ${metricCard("悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn")}
       ${metricCard("长期运行", watchdog.enabled ? "守护中" : "已关闭", `${watchdog.autoStart ? "开机自启" : "未自启"} / ${watchdog.powerSaveBlockerActive ? "防休眠" : "未防休眠"}`, watchdog.enabled && watchdog.powerSaveBlockerActive ? "ok" : "warn")}
@@ -747,7 +895,7 @@ function renderDashboard() {
           <button id="dashOpenFloat">打开悬浮窗</button>
           <button id="dashReload">重载客服页</button>
           <button id="dashCapture">捕捉页面结构</button>
-          <button id="dashJudgments">判断库设置</button>
+          <button id="dashJudgments">外部知识库设置</button>
         </div>
       </div>
       <div class="card span-2">
@@ -764,7 +912,7 @@ function renderDashboard() {
   $("#dashOpenPage").addEventListener("click", () => switchView("page"));
   $("#dashOpenFloat").addEventListener("click", () => window.mainShell.openFloating("compact"));
   $("#dashReload").addEventListener("click", () => window.mainShell.reload());
-  $("#dashCapture").addEventListener("click", () => $("#captureStructure").click());
+  $("#dashCapture").addEventListener("click", captureStructureFromUi);
   $("#dashJudgments").addEventListener("click", () => switchView("judgments"));
 }
 
@@ -782,7 +930,7 @@ function renderBot() {
         <div class="grid">
           ${toggleRow("botEnabled", "默认开启 Bot 接管", "关闭后只监控页面，不自动回复客户。", bot.enabled !== false)}
           ${toggleRow("aiFallback", "无命中规则时调用 AI", "规则库没有匹配时，会请求本地 AI 服务生成补充回复。", bot.aiFallback !== false)}
-          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI/判断库时，先等 AI；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
+          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI / 外部知识库时，先等 AI；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
           ${toggleRow("imageRepliesEnabled", "允许图片回复", "动作规则和图片规则可以上传并发送本地图片。", Boolean(bot.imageRepliesEnabled))}
           ${toggleRow("autoPasteImages", "图片自动上传/粘贴发送", "优先使用页面上传控件，失败时复制到剪贴板再粘贴发送。", Boolean(bot.autoPasteImages))}
           ${toggleRow("panelAutoActionsEnabled", "允许内置页面动作兜底", "当没有命中动作规则时，可按常见购买意图自动点商品、素材库等页面入口。", Boolean(bot.panelAutoActionsEnabled))}
@@ -807,7 +955,7 @@ function renderBot() {
         <div class="form-grid">
           ${field("aiEndpoint", "AI 回复地址", bot.aiEndpoint || "", "本地默认是 http://127.0.0.1:8787/reply。", "span-2")}
           ${textareaField("quickAck", "AI 慢回复承接语列表", replyListText(bot.quickAckReplies, bot.quickAck || "我看一下"), "一条回复占一段；用空行或 | 分隔。AI 超过 15 秒未返回时轮换发送。", "span-2")}
-          ${textareaField("fallbackReply", "60 秒兜底回复列表", replyListText(bot.fallbackReplies, bot.fallbackReply || ""), "一条回复占一段；用空行或 | 分隔。AI/判断库 60 秒内仍无可用答案时轮换发送。", "span-2")}
+          ${textareaField("fallbackReply", "60 秒兜底回复列表", replyListText(bot.fallbackReplies, bot.fallbackReply || ""), "一条回复占一段；用空行或 | 分隔。AI / 外部知识库 60 秒内仍无可用答案时轮换发送。", "span-2")}
           ${numberField("aiSlowMs", "AI 慢回复阈值 ms", bot.aiSlowMs || 15000, "超过这个时间仍无 AI 结果，会先发承接语。")}
           ${numberField("fallbackReplyMs", "兜底回复阈值 ms", bot.fallbackReplyMs || 60000, "超过这个时间仍无 AI 可用答案，发送兜底回复。")}
           ${numberField("noResponseAlertMs", "超时告警 ms", bot.noResponseAlertMs || 90000, "客户消息超过该时间仍未完成处理，会记录超时并通知。")}
@@ -924,65 +1072,65 @@ function renderJudgments() {
   const sources = splitKeywords(env.runyuJudgmentsSources || library.sources || "runyu");
   const searchTypes = splitKeywords(env.runyuJudgmentsSearchTypes || library.searchTypes || "judgments");
   content.innerHTML = `
-    ${pageHead("判断库接入", "接入 Runyu 外部判断库，让复杂问题先请求 AI/判断库；超时才承接或兜底。", `
+    ${pageHead("外部知识库", "复杂问题可先查询外部知识库。支持网络调用，也支持导入到本机缓存后检索；超时才承接或兜底。", `
       <button id="testJudgments">测试 10 条</button>
       <button id="refreshJudgments" class="dark">立即刷新缓存</button>
-      <button id="downloadAllJudgments" class="dark">全部下载本地库</button>
-      <button id="saveJudgments" class="primary">保存判断库设置</button>
+      <button id="downloadAllJudgments" class="dark">同步到本地库</button>
+      <button id="saveJudgments" class="primary">保存外部知识库设置</button>
     `)}
     <div class="grid cols-4">
-      ${metricCard("接入状态", library.enabled ? runyuAuthLabel(runyuAuth) : "未启用", runyuAuth.message || status.message || "等待登录", library.enabled ? runyuAuthTone(runyuAuth) : "warn")}
+      ${metricCard("接入状态", library.enabled ? runyuAuthLabel(runyuAuth) : "未启用", runyuAuth.message || status.message || "等待配置", library.enabled ? runyuAuthTone(runyuAuth) : "warn")}
       ${metricCard("本地缓存", String(status.records || 0), status.cachePath || "未生成缓存", status.records ? "ok" : "warn")}
       ${metricCard("最近刷新", status.updatedAt ? formatFullTime(status.updatedAt) : "未刷新", lastRefreshSummary(status.lastRefresh), status.updatedAt ? "ok" : "warn")}
       ${metricCard("刷新周期", library.autoRefreshEnabled !== false ? `${library.refreshIntervalHours || 168} 小时` : "手动", "可改为 24 小时、3 天或 7 天", library.autoRefreshEnabled !== false ? "ok" : "warn")}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
-        <h3>连接与鉴权</h3>
+        <h3>网络调用</h3>
         <div class="form-grid">
           <div class="field span-2">
-            <label>本机网页登录</label>
+            <label>网络配置</label>
             <div class="toolbar" style="justify-content:flex-start">
-              <button id="openRunyuLogin" type="button" class="primary">打开登录网页</button>
-              <button id="captureRunyuCookie" type="button">我已登录，获取凭证</button>
-              <button id="verifyRunyuAuth" type="button">自检 Cookie</button>
-              <button id="bootstrapRunyu" type="button">初始化引用库</button>
-              <button id="reopenRunyuLogin" type="button">重新登录</button>
-              <button id="clearRunyuLogin" type="button" class="danger">清除本机登录</button>
+              <button id="openRunyuLogin" type="button" class="primary">打开网络配置页</button>
+              <button id="captureRunyuCookie" type="button">获取访问凭证</button>
+              <button id="verifyRunyuAuth" type="button">检查连通性</button>
+              <button id="bootstrapRunyu" type="button">初始化本地缓存</button>
+              <button id="reopenRunyuLogin" type="button">重新配置</button>
+              <button id="clearRunyuLogin" type="button" class="danger">清除本机凭证</button>
             </div>
-            <div class="hint">登录成功后由您明确点击捕捉按钮，系统再保存 Token 和验证接口，避免网页尚未登录完成时误判。</div>
+            <div class="hint">网络调用模式需要访问凭证；系统只在您明确点击后保存凭证并验证接口，避免页面尚未完成授权时误判。</div>
             ${runyuNextActionHtml(runyuAuth)}
             ${runyuAuthMonitorHtml(runyuAuth, "judgments")}
           </div>
-          ${toggleRow("judgmentEnabled", "启用外部判断库", "开启后 AI 补充回复会先检索判断库。", Boolean(library.enabled))}
-          ${toggleRow("judgmentUseRemote", "允许实时查询远端", "本地缓存不足时，直接调用 Runyu API 查询。", library.useRemote !== false)}
+          ${toggleRow("judgmentEnabled", "启用外部知识库", "开启后 AI 补充回复会先检索外部知识库。", Boolean(library.enabled))}
+          ${toggleRow("judgmentUseRemote", "允许网络调用", "本地缓存不足时，直接调用外部知识库网络接口查询。", library.useRemote !== false)}
           ${toggleRow("judgmentUseCache", "优先读取本地缓存", "缓存命中会更快，远端结果会自动合并回本地。", library.useCache !== false)}
           ${toggleRow("judgmentAutoRefresh", "自动刷新本地缓存", "按周期重新拉取关键词结果，只合并变化部分。", library.autoRefreshEnabled !== false)}
           <div class="field span-2">
-            <label for="runyuWebCookie">Session Cookie（手工备用）</label>
+            <label for="runyuWebCookie">访问凭证（手工备用）</label>
             <div style="display:grid;grid-template-columns:minmax(0,1fr)86px;gap:8px">
               <input id="runyuWebCookie" type="${cookieType}" value="${attr(env.runyuWebCookie || "")}" placeholder="session_token=...">
               <button id="toggleRunyuCookie" type="button">${state.runyuCookieShown ? "隐藏" : "显示"}</button>
             </div>
-            <div class="hint">正常情况使用上面的网页登录。只有自动获取失败时，才从 Chrome Application > Cookies 手工复制 session_token。</div>
+            <div class="hint">正常情况使用上面的网络配置页。只有自动获取失败时，才手工粘贴访问凭证。</div>
           </div>
-          ${field("runyuWebBaseUrl", "Runyu Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填域名，不要带 /api/sync/judgments/query。")}
+          ${field("runyuWebBaseUrl", "外部知识库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "网络调用模式只填服务域名，不要带具体接口路径。")}
           ${selectField("judgmentRefreshInterval", "自动刷新周期", String(library.refreshIntervalHours || 168), [["24", "每 24 小时"], ["72", "每 3 天"], ["168", "每 7 天"], ["336", "每 14 天"], ["720", "每 30 天"]], "到期后自动刷新缓存。")}
         </div>
       </div>
       <div class="card">
-        <h3>下载范围</h3>
+        <h3>本地缓存范围</h3>
         <div class="field">
-          <label>判断库来源</label>
+          <label>外部知识库来源</label>
           <div class="choice-grid">
-            ${checkboxChoice("judgment-source", "runyu", "润宇", sources.includes("runyu"))}
+            ${checkboxChoice("judgment-source", "runyu", "默认源", sources.includes("runyu"))}
             ${checkboxChoice("judgment-source", "liurun", "刘润", sources.includes("liurun"))}
             ${checkboxChoice("judgment-source", "xiangshui", "响水", sources.includes("xiangshui"))}
             ${checkboxChoice("judgment-source", "xingxing", "星星", sources.includes("xingxing"))}
             ${checkboxChoice("judgment-source", "book", "图书", sources.includes("book"))}
             ${checkboxChoice("judgment-source", "dedao", "得到", sources.includes("dedao"))}
           </div>
-          <div class="hint">每次请求只查一个 source，刷新时会按这里的来源逐个合并。</div>
+          <div class="hint">每次请求只查一个来源，刷新时会按这里的来源逐个合并。</div>
         </div>
         <div class="field" style="margin-top:14px">
           <label>查询类型</label>
@@ -996,7 +1144,7 @@ function renderJudgments() {
           ${numberField("judgmentMaxResults", "回复引用条数", library.maxResults || 4, "AI 单次最多参考多少条。")}
           ${numberField("judgmentLimitPerQuery", "实时测试条数", library.limitPerQuery || 8, "每个来源/类型查询多少条。")}
           ${numberField("judgmentRefreshLimit", "刷新每组上限", library.refreshLimit || 80, "批量刷新每个关键词、来源、类型最多拉多少条。")}
-          ${numberField("judgmentFullPageLimit", "全局下载分页", library.fullDownloadPageLimit || 300, "全部下载每页拉取数量。")}
+          ${numberField("judgmentFullPageLimit", "本地同步分页", library.fullDownloadPageLimit || 300, "同步到本地库时每页拉取数量。")}
           ${numberField("judgmentFullMaxPages", "每组最大页数", library.fullDownloadMaxPages || 20, "防止远端接口重复返回同一页导致无限循环。")}
           ${numberField("judgmentTimeoutMs", "请求超时 ms", library.timeoutMs || 12000, "单次 API 请求超时。")}
         </div>
@@ -1006,7 +1154,7 @@ function renderJudgments() {
       <div class="card">
         <h3>刷新关键词</h3>
         ${textareaField("judgmentRefreshKeywords", "关键词列表", keywordsText(env.runyuJudgmentsRefreshKeywords || library.refreshKeywords || ""), "按逗号、顿号或换行分隔。自动刷新会按这些关键词更新本地缓存。", "span-2")}
-        <p class="hint">当前 Runyu API 文档没有全量导出游标，所以这里按关键词增量合并。相同 id 或内容哈希不重复写入，内容变化会更新。</p>
+        <p class="hint">如果外部知识库没有全量导出游标，则按关键词增量合并。相同 id 或内容哈希不重复写入，内容变化会更新。</p>
       </div>
       <div class="card">
         <h3>测试查询</h3>
@@ -1014,7 +1162,7 @@ function renderJudgments() {
         <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
           <button id="testJudgmentsInline" class="primary">测试 10 条</button>
           <button id="refreshJudgmentsInline">立即刷新缓存</button>
-          <button id="downloadAllJudgmentsInline">全部下载本地库</button>
+          <button id="downloadAllJudgmentsInline">同步到本地库</button>
         </div>
         ${judgmentDownloadPanel()}
         <div id="judgmentResult" class="card cream" style="margin-top:12px;min-height:120px">测试和刷新结果会显示在这里。</div>
@@ -1383,7 +1531,7 @@ function renderLogs() {
         <option value="waiting_reply">等待补偿</option>
         <option value="fallback_reply">60秒兜底</option>
         <option value="ai_followup">AI 接管</option>
-        <option value="judgment_ai">判断库补充</option>
+        <option value="judgment_ai">外部知识库补充</option>
       </select>
       <button id="refreshLogs" class="primary">刷新日志</button>
     `)}
@@ -1438,11 +1586,11 @@ function renderLogTrace(item) {
   if (trace?.model) badges.push(`模型 ${trace.model}`);
   if (trace) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
   if (trace?.judgmentQueried) {
-    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
+    badges.push(trace.judgmentUsed ? `外部知识库 ${trace.judgmentCount || 0} 条` : "外部知识库未命中");
     if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
     if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
   } else if (trace) {
-    badges.push("未查询判断库");
+    badges.push("未查询外部知识库");
   }
   if (trace?.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
   const latency = Number(item.latencyMs || trace?.latencyMs || 0);
@@ -1450,7 +1598,7 @@ function renderLogTrace(item) {
   return `
     ${badges.length ? `<div class="badge-row log-trace-badges">${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}</div>` : ""}
     ${steps.length ? `<div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>` : ""}
-    ${trace?.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+    ${trace?.judgmentError ? `<div class="hint fail-text">外部知识库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 
@@ -1539,7 +1687,7 @@ async function runSetupSelfCheck() {
     return;
   }
   if (!runyuWebCookie && !hasRunyuCredential(env, currentRunyuAuth())) {
-    showFlash("请先完成判断库网页登录并点击“我已登录，获取凭证”", "error");
+    showFlash("请先完成外部知识库配置并点击“获取访问凭证”", "error");
     return;
   }
 
@@ -1622,9 +1770,9 @@ async function runSetupSelfCheck() {
 
     const judgments = await window.mainShell.testJudgments({ query: "会员", limit: 10 }).catch((error) => ({ ok: false, message: String(error?.message || error), results: [] }));
     checks.push({
-      name: "判断库测试 10 条",
+      name: "外部知识库测试 10 条",
       ok: Boolean(judgments.ok),
-      message: judgments.ok ? `测试完成，返回 ${judgments.results?.length || 0} 条。` : (judgments.message || "判断库不可用")
+      message: judgments.ok ? `测试完成，返回 ${judgments.results?.length || 0} 条。` : (judgments.message || "外部知识库不可用")
     });
 
     try {
@@ -1759,10 +1907,10 @@ function collectJudgmentSettings() {
 
 async function saveJudgmentSettings(options = {}) {
   const payload = collectJudgmentSettings();
-  if (!payload.config.judgmentLibrary.sources.length) throw new Error("至少选择一个判断库来源");
+  if (!payload.config.judgmentLibrary.sources.length) throw new Error("至少选择一个外部知识库来源");
   if (!payload.config.judgmentLibrary.searchTypes.length) throw new Error("至少选择一个查询类型");
   if (!payload.config.judgmentLibrary.refreshKeywords.length) throw new Error("至少填写一个刷新关键词");
-  await saveSettings(payload, options.message || "判断库设置已保存");
+  await saveSettings(payload, options.message || "外部知识库设置已保存");
   state.judgments = await window.mainShell.getJudgmentsStatus();
   state.judgmentDownload = await window.mainShell.getJudgmentsDownloadStatus();
   if (state.view === "judgments" && options.render !== false) renderJudgments();
@@ -1773,11 +1921,11 @@ async function testJudgments() {
   const box = $("#judgmentResult");
   if (box) box.textContent = "正在保存配置并测试 10 条...";
   try {
-    await saveJudgmentSettings({ message: "判断库设置已保存，开始测试", render: false });
+    await saveJudgmentSettings({ message: "外部知识库设置已保存，开始测试", render: false });
     const result = await window.mainShell.testJudgments({ query: value("judgmentTestKeyword") || "会员", limit: 10 });
     state.judgments = await window.mainShell.getJudgmentsStatus();
     if (box) box.innerHTML = judgmentResultHtml(result);
-    showFlash(result.ok ? `判断库测试完成：${result.results?.length || 0} 条` : result.message, result.ok ? "ok" : "error");
+    showFlash(result.ok ? `外部知识库测试完成：${result.results?.length || 0} 条` : result.message, result.ok ? "ok" : "error");
   } catch (error) {
     if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
     showFlash(String(error?.message || error), "error");
@@ -1785,19 +1933,19 @@ async function testJudgments() {
 }
 
 async function openRunyuLogin(reset = false) {
-  showFlash(reset ? "正在清理旧会话并打开润宇登录..." : "正在打开润宇登录...");
+  showFlash(reset ? "正在清理旧会话并打开外部知识库配置..." : "正在打开外部知识库配置...");
   try {
     state.runyuAuth = await window.mainShell.openRunyuLogin({ reset });
     state.judgments = await window.mainShell.getJudgmentsStatus();
     if (["setup", "judgments"].includes(state.view)) renderView();
-    showFlash("请在 5 分钟内完成登录，然后点击“我已登录，获取凭证”", "ok");
+    showFlash("请在 5 分钟内完成配置，然后点击“获取访问凭证”", "ok");
   } catch (error) {
     showFlash(String(error?.message || error), "error");
   }
 }
 
 async function captureRunyuCookie() {
-  showFlash("正在捕捉 Cookie Token 并执行真实查询验证...");
+  showFlash("正在获取访问凭证并执行真实查询验证...");
   try {
     state.runyuAuth = await window.mainShell.captureRunyuCookie();
     const [settings, judgments] = await Promise.all([
@@ -1817,7 +1965,7 @@ async function captureRunyuCookie() {
 }
 
 async function verifyRunyuAuth() {
-  showFlash("正在强制查询远端判断库，自检 Cookie Token...");
+  showFlash("正在强制查询远端外部知识库，检查访问凭证...");
   try {
     state.runyuAuth = await window.mainShell.verifyRunyuAuth();
     state.judgments = await window.mainShell.getJudgmentsStatus();
@@ -1832,7 +1980,7 @@ async function verifyRunyuAuth() {
 }
 
 async function bootstrapRunyuLibrary() {
-  showFlash("正在强制查询远端并下载首次引用库...");
+  showFlash("正在强制查询远端并初始化本地缓存...");
   try {
     state.runyuAuth = await window.mainShell.bootstrapRunyuLibrary();
     state.judgments = await window.mainShell.getJudgmentsStatus();
@@ -1847,9 +1995,9 @@ async function bootstrapRunyuLibrary() {
 }
 
 async function clearRunyuLogin() {
-  const confirmed = window.confirm("确定清除这台电脑保存的润宇登录状态吗？清除后需要重新登录。");
+  const confirmed = window.confirm("确定清除这台电脑保存的外部知识库访问凭证吗？清除后需要重新配置。");
   if (!confirmed) return;
-  showFlash("正在清除本机润宇登录...");
+  showFlash("正在清除本机外部知识库访问凭证...");
   try {
     state.runyuAuth = await window.mainShell.clearRunyuLogin();
     const [settings, judgments] = await Promise.all([
@@ -1859,7 +2007,7 @@ async function clearRunyuLogin() {
     state.settings = settings;
     state.judgments = judgments;
     renderView();
-    showFlash("本机润宇登录状态已清除", "ok");
+    showFlash("本机外部知识库访问凭证已清除", "ok");
   } catch (error) {
     showFlash(String(error?.message || error), "error");
   }
@@ -1869,7 +2017,7 @@ async function refreshJudgments() {
   const box = $("#judgmentResult");
   if (box) box.textContent = "正在保存配置并刷新本地缓存...";
   try {
-    const payload = await saveJudgmentSettings({ message: "判断库设置已保存，开始刷新", render: false });
+    const payload = await saveJudgmentSettings({ message: "外部知识库设置已保存，开始刷新", render: false });
     const library = payload.config.judgmentLibrary;
     const result = await window.mainShell.refreshJudgments({
       keywords: library.refreshKeywords,
@@ -1890,7 +2038,7 @@ async function downloadAllJudgments() {
   const box = $("#judgmentResult");
   if (box) box.textContent = "正在保存配置并启动全局下载...";
   try {
-    const payload = await saveJudgmentSettings({ message: "判断库设置已保存，开始全局下载", render: false });
+    const payload = await saveJudgmentSettings({ message: "外部知识库设置已保存，开始全局下载", render: false });
     const library = payload.config.judgmentLibrary;
     state.judgmentDownload = await window.mainShell.startJudgmentsFullDownload({
       keywords: library.refreshKeywords,
@@ -1923,7 +2071,7 @@ function pollJudgmentDownloadIfNeeded() {
 function judgmentResultHtml(result) {
   const items = Array.isArray(result.results) ? result.results.slice(0, 10) : [];
   if (!result.ok && !items.length) {
-    return `<strong>失败：</strong><div class="hint">${escapeHtml(result.message || result.error || "判断库查询失败")}</div>`;
+    return `<strong>失败：</strong><div class="hint">${escapeHtml(result.message || result.error || "外部知识库查询失败")}</div>`;
   }
   return `
     <strong>查询结果：${items.length} 条</strong>
@@ -2021,13 +2169,14 @@ async function saveSettings(payload, okMessage) {
 }
 
 async function refreshAll() {
-  const [settings, status, records, judgments, judgmentDownload, workbench] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
     window.mainShell.getJudgmentsDownloadStatus(),
-    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(state.workbench)
+    window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(state.workbench),
+    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(state.menuModel)
   ]);
   state.settings = settings;
   state.status = status;
@@ -2035,9 +2184,17 @@ async function refreshAll() {
   state.judgments = judgments;
   state.judgmentDownload = judgmentDownload;
   state.workbench = workbench;
+  state.menuModel = menuModel;
   renderChrome();
+  renderDesktopMenu();
   renderView();
   showFlash("已刷新", "ok");
+}
+
+async function captureStructureFromUi() {
+  showFlash("正在捕捉页面结构...");
+  const result = await window.mainShell.capturePageStructure();
+  showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message, result.ok ? "ok" : "error");
 }
 
 async function checkAi() {
@@ -2064,11 +2221,11 @@ function renderAiTestTrace(result = {}) {
   if (trace.model) badges.push(`模型 ${trace.model}`);
   if (trace.thinking) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
   if (trace.judgmentQueried) {
-    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
+    badges.push(trace.judgmentUsed ? `外部知识库 ${trace.judgmentCount || 0} 条` : "外部知识库未命中");
     if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
     if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
   } else {
-    badges.push("未查询判断库");
+    badges.push("未查询外部知识库");
   }
   if (trace.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
   const latency = Number(result.latencyMs || trace.latencyMs || 0);
@@ -2076,7 +2233,7 @@ function renderAiTestTrace(result = {}) {
   const steps = [
     "发送测试",
     "收集上下文",
-    trace.judgmentQueried ? (trace.judgmentUsed ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中") : "未查询判断库",
+    trace.judgmentQueried ? (trace.judgmentUsed ? `外部知识库命中${Number(trace.judgmentCount || 0)}条` : "外部知识库未命中") : "未查询外部知识库",
     "调用AI接口",
     trace.thinking === "disabled" ? "Thinking关闭" : "Thinking开启",
     trace.reviewEnabled ? (trace.reviewApplied ? "审核改写" : "审核通过") : "",
@@ -2087,7 +2244,7 @@ function renderAiTestTrace(result = {}) {
       ${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}
     </div>
     <div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>
-    ${trace.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+    ${trace.judgmentError ? `<div class="hint fail-text">外部知识库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 
@@ -2390,6 +2547,11 @@ function runtimeTone(value) {
 
 function shortStatus(value) {
   return Array.from(String(value || "检测中").replace(/\s+/g, "")).slice(0, 6).join("");
+}
+
+function shortText(value) {
+  const text = String(value || "").trim();
+  return text.length > 14 ? `${text.slice(0, 14)}...` : text || "等待状态";
 }
 
 function runtimeTrailHtml(history) {

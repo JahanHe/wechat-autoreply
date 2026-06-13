@@ -23,9 +23,15 @@
         --error: #c64545;
         --radius: 8px;
         --control-radius: 8px;
-        --sidebar: 236px;
-        --topbar: 64px;
-        --detail: 340px;
+        --sidebar-expanded: 268px;
+        --sidebar-collapsed: 64px;
+        --sidebar: var(--sidebar-expanded);
+        --contextbar: 46px;
+        --chrome-control-size: 26px;
+        --chrome-control-top: 11.5px;
+        --chrome-control-bottom: 8.5px;
+        --chrome-control-left: 88px;
+        --chrome-control-gap: 12px;
       }
 
       * {
@@ -134,7 +140,13 @@
         height: 100vh;
       }
 
+      body.sidebar-collapsed .app {
+        grid-template-columns: var(--sidebar) minmax(0, 1fr);
+        grid-template-rows: var(--contextbar) minmax(0, 1fr);
+      }
+
       .sidebar {
+        position: relative;
         height: 100vh;
         background: rgba(255, 255, 255, .72);
         color: var(--ink);
@@ -144,12 +156,148 @@
         z-index: 5;
       }
 
-      .brand {
-        padding: 18px 16px 14px;
-        display: grid;
-        grid-template-columns: 42px minmax(0, 1fr);
-        gap: 12px;
+      body.sidebar-collapsed .sidebar {
+        grid-column: 1;
+        grid-row: 2;
+        height: calc(100vh - var(--contextbar));
+        z-index: 90;
+      }
+
+      body.sidebar-collapsed {
+        --sidebar: var(--sidebar-collapsed);
+      }
+
+      .sidebar-window-controls {
+        display: flex;
         align-items: center;
+        justify-content: flex-end;
+        min-height: 0;
+        padding: 12px 12px 0;
+        -webkit-app-region: no-drag;
+      }
+
+      .collapse-button {
+        width: var(--chrome-control-size);
+        height: var(--chrome-control-size);
+        min-height: var(--chrome-control-size);
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+        -webkit-app-region: no-drag;
+        pointer-events: auto;
+      }
+
+      .top-collapse-button {
+        width: var(--chrome-control-size);
+        height: var(--chrome-control-size);
+        min-height: var(--chrome-control-size);
+        display: none;
+        place-items: center;
+        padding: 0;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+        -webkit-app-region: no-drag;
+      }
+
+      .top-collapse-button:hover {
+        border-color: #ead8cd;
+        background: #fff5ef;
+        color: var(--ink);
+      }
+
+      .top-collapse-button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .collapse-button:hover {
+        border-color: var(--hairline);
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .platform-darwin .collapse-button,
+      body.sidebar-collapsed .top-collapse-button {
+        border-color: #ead8cd;
+        background: #fff5ef;
+        color: var(--ink);
+      }
+
+      .collapse-button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .collapse-arrow {
+        transform-origin: 13.5px 12px;
+        transition: transform .16s ease;
+      }
+
+      body.sidebar-collapsed .collapse-arrow {
+        transform: scaleX(-1);
+      }
+
+      .platform-darwin .sidebar-window-controls {
+        min-height: calc(var(--chrome-control-top) + var(--chrome-control-size));
+        justify-content: flex-start;
+        padding: var(--chrome-control-top) 0 0 var(--chrome-control-left);
+      }
+
+      .platform-darwin.window-fullscreen .sidebar-window-controls {
+        min-height: calc(var(--chrome-control-top) + var(--chrome-control-size));
+        padding: var(--chrome-control-top) 0 0 18px;
+        justify-content: flex-start;
+      }
+
+      .brand {
+        padding: 10px 16px 12px;
+        display: grid;
+        grid-template-columns: 34px 42px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+      }
+
+      .menu-button {
+        width: 34px;
+        height: 34px;
+        min-height: 34px;
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        border-color: var(--hairline);
+        background: #fff;
+      }
+
+      .menu-button span {
+        display: block;
+        width: 16px;
+        height: 2px;
+        margin: 2px 0;
+        border-radius: 999px;
+        background: var(--ink);
+      }
+
+      .menu-button.active {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(204, 120, 92, .12);
+      }
+
+      .platform-darwin .menu-button {
+        display: none;
       }
 
       .brand img {
@@ -158,6 +306,11 @@
         border-radius: 10px;
         object-fit: contain;
         background: var(--card);
+      }
+
+      body.shop-logo-loaded .brand img {
+        object-fit: cover;
+        background: #fff;
       }
 
       .brand h1 {
@@ -176,10 +329,184 @@
         text-overflow: ellipsis;
       }
 
-      .status-strip {
-        padding: 0 14px 12px;
+      .platform-darwin .brand {
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .desktop-menu {
+        position: fixed;
+        top: 58px;
+        left: 12px;
+        z-index: 60;
+        width: min(340px, calc(100vw - 24px));
+        max-height: calc(100vh - 76px);
+        overflow: auto;
+        display: none;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: #fff;
+        box-shadow: 0 24px 60px rgba(20, 20, 19, .18);
+        padding: 8px;
+      }
+
+      .desktop-menu.open {
         display: grid;
+        gap: 6px;
+      }
+
+      .menu-section {
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        overflow: hidden;
+        background: var(--soft-panel-2);
+      }
+
+      .menu-section summary {
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 10px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .menu-section summary::after {
+        content: ">";
+        color: var(--muted);
+      }
+
+      .menu-items {
+        display: grid;
+        gap: 2px;
+        padding: 6px;
+        border-top: 1px solid var(--hairline);
+        background: #fff;
+      }
+
+      .menu-command {
+        width: 100%;
+        min-height: 34px;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
         gap: 8px;
+        align-items: center;
+        padding: 0 8px;
+        border-color: transparent;
+        background: transparent;
+        text-align: left;
+      }
+
+      .menu-command:hover {
+        border-color: #ead8cd;
+        background: #fff5ef;
+      }
+
+      .menu-command:disabled {
+        opacity: .42;
+      }
+
+      .menu-command.danger {
+        color: var(--error);
+      }
+
+      .menu-check {
+        color: var(--primary);
+        font-weight: 800;
+      }
+
+      .menu-accelerator {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .menu-separator {
+        height: 1px;
+        margin: 4px 2px;
+        background: var(--hairline);
+      }
+
+      .floating-strip {
+        padding: 0 12px 12px;
+      }
+
+      .floating-status {
+        display: grid;
+        grid-template-columns: 12px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-height: 52px;
+        padding: 6px 7px 6px 10px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--control-radius);
+        background: rgba(251, 250, 247, .98);
+        color: var(--body);
+        font-size: 12px;
+      }
+
+      .floating-copy {
+        min-width: 0;
+        display: grid;
+        gap: 1px;
+      }
+
+      .floating-title,
+      .floating-subtitle {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .floating-title {
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 780;
+      }
+
+      .floating-subtitle {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .floating-actions {
+        display: flex;
+        gap: 4px;
+      }
+
+      .float-action {
+        width: 24px;
+        height: 24px;
+        min-height: 24px;
+        display: inline-grid;
+        place-items: center;
+        padding: 0;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .float-action:hover {
+        border-color: var(--hairline);
+        background: #f1e8de;
+        color: var(--ink);
+      }
+
+      .float-action.close:hover {
+        background: #fae2de;
+        color: var(--error);
+      }
+
+      .float-action svg {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
       .mini-status {
@@ -224,7 +551,7 @@
       }
 
       .nav {
-        padding: 6px 10px 10px;
+        padding: 4px 10px 10px;
         display: grid;
         gap: 4px;
       }
@@ -232,10 +559,10 @@
       .nav button {
         width: 100%;
         display: grid;
-        grid-template-columns: 22px minmax(0, 1fr) auto;
+        grid-template-columns: 22px minmax(0, 1fr);
         align-items: center;
         gap: 8px;
-        min-height: 46px;
+        min-height: 42px;
         padding: 6px 10px;
         border-color: transparent;
         background: transparent;
@@ -272,20 +599,6 @@
         white-space: nowrap;
       }
 
-      .nav-desc {
-        display: none;
-        overflow: hidden;
-        color: var(--muted);
-        font-size: 11px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .nav button:hover .nav-desc,
-      .nav button.active .nav-desc {
-        display: block;
-      }
-
       .nav button.active {
         border-color: #ead8cd;
         background: #fff5ef;
@@ -296,158 +609,54 @@
         color: var(--primary);
       }
 
-      .nav small {
-        color: inherit;
-        opacity: .65;
-      }
-
-      .side-actions {
-        margin-top: auto;
-        padding: 12px;
-        border-top: 1px solid var(--hairline);
-        display: grid;
-        gap: 8px;
-      }
-
-      .side-actions .two {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-      }
-
-      .side-actions button {
-        border-color: var(--hairline);
-        background: #fff;
-        color: var(--ink);
-      }
-
-      .side-actions button.primary {
-        border-color: var(--primary);
-        background: var(--primary);
-      }
-
       .workspace {
         position: relative;
         min-width: 0;
         height: 100vh;
         overflow: hidden;
         display: grid;
-        grid-template-rows: var(--topbar) auto minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
       }
 
-      .top-bar {
-        min-width: 0;
+      body.sidebar-collapsed .workspace {
+        grid-column: 1 / -1;
+        grid-row: 1 / -1;
         display: grid;
-        grid-template-columns: minmax(260px, 1fr) auto;
-        gap: 16px;
-        align-items: center;
-        height: var(--topbar);
-        padding: 10px 18px;
-        border-bottom: 1px solid var(--hairline);
-        background: rgba(255, 255, 255, .86);
-      }
-
-      .top-status {
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .top-status-main {
-        min-width: 0;
-        display: grid;
-        gap: 2px;
-      }
-
-      .top-status-main strong,
-      .top-status-main span {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .top-status-main strong {
-        font-size: 15px;
-      }
-
-      .top-status-main span {
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .top-lamps {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 7px;
-        align-items: center;
-      }
-
-      .top-lamp {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 28px;
-        padding: 0 8px;
-        border: 1px solid var(--hairline);
-        border-radius: 999px;
-        background: #fff;
-        color: var(--body);
-        font-size: 12px;
-        white-space: nowrap;
-      }
-
-      .top-actions {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        justify-content: flex-end;
-        min-width: 0;
-      }
-
-      .top-actions button {
-        min-width: 88px;
-        padding: 0 10px;
-        white-space: nowrap;
+        grid-template-columns: var(--sidebar) minmax(0, 1fr);
+        grid-template-rows: var(--contextbar) minmax(0, 1fr);
       }
 
       .context-bar {
         min-width: 0;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 18px;
+        justify-content: flex-start;
+        gap: var(--chrome-control-gap);
+        min-height: var(--contextbar);
+        padding: var(--chrome-control-top) 18px var(--chrome-control-bottom);
         border-bottom: 1px solid var(--hairline);
         background: rgba(250, 249, 245, .94);
+        -webkit-app-region: drag;
       }
 
-      .context-title {
-        min-width: 0;
-        display: grid;
-        gap: 2px;
-      }
-
-      .context-title strong,
-      .context-title span {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .context-title span {
-        color: var(--muted);
-        font-size: 12px;
+      body.sidebar-collapsed .context-bar {
+        grid-column: 1 / -1;
+        grid-row: 1;
+        padding-left: 54px;
+        gap: var(--chrome-control-gap);
       }
 
       .workspace-body {
         min-width: 0;
         min-height: 0;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) var(--detail);
+        grid-template-columns: minmax(0, 1fr);
         overflow: hidden;
+      }
+
+      body.sidebar-collapsed .workspace-body {
+        grid-column: 2;
+        grid-row: 2;
       }
 
       .content {
@@ -457,17 +666,20 @@
       }
 
       .detail-panel {
+        flex: 1 1 auto;
         min-width: 0;
-        height: 100%;
+        min-height: 0;
         overflow: auto;
-        border-left: 1px solid var(--hairline);
+        margin: 0 12px 12px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
         background: rgba(255, 255, 255, .78);
-        padding: 18px;
+        padding: 12px;
       }
 
       .detail-panel h3 {
         margin: 0 0 8px;
-        font-size: 15px;
+        font-size: 14px;
       }
 
       .detail-panel .detail-block {
@@ -478,6 +690,12 @@
         background: #fff;
         padding: 12px;
         margin-top: 12px;
+      }
+
+      .detail-panel .hint,
+      .detail-panel .badge,
+      .detail-panel .mini-status {
+        font-size: 11px;
       }
 
       .page-head {
@@ -491,16 +709,19 @@
       .section-tabs {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        padding: 6px;
-        border: 1px solid var(--hairline);
+        gap: 4px;
+        padding: 0;
+        border: 0;
+        border-width: 0;
+        border-style: none;
         border-radius: var(--radius);
-        background: rgba(255, 255, 255, .68);
+        background: transparent;
+        -webkit-app-region: no-drag;
       }
 
       .section-tabs button {
-        min-height: 32px;
-        padding: 0 12px;
+        min-height: var(--chrome-control-size);
+        padding: 0 10px;
         border-color: transparent;
         background: transparent;
         color: var(--muted);
@@ -1191,14 +1412,14 @@
         max-width: 520px;
       }
 
-      details {
+      details:not(.menu-section) {
         border: 1px solid var(--hairline);
         border-radius: var(--radius);
         background: #fff;
         padding: 10px 12px;
       }
 
-      details summary {
+      details:not(.menu-section) summary {
         cursor: pointer;
         font-weight: 650;
       }
@@ -1209,60 +1430,98 @@
         padding: 1px 5px;
       }
 
+      body.sidebar-collapsed .sidebar-window-controls {
+        display: none;
+      }
+
+      body.sidebar-collapsed.platform-darwin .sidebar-window-controls {
+        display: none;
+      }
+
+      body.sidebar-collapsed.platform-darwin.window-fullscreen .sidebar-window-controls {
+        min-height: 0;
+        padding: 8px 0 0 18px;
+      }
+
+      body.sidebar-collapsed.platform-darwin .context-bar {
+        padding-left: var(--chrome-control-left);
+      }
+
+      body.sidebar-collapsed.platform-darwin.window-fullscreen .context-bar {
+        padding-left: 18px;
+      }
+
+      body.sidebar-collapsed .top-collapse-button {
+        display: inline-grid;
+      }
+
+      body.sidebar-collapsed .brand {
+        grid-template-columns: 42px;
+        justify-content: center;
+        padding: 8px 0 8px;
+      }
+
+      body.sidebar-collapsed.window-fullscreen .brand {
+        padding-top: 8px;
+      }
+
+      body.sidebar-collapsed .brand-copy,
+      body.sidebar-collapsed .menu-button,
+      body.sidebar-collapsed .floating-copy,
+      body.sidebar-collapsed .floating-actions,
+      body.sidebar-collapsed .nav-copy,
+      body.sidebar-collapsed .detail-panel {
+        display: none;
+      }
+
+      body.sidebar-collapsed .brand img {
+        display: block;
+        width: 42px;
+        height: 42px;
+        border-radius: var(--control-radius);
+      }
+
+      body.sidebar-collapsed .floating-strip {
+        padding-left: 0;
+        padding-right: 0;
+        padding-bottom: 4px;
+        justify-items: center;
+      }
+
+      body.sidebar-collapsed .floating-status {
+        width: 34px;
+        min-height: 28px;
+        grid-template-columns: 1fr;
+        justify-items: center;
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }
+
+      body.sidebar-collapsed .floating-status .dot {
+        width: 12px;
+        height: 12px;
+      }
+
+      body.sidebar-collapsed .nav {
+        padding: 2px 8px 10px;
+        gap: 2px;
+      }
+
+      body.sidebar-collapsed .nav button {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        min-height: 42px;
+        padding: 6px 0;
+      }
+
+      body.sidebar-collapsed .nav-icon,
+      body.sidebar-collapsed .nav-icon svg {
+        width: 18px;
+        height: 18px;
+      }
+
       @media (max-width: 1180px) {
-        :root {
-          --sidebar: 84px;
-          --detail: 0px;
-        }
-
-        .brand {
-          grid-template-columns: 42px;
-          justify-content: center;
-        }
-
-        .brand div,
-        .status-strip,
-        .nav-copy,
-        .nav small {
-          display: none;
-        }
-
-        .nav button {
-          grid-template-columns: 1fr;
-          justify-items: center;
-        }
-
-        .workspace-body {
-          grid-template-columns: 1fr;
-        }
-
-        .detail-panel {
-          position: fixed;
-          right: 16px;
-          top: 88px;
-          bottom: 16px;
-          z-index: 30;
-          width: min(360px, calc(100vw - 116px));
-          display: none;
-          box-shadow: 0 20px 48px rgba(20, 20, 19, .18);
-        }
-
-        .detail-panel.open {
-          display: block;
-        }
-
-        .top-bar {
-          grid-template-columns: 1fr;
-          height: auto;
-          min-height: var(--topbar);
-          align-items: start;
-        }
-
-        .top-actions {
-          justify-content: flex-start;
-          overflow-x: auto;
-        }
-
         .grid.cols-3,
         .grid.cols-4,
         .grid.cols-2,
@@ -1291,54 +1550,54 @@
   <body>
     <div class="app">
       <aside class="sidebar">
+        <div class="sidebar-window-controls">
+          <button id="sidebarCollapse" class="collapse-button" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true" data-sidebar-toggle>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 5v14"/><path class="collapse-arrow" d="m15 9-3 3 3 3"/></svg>
+          </button>
+        </div>
         <div class="brand">
-          <img src="assets/logo.png" alt="">
-          <div>
+          <button id="desktopMenuButton" class="menu-button" type="button" title="打开菜单" aria-label="打开菜单" aria-expanded="false">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <img id="brandLogo" src="assets/logo.png" data-default-src="assets/logo.png" alt="">
+          <div class="brand-copy">
             <h1>小店AI客服控制台</h1>
-            <p id="pageMini">客服页映射</p>
+            <p id="storeName">微信小店</p>
           </div>
         </div>
+        <div id="desktopMenu" class="desktop-menu" aria-label="全局菜单"></div>
 
-        <div class="status-strip">
-          <div class="mini-status">
-            <span class="signal"><i id="botDot" class="dot"></i><span id="botMini">Bot</span></span>
-            <span id="botModeMini">开启</span>
-          </div>
-          <div class="mini-status">
-            <span class="signal"><i id="aiDot" class="dot warn"></i><span id="aiMini">AI</span></span>
-            <span id="notifyMini">通知</span>
+        <div class="floating-strip">
+          <div class="floating-status">
+            <i id="floatDot" class="dot warn"></i>
+            <div class="floating-copy">
+              <strong id="floatTitle" class="floating-title">启动中</strong>
+              <span id="floatSubtitle" class="floating-subtitle">小店AI客服</span>
+            </div>
+            <div class="floating-actions">
+              <button id="expandFloatDock" class="float-action" type="button" title="展开悬浮窗" aria-label="展开悬浮窗">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+              </button>
+              <button id="miniFloatDock" class="float-action" type="button" title="以最小号打开悬浮窗" aria-label="以最小号打开悬浮窗">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="8" width="14" height="8" rx="2"/><path d="M9 12h6"/></svg>
+              </button>
+              <button id="hideFloatDock" class="float-action close" type="button" title="隐藏悬浮窗" aria-label="隐藏悬浮窗">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
           </div>
         </div>
 
         <nav id="nav" class="nav" aria-label="控制台导航"></nav>
+        <aside id="detailPanel" class="detail-panel" aria-label="工作台详情"></aside>
       </aside>
 
       <section class="workspace">
-        <header id="topBar" class="top-bar">
-          <div class="top-status">
-            <i id="topRuntimeDot" class="dot active"></i>
-            <div class="top-status-main">
-              <strong id="topRuntimeLabel">启动中</strong>
-              <span id="topRuntimeDetail">正在启动客服工作台</span>
-            </div>
-            <div class="top-lamps" aria-label="工作台状态">
-              <span class="top-lamp"><i id="topAiDot" class="dot warn"></i><span id="topAiText">AI</span></span>
-              <span class="top-lamp"><i id="topLocalDot" class="dot warn"></i><span id="topLocalText">本地</span></span>
-              <span class="top-lamp"><i id="topScriptDot" class="dot warn"></i><span id="topScriptText">脚本</span></span>
-              <span class="top-lamp"><i id="topLoginDot" class="dot warn"></i><span id="topLoginText">登录</span></span>
-            </div>
-          </div>
-          <div class="top-actions">
-            <button id="openFloat" class="primary">打开悬浮窗</button>
-            <button id="toggleBot">暂停 Bot</button>
-            <button id="reloadPage">重载客服页</button>
-            <button id="captureStructure">捕捉结构</button>
-          </div>
-        </header>
         <div id="contextBar" class="context-bar" aria-label="页面上下文"></div>
         <div class="workspace-body">
           <main id="content" class="content" aria-live="polite"></main>
-          <aside id="detailPanel" class="detail-panel" aria-label="详情面板"></aside>
         </div>
       </section>
     </div>

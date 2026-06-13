@@ -1,5 +1,7 @@
 # macOS 安装和打不开处理
 
+> 本文定位：macOS 安装拦截和打不开问题处理。上级入口：[README.md](../README.md)，发布和打包规则见 [ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 > 这份文件会放在 DMG 里。遇到“无法打开”“开发者无法验证”“JavaScript error occurred in the main process”时，先按这里排查。
 
 ## 正常安装
@@ -42,7 +44,7 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 
 1. 退出正在运行的“小店AI客服”。
 2. 删除 `/Applications/小店AI客服.app`。
-3. 下载最新 Release 的 DMG。
+3. 下载最新发布页的 DMG。
 4. 重新拖到 `Applications`。
 5. 第一次打开如被拦截，按上一节执行 `xattr` 命令。
 
@@ -54,7 +56,7 @@ Cannot find module ... app.asar/src/runyu-judgments.js
 
 ## 图片或文件发不出去
 
-进入回复中心 > 规则库：
+进入知识库 > 规则库：
 
 1. 打开“动作规则”。
 2. 找到图片或文件动作。

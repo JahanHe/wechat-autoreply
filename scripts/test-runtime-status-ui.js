@@ -20,7 +20,7 @@ const statuses = [
   ["product_found", "收到商品", "active", "检测", "已检测到客户发送的商品卡片"],
   ["last_kf", "客服最后", "ok", "等待", "当前会话最后一条消息来自客服"],
   ["matching_rule", "匹配规则", "active", "匹配", "正在匹配回复规则"],
-  ["querying_judgment", "查询判断库", "active", "AI", "正在检索判断库"],
+  ["querying_judgment", "查外部库", "active", "AI", "正在检索外部知识库"],
   ["api_calling", "调用API", "active", "AI", "正在请求本地AI服务"],
   ["async_api", "异步API", "active", "AI", "后台继续生成详细回复"],
   ["ai_thinking", "AI思考中", "active", "AI", "AI正在生成回复"],
@@ -78,6 +78,7 @@ try {
     window.state.status = status;
     window.state.judgments = { enabled: true, hasCookie: true, records: 94 };
     window.state.view = "dashboard";
+    window.renderChrome();
     window.renderDashboard();
   }, payload);
 
@@ -131,6 +132,7 @@ function buildPayload(bot, history) {
       visible: true,
       url: "https://store.weixin.qq.com/shop/kf",
       title: "微信小店客服",
+      logoUrl: "https://res.wx.qq.com/test-shop-logo.png",
       loading: false,
       authenticated: true,
       scriptHealthy: true,
@@ -179,6 +181,13 @@ async function assertMainDashboard(page, expectedStatus) {
 
 async function assertNavigationStructure(page) {
   const result = await page.evaluate(async () => {
+    window.state.status.page = {
+      ...(window.state.status.page || {}),
+      authenticated: true,
+      logoUrl: "https://res.wx.qq.com/test-shop-logo.png"
+    };
+    window.renderChrome();
+    const initialBrandLogoSrc = document.querySelector("#brandLogo")?.getAttribute("src") || "";
     const navButtons = Array.from(document.querySelectorAll("#nav button"));
     const topItems = navButtons.map((node) => ({
       top: node.getAttribute("data-top"),
@@ -192,22 +201,75 @@ async function assertNavigationStructure(page) {
     document.querySelector('#nav button[data-top="settings"]')?.click();
     await new Promise((resolve) => setTimeout(resolve, 150));
     const settingsTabs = Array.from(document.querySelectorAll(".section-tabs button")).map((node) => node.textContent);
-    return { topItems, rulesTabs, settingsTabs };
+    const contextSubtitleCount = document.querySelectorAll(".context-title span").length;
+    const tabsBox = document.querySelector(".section-tabs")?.getBoundingClientRect();
+    const contextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
+    const tabsStyle = getComputedStyle(document.querySelector(".section-tabs"));
+    const activeTabStyle = getComputedStyle(document.querySelector(".section-tabs button.active"));
+    const floatingActionIds = Array.from(document.querySelectorAll(".floating-actions button")).map((node) => node.id);
+    const expandedCollapseBox = document.querySelector("#sidebarCollapse")?.getBoundingClientRect();
+    document.querySelector("#sidebarCollapse")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const collapsedContextBox = document.querySelector(".context-bar")?.getBoundingClientRect();
+    const collapsedSidebarBox = document.querySelector(".sidebar")?.getBoundingClientRect();
+    const collapseBox = document.querySelector("#sidebarCollapseTop")?.getBoundingClientRect();
+    const activeTabBox = document.querySelector(".section-tabs button.active")?.getBoundingClientRect();
+    const collapseHit = collapseBox
+      ? document.elementFromPoint(collapseBox.left + collapseBox.width / 2, collapseBox.top + collapseBox.height / 2)?.closest("#sidebarCollapseTop")
+      : null;
+    const controlGap = collapseBox && activeTabBox ? Math.round(activeTabBox.left - collapseBox.right) : null;
+    document.querySelector("#sidebarCollapseTop")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return {
+      topItems,
+      rulesTabs,
+      settingsTabs,
+      contextSubtitleCount,
+      tabsLeftAligned: Boolean(tabsBox && contextBox && tabsBox.left - contextBox.left < 40),
+      tabsContainerBorderless: tabsStyle.borderTopWidth === "0px",
+      tabsBorderTopWidth: tabsStyle.borderTopWidth,
+      tabsBorderTopStyle: tabsStyle.borderTopStyle,
+      activeTabHasFrame: activeTabStyle.borderTopStyle !== "none" && activeTabStyle.borderTopWidth !== "0px",
+      brandLogoSrc: initialBrandLogoSrc,
+      floatingActionIds,
+      compactContextBar: Boolean(contextBox && contextBox.height <= 48),
+      collapsedTopFullWidth: Boolean(collapsedContextBox && Math.round(collapsedContextBox.left) === 0 && Math.round(collapsedContextBox.width) >= window.innerWidth - 2),
+      collapsedSidebarBelowTop: Boolean(collapsedSidebarBox && collapsedContextBox && collapsedSidebarBox.top >= collapsedContextBox.bottom - 1),
+      collapseButtonHit: Boolean(collapseHit),
+      collapseButtonMatchesTabs: Boolean(collapseBox && activeTabBox && Math.abs(collapseBox.height - activeTabBox.height) < 1 && Math.abs(collapseBox.top - activeTabBox.top) < 1),
+      controlGap,
+      collapseButtonKeepsPosition: Boolean(collapseBox && expandedCollapseBox && Math.abs(collapseBox.left - expandedCollapseBox.left) < 1 && Math.abs(collapseBox.top - expandedCollapseBox.top) < 1),
+      expandedAfterTopClick: !document.body.classList.contains("sidebar-collapsed")
+    };
   });
-  const expectedTop = ["客服工作台", "回复中心", "运行监控", "系统设置"];
+  const expectedTop = ["工作台", "知识库", "监控", "设置"];
   if (JSON.stringify(result.topItems.map((item) => item.text)) !== JSON.stringify(expectedTop)) {
     throw new Error(`一级导航不符合预期: ${JSON.stringify(result.topItems)}`);
   }
   if (result.topItems.some((item) => !item.icon)) throw new Error(`一级导航缺少本地图标: ${JSON.stringify(result.topItems)}`);
-  if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("判断库")) {
-    throw new Error(`回复中心二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
+  if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("外部知识库")) {
+    throw new Error(`知识库二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
   }
   if (!result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {
-    throw new Error(`系统设置二级导航缺失: ${JSON.stringify(result.settingsTabs)}`);
+    throw new Error(`设置二级导航缺失: ${JSON.stringify(result.settingsTabs)}`);
   }
   if (result.settingsTabs.includes("API风格") || result.rulesTabs.includes("Webhook")) {
     throw new Error(`二级导航仍存在重复归属: ${JSON.stringify(result)}`);
   }
+  if (result.contextSubtitleCount) throw new Error(`Context Bar 仍显示说明小字: ${JSON.stringify(result)}`);
+  if (!result.tabsLeftAligned) throw new Error(`二级页签没有左置: ${JSON.stringify(result)}`);
+  if (result.brandLogoSrc !== "https://res.wx.qq.com/test-shop-logo.png") throw new Error(`登录店铺 Logo 没有替换: ${JSON.stringify(result)}`);
+  if (JSON.stringify(result.floatingActionIds) !== JSON.stringify(["expandFloatDock", "miniFloatDock", "hideFloatDock"])) {
+    throw new Error(`侧栏悬浮窗操作不符合预期: ${JSON.stringify(result)}`);
+  }
+  if (!result.compactContextBar) throw new Error(`Context Bar 仍然过高: ${JSON.stringify(result)}`);
+  if (!result.tabsContainerBorderless || !result.activeTabHasFrame) throw new Error(`二级页签边框规则不符合预期: ${JSON.stringify(result)}`);
+  if (!result.collapsedTopFullWidth || !result.collapsedSidebarBelowTop) throw new Error(`折叠态顶部和侧栏布局不符合预期: ${JSON.stringify(result)}`);
+  if (!result.collapseButtonHit) throw new Error(`折叠按钮被其他层遮挡: ${JSON.stringify(result)}`);
+  if (!result.collapseButtonMatchesTabs) throw new Error(`折叠按钮没有和页签按钮同层对齐: ${JSON.stringify(result)}`);
+  if (result.controlGap !== 12) throw new Error(`折叠按钮和页签间距不一致: ${JSON.stringify(result)}`);
+  if (!result.collapseButtonKeepsPosition) throw new Error(`折叠按钮展开/折叠位置不一致: ${JSON.stringify(result)}`);
+  if (!result.expandedAfterTopClick) throw new Error(`折叠按钮无法恢复展开: ${JSON.stringify(result)}`);
 }
 
 async function assertControlWindowCanReopen(electronApp, floatingPage) {
