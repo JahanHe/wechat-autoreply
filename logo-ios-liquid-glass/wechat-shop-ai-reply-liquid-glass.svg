@@ -1,0 +1,102 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGlass" x1="142" y1="92" x2="892" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.46" stop-color="#F7FFFD"/>
+      <stop offset="1" stop-color="#EAF8F5"/>
+    </linearGradient>
+
+    <radialGradient id="bgPrism" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(315 188) rotate(47) scale(690 520)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#D9FFF8" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#8FEEDF" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="tealGlass" x1="315" y1="246" x2="724" y2="798" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#39F1D4"/>
+      <stop offset="0.34" stop-color="#14CFB3"/>
+      <stop offset="0.68" stop-color="#06B89F"/>
+      <stop offset="1" stop-color="#04947F"/>
+    </linearGradient>
+
+    <linearGradient id="tealStroke" x1="300" y1="318" x2="744" y2="801" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#12D4BA"/>
+      <stop offset="0.55" stop-color="#08B89F"/>
+      <stop offset="1" stop-color="#048775"/>
+    </linearGradient>
+
+    <linearGradient id="whiteEdge" x1="235" y1="143" x2="846" y2="856" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="0.38" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="darkEdge" x1="749" y1="841" x2="228" y2="172" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#088C7C" stop-opacity="0.18"/>
+      <stop offset="0.58" stop-color="#088C7C" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="awningGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(394 314) rotate(48) scale(286 170)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.58"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="iconShadow" x="77" y="61" width="870" height="902" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="40" flood-color="#0A7F74" flood-opacity="0.16"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#FFFFFF" flood-opacity="0.75"/>
+    </filter>
+
+    <filter id="symbolShadow" x="220" y="200" width="690" height="660" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="21" flood-color="#038775" flood-opacity="0.2"/>
+      <feDropShadow dx="0" dy="-2" stdDeviation="6" flood-color="#FFFFFF" flood-opacity="0.48"/>
+    </filter>
+
+    <filter id="thinGlow" x="245" y="230" width="660" height="610" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="2.2"/>
+    </filter>
+
+    <clipPath id="iconClip">
+      <path d="M282 114H742C834.8 114 910 189.2 910 282V742C910 834.8 834.8 910 742 910H282C189.2 910 114 834.8 114 742V282C114 189.2 189.2 114 282 114Z"/>
+    </clipPath>
+
+    <path id="awning" d="M361.5 284H613.5C642 284 658 292 666 309C681 342 697 377 710 399C728.7 454 692.4 514 639.3 514C603 514 578.4 494 566.6 446C553.7 489 524.3 514 487.5 514C450.7 514 421.3 489 408.4 446C396.6 494 372 514 335.7 514C282.6 514 246.3 454 265 399C278 377 294 342 309 309C317 292 333 284 361.5 284Z"/>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#FFFFFF"/>
+
+  <g clip-path="url(#iconClip)">
+    <rect x="114" y="114" width="796" height="796" rx="168" fill="url(#bgGlass)"/>
+    <rect x="114" y="114" width="796" height="796" rx="168" fill="url(#bgPrism)"/>
+    <path d="M127 309C211 194 324 145 466 145H716C794 145 854 176 895 232V114H114V335C118 326 122 317 127 309Z" fill="white" opacity="0.55"/>
+    <path d="M135 739C229 806 357 840 512 840C669 840 796 806 894 738V910H114V758C120 751 127 744 135 739Z" fill="#C9F8EF" opacity="0.24"/>
+  </g>
+
+  <g filter="url(#iconShadow)">
+    <path d="M282 114H742C834.8 114 910 189.2 910 282V742C910 834.8 834.8 910 742 910H282C189.2 910 114 834.8 114 742V282C114 189.2 189.2 114 282 114Z" stroke="url(#whiteEdge)" stroke-width="10"/>
+    <path d="M282 114H742C834.8 114 910 189.2 910 282V742C910 834.8 834.8 910 742 910H282C189.2 910 114 834.8 114 742V282C114 189.2 189.2 114 282 114Z" stroke="url(#darkEdge)" stroke-width="4"/>
+  </g>
+
+  <g filter="url(#symbolShadow)">
+    <use href="#awning" fill="url(#tealGlass)"/>
+    <use href="#awning" fill="url(#awningGlow)" opacity="0.9"/>
+    <use href="#awning" stroke="url(#whiteEdge)" stroke-width="7" opacity="0.62"/>
+    <path d="M357 315C374 296 397 288 427 288H548C578 288 601 296 618 315C633 334 648 350 662 365C618.5 354 560.5 348 487.5 348C414.5 348 356.5 354 313 365C327 350 342 334 357 315Z" fill="white" opacity="0.16"/>
+
+    <path d="M312 552C312 647 392 718 505 706" stroke="url(#tealStroke)" stroke-width="42" stroke-linecap="round"/>
+    <path d="M312 552C312 647 392 718 505 706" stroke="url(#whiteEdge)" stroke-width="9" stroke-linecap="round" opacity="0.44"/>
+
+    <path d="M558 613C558 585 580 563 608 563H688C716 563 738 585 738 613V650C738 676 719 697 693 703L697 750L640 708H608C580 708 558 686 558 658V613Z" fill="#F8FFFD" fill-opacity="0.74" stroke="url(#tealStroke)" stroke-width="28" stroke-linejoin="round"/>
+    <path d="M558 613C558 585 580 563 608 563H688C716 563 738 585 738 613V650C738 676 719 697 693 703L697 750L640 708H608C580 708 558 686 558 658V613Z" stroke="url(#whiteEdge)" stroke-width="6" stroke-linejoin="round" opacity="0.7"/>
+    <path d="M604 618H695" stroke="url(#tealStroke)" stroke-width="13" stroke-linecap="round"/>
+    <path d="M604 662H675" stroke="url(#tealStroke)" stroke-width="13" stroke-linecap="round"/>
+    <path d="M604 618H695" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.35"/>
+    <path d="M604 662H675" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.35"/>
+  </g>
+
+  <g filter="url(#thinGlow)" opacity="0.22">
+    <use href="#awning" stroke="#FFFFFF" stroke-width="5"/>
+    <path d="M312 552C312 647 392 718 505 706" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round"/>
+    <path d="M558 613C558 585 580 563 608 563H688C716 563 738 585 738 613V650C738 676 719 697 693 703L697 750L640 708H608C580 708 558 686 558 658V613Z" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round"/>
+  </g>
+</svg>
