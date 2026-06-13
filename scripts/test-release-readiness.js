@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const targetVersion = "0.4.3";
+const targetVersion = "0.4.4";
 const tag = `v${targetVersion}`;
 const gateBaselineVersion = "0.3.9";
 

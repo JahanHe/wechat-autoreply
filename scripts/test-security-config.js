@@ -46,6 +46,7 @@ try {
       ...process.env,
       WECHAT_KF_ALLOW_MULTIPLE: "1",
       WECHAT_KF_DESKTOP_USER_DATA: userData,
+      DESKTOP_CONTROL_TOKEN: "",
       PORT: "19887",
       DESKTOP_CONTROL_PORT: "19897"
     }

@@ -37,15 +37,17 @@ const icons = {
 };
 
 const sourceLabels = {
-  action_rule: { label: "动作规则库", className: "rule" },
-  text_rule: { label: "文本规则库", className: "rule" },
-  image_rule: { label: "图片规则库", className: "rule" },
-  panel_action: { label: "页面动作", className: "rule" },
-  quick_ack: { label: "直接承接", className: "direct" },
+  action_rule: { label: "本地动作规则", className: "rule" },
+  text_rule: { label: "本地规则回复", className: "rule" },
+  image_rule: { label: "图片回复", className: "rule" },
+  panel_action: { label: "自动化页面动作", className: "rule" },
+  quick_ack: { label: "15秒承接语", className: "direct" },
   waiting_reply: { label: "等待补偿", className: "direct" },
-  fallback_reply: { label: "60秒兜底", className: "direct" },
-  ai_followup: { label: "AI 接管", className: "ai" },
-  judgment_ai: { label: "外部知识库补充", className: "judgment" },
+  fallback_reply: { label: "60秒延迟处理", className: "direct" },
+  ai_followup: { label: "AI API回复", className: "ai" },
+  api_remediation: { label: "AI补救回复", className: "ai" },
+  judgment_ai: { label: "判断库增强回复", className: "judgment" },
+  rule_candidate: { label: "规则候选池", className: "rule" },
   ignore: { label: "忽略", className: "direct" },
   unknown: { label: "未分类", className: "" }
 };
@@ -217,7 +219,7 @@ async function handleMenuCommandResult(commandId, result = {}) {
   if (commandId === "workbench.capture") {
     showFlash(result.ok ? `页面结构已保存：${result.count || 0} 个节点` : result.message || "捕捉失败", result.ok ? "ok" : "error");
   } else if (commandId === "api.checkAi") {
-    showFlash(result.ok ? "AI 服务连接正常" : result.ai?.message || "AI 服务检查失败", result.ok ? "ok" : "error");
+    showFlash(result.ok ? "AI API连接正常" : result.ai?.message || "AI API检查失败", result.ok ? "ok" : "error");
   } else if (commandId === "api.testWebhook") {
     showFlash(result.ok ? "Webhook 测试已发送" : result.message || "Webhook 测试失败", result.ok ? "ok" : "error");
   } else if (result.message) {
@@ -416,11 +418,11 @@ function buildTopStates(payload) {
   const loggedIn = Boolean(page.authenticated) && !needsLogin;
   return {
     ai: ai.ok
-      ? { tone: "ok", text: "AI正常" }
+      ? { tone: "ok", text: "API正常" }
       : ai.hasKey
         ? { tone: "warn", text: "AI待测" }
         : { tone: "bad", text: "缺Key" },
-    local: payload.now ? { tone: "ok", text: "本地已接" } : { tone: "bad", text: "本地异常" },
+    local: payload.now ? { tone: "ok", text: "中转已接" } : { tone: "bad", text: "中转异常" },
     script: page.scriptHealthy
       ? { tone: "ok", text: "脚本就绪" }
       : page.loading
@@ -516,6 +518,18 @@ function renderLogDetail(item = {}) {
         <span class="badge ${item.kind === "failed" ? "fail" : item.kind === "timeout" ? "direct" : "rule"}">${escapeHtml(item.kind || "记录")}</span>
         <span class="badge ${source.className}">${escapeHtml(source.label)}</span>
       </div>
+    </div>
+    <div class="detail-block">
+      <strong>任务链路</strong>
+      <div class="mini-status"><span>任务</span><span>${escapeHtml(item.taskId || "无")}</span></div>
+      <div class="mini-status"><span>客户</span><span>${escapeHtml(item.customerId || "无")}${item.isNewCustomer ? " / 新客户" : ""}</span></div>
+      <div class="mini-status"><span>路径</span><span>${escapeHtml(item.route || item.sourceType || "")}</span></div>
+      <div class="mini-status"><span>规则模式</span><span>${escapeHtml(item.ruleMode || "默认")}</span></div>
+      <div class="mini-status"><span>承接</span><span>${item.ackSent ? "已发送" : "未发送"}</span></div>
+      <div class="mini-status"><span>最终回复</span><span>${item.finalReplySent ? "已发送" : "未发送"}</span></div>
+      <div class="mini-status"><span>完成度</span><span>${escapeHtml(item.completionResult || "未检查")}</span></div>
+      <div class="mini-status"><span>补救次数</span><span>${Number(item.remediationCount || 0)}</span></div>
+      ${item.completionReason ? `<div class="hint">原因：${escapeHtml(item.completionReason)}</div>` : ""}
     </div>
     <div class="detail-block">
       <strong>客户消息</strong>
@@ -859,21 +873,26 @@ function renderDashboard() {
   const judgments = state.judgments || {};
   const watchdog = status.watchdog || {};
   const runtime = status.bot || {};
+  const replyTasks = status.replyTasks || {};
+  const ruleCandidates = status.ruleCandidates || {};
   content.innerHTML = `
-    ${pageHead("总览状态", "查看客服页、Bot、AI、Webhook、悬浮窗和回复日志的真实运行状态。", `
+    ${pageHead("总览状态", "查看客服页、Bot、AI API、Webhook、悬浮窗和回复日志的真实运行状态。", `
       <button id="dashRefresh">刷新</button>
-      <button id="dashCheckAi" class="primary">检查 AI</button>
+      <button id="dashCheckAi" class="primary">检查 AI API</button>
     `)}
     <div class="grid cols-3">
       ${metricCard("当前步骤", shortStatus(runtime.label || runtime.status || "检测中"), runtime.detail || "等待运行状态", runtimeTone(runtime.tone))}
       ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", `${runtime.category || "运行"} / ${formatFullTime(runtime.at || Date.now())}`, status.enabled ? "ok" : "warn")}
-      ${metricCard("AI 服务", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
+      ${metricCard("AI API", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
       ${metricCard("Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn")}
       ${metricCard("外部知识库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺访问凭证") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
       ${metricCard("客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad")}
       ${metricCard("悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn")}
       ${metricCard("长期运行", watchdog.enabled ? "守护中" : "已关闭", `${watchdog.autoStart ? "开机自启" : "未自启"} / ${watchdog.powerSaveBlockerActive ? "防休眠" : "未防休眠"}`, watchdog.enabled && watchdog.powerSaveBlockerActive ? "ok" : "warn")}
       ${metricCard("回复记录", String(records.total || 0), `成功 ${records.sent || 0} / 失败 ${records.failed || 0} / 超时 ${records.timeout || 0}`, records.failed || records.timeout ? "warn" : "ok")}
+      ${metricCard("当前任务", String(replyTasks.open || 0), `等待AI ${replyTasks.pendingApi || 0} / 已承接 ${replyTasks.ackSent || 0}`, replyTasks.open ? "warn" : "ok")}
+      ${metricCard("延迟任务", String(replyTasks.delayed || 0), `补救 ${replyTasks.retrying || 0} / 待人工 ${replyTasks.waitingHuman || 0}`, replyTasks.delayed || replyTasks.waitingHuman ? "bad" : replyTasks.retrying ? "warn" : "ok")}
+      ${metricCard("规则候选", String(ruleCandidates.pendingReview || 0), `总计 ${ruleCandidates.total || 0} 条`, ruleCandidates.pendingReview ? "warn" : "ok")}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
@@ -903,7 +922,7 @@ function renderDashboard() {
         <div class="badge-row">
           ${sourceStatsBadges(records.bySource || {})}
         </div>
-        <p class="hint">规则库、直接承接和 AI 接管会在日志库中分开显示，便于排查每次回复的来源。</p>
+        <p class="hint">本地规则回复、15秒承接语、自动化页面动作和 AI API 回复会在日志库中分开显示，便于排查每次回复的来源。</p>
       </div>
     </div>
   `;
@@ -929,23 +948,23 @@ function renderBot() {
         <h3>接管状态</h3>
         <div class="grid">
           ${toggleRow("botEnabled", "默认开启 Bot 接管", "关闭后只监控页面，不自动回复客户。", bot.enabled !== false)}
-          ${toggleRow("aiFallback", "无命中规则时调用 AI", "规则库没有匹配时，会请求本地 AI 服务生成补充回复。", bot.aiFallback !== false)}
-          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI / 外部知识库时，先等 AI；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
+          ${toggleRow("aiFallback", "无命中规则时调用 AI API", "规则库没有匹配时，会通过本机回复中转服务请求远方 AI API。", bot.aiFallback !== false)}
+          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI API / 判断库时，先等最终答案；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
           ${toggleRow("imageRepliesEnabled", "允许图片回复", "动作规则和图片规则可以上传并发送本地图片。", Boolean(bot.imageRepliesEnabled))}
           ${toggleRow("autoPasteImages", "图片自动上传/粘贴发送", "优先使用页面上传控件，失败时复制到剪贴板再粘贴发送。", Boolean(bot.autoPasteImages))}
-          ${toggleRow("panelAutoActionsEnabled", "允许内置页面动作兜底", "当没有命中动作规则时，可按常见购买意图自动点商品、素材库等页面入口。", Boolean(bot.panelAutoActionsEnabled))}
+          ${toggleRow("panelAutoActionsEnabled", "允许内置自动化页面动作", "当没有命中动作规则时，可按常见购买意图自动点商品、素材库等页面入口。", Boolean(bot.panelAutoActionsEnabled))}
         </div>
       </div>
       <div class="card">
         <h3>长期运行</h3>
         <div class="grid">
           ${toggleRow("autoStart", "开机自动启动", "登录系统后自动打开小店AI客服。", cfg.autoStart !== false)}
-          ${toggleRow("watchdogEnabled", "启用守护检查", "定期检查 AI、客服页、脚本心跳，异常时记录并通知。", watchdog.enabled !== false)}
+          ${toggleRow("watchdogEnabled", "启用守护检查", "定期检查 AI API、中转服务、客服页和脚本心跳，异常时记录并通知。", watchdog.enabled !== false)}
           ${toggleRow("reloadOnBotStale", "脚本无心跳时重载", "Bot 长时间无状态时重新注入脚本，并按需刷新客服页。", watchdog.reloadOnBotStale !== false)}
           ${toggleRow("preventAppSuspension", "防后台清退/防休眠", "阻止系统把桌面程序挂起，适合值守电脑长期运行。", watchdog.preventAppSuspension !== false)}
         </div>
         <div class="form-grid" style="margin-top:14px">
-          ${numberField("watchdogAiHealthMs", "AI 健康检查 ms", watchdog.aiHealthMs || 60000, "建议 60000，过低会增加本机请求。")}
+          ${numberField("watchdogAiHealthMs", "AI API健康检查 ms", watchdog.aiHealthMs || 60000, "建议 60000，过低会增加本机请求。")}
           ${numberField("watchdogPageHealthMs", "页面健康检查 ms", watchdog.pageHealthMs || 60000, "检查是否仍在客服页、是否需要扫码。")}
           ${numberField("watchdogBotHeartbeatMs", "脚本心跳阈值 ms", watchdog.botHeartbeatMs || 60000, "超过阈值认为脚本可能失效。", "span-2")}
         </div>
@@ -953,11 +972,11 @@ function renderBot() {
       <div class="card">
         <h3>运行参数</h3>
         <div class="form-grid">
-          ${field("aiEndpoint", "AI 回复地址", bot.aiEndpoint || "", "本地默认是 http://127.0.0.1:8787/reply。", "span-2")}
-          ${textareaField("quickAck", "AI 慢回复承接语列表", replyListText(bot.quickAckReplies, bot.quickAck || "我看一下"), "一条回复占一段；用空行或 | 分隔。AI 超过 15 秒未返回时轮换发送。", "span-2")}
-          ${textareaField("fallbackReply", "60 秒兜底回复列表", replyListText(bot.fallbackReplies, bot.fallbackReply || ""), "一条回复占一段；用空行或 | 分隔。AI / 外部知识库 60 秒内仍无可用答案时轮换发送。", "span-2")}
-          ${numberField("aiSlowMs", "AI 慢回复阈值 ms", bot.aiSlowMs || 15000, "超过这个时间仍无 AI 结果，会先发承接语。")}
-          ${numberField("fallbackReplyMs", "兜底回复阈值 ms", bot.fallbackReplyMs || 60000, "超过这个时间仍无 AI 可用答案，发送兜底回复。")}
+          ${field("aiEndpoint", "AI API回复地址", bot.aiEndpoint || "", "本机回复中转服务默认是 http://127.0.0.1:8787/reply。", "span-2")}
+          ${textareaField("quickAck", "15秒承接语列表", replyListText(bot.quickAckReplies, bot.quickAck || "我看一下"), "一条回复占一段；用空行或 | 分隔。AI API 超过 15 秒未返回最终答案时轮换发送。", "span-2")}
+          ${textareaField("fallbackReply", "60秒延迟处理列表", replyListText(bot.fallbackReplies, bot.fallbackReply || ""), "保留为异常补救素材；默认 60 秒只标记延迟、写日志和通知，不直接发客户。", "span-2")}
+          ${numberField("aiSlowMs", "15秒承接阈值 ms", bot.aiSlowMs || 15000, "超过这个时间仍无 AI API 最终答案，会先发承接语。")}
+          ${numberField("fallbackReplyMs", "60秒延迟阈值 ms", bot.fallbackReplyMs || 60000, "超过这个时间仍无 AI API 最终答案，标记延迟并通知，不默认发客户兜底。")}
           ${numberField("noResponseAlertMs", "超时告警 ms", bot.noResponseAlertMs || 90000, "客户消息超过该时间仍未完成处理，会记录超时并通知。")}
           ${numberField("maxTextParts", "最多文本段数", bot.maxTextParts || 2, "单次回复最多拆成几段文字。")}
           ${numberField("maxReplyPartLength", "单段最长字数", bot.maxReplyPartLength || 500, "过长回复会被限制，避免客服消息异常。")}
@@ -1524,14 +1543,15 @@ function renderLogs() {
       </select>
       <select id="logSource" style="width:150px">
         <option value="all">全部来源</option>
-        <option value="action_rule">动作规则库</option>
-        <option value="text_rule">文本规则库</option>
-        <option value="image_rule">图片规则库</option>
-        <option value="quick_ack">直接承接</option>
+        <option value="action_rule">本地动作规则</option>
+        <option value="text_rule">本地规则回复</option>
+        <option value="image_rule">图片回复</option>
+        <option value="quick_ack">15秒承接语</option>
         <option value="waiting_reply">等待补偿</option>
-        <option value="fallback_reply">60秒兜底</option>
-        <option value="ai_followup">AI 接管</option>
-        <option value="judgment_ai">外部知识库补充</option>
+        <option value="fallback_reply">60秒延迟处理</option>
+        <option value="ai_followup">AI API回复</option>
+        <option value="api_remediation">AI补救回复</option>
+        <option value="judgment_ai">判断库增强回复</option>
       </select>
       <button id="refreshLogs" class="primary">刷新日志</button>
     `)}
@@ -1586,11 +1606,11 @@ function renderLogTrace(item) {
   if (trace?.model) badges.push(`模型 ${trace.model}`);
   if (trace) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
   if (trace?.judgmentQueried) {
-    badges.push(trace.judgmentUsed ? `外部知识库 ${trace.judgmentCount || 0} 条` : "外部知识库未命中");
+    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
     if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
     if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
   } else if (trace) {
-    badges.push("未查询外部知识库");
+    badges.push("未查询判断库");
   }
   if (trace?.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
   const latency = Number(item.latencyMs || trace?.latencyMs || 0);
@@ -1598,7 +1618,7 @@ function renderLogTrace(item) {
   return `
     ${badges.length ? `<div class="badge-row log-trace-badges">${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}</div>` : ""}
     ${steps.length ? `<div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>` : ""}
-    ${trace?.judgmentError ? `<div class="hint fail-text">外部知识库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+    ${trace?.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 
@@ -1649,7 +1669,7 @@ function renderHelp() {
     <div class="grid cols-2">
       <div class="card">
         <h3>后台运行逻辑</h3>
-        <p>桌面程序启动后会打开本地控制台、客服页 BrowserView、本地 AI 服务、悬浮窗和守护检查。主窗口关闭只会隐藏，托盘和悬浮窗可重新打开。</p>
+        <p>桌面程序启动后会打开本地控制台、客服页 BrowserView、本机回复中转服务、悬浮窗和守护检查。主窗口关闭只会隐藏，托盘和悬浮窗可重新打开。</p>
         <p>客服页映射仍是微信小店原网页，自动化动作通过注入脚本和桌面端页面接口执行。</p>
       </div>
       <div class="card">
@@ -1758,7 +1778,7 @@ async function runSetupSelfCheck() {
     checks.push({
       name: "AI Key 健康检查",
       ok: Boolean(ai.ok && ai.hasKey),
-      message: ai.hasKey ? (ai.message || "AI 服务可用") : (ai.message || "DeepSeek Key 未生效")
+      message: ai.hasKey ? (ai.message || "AI API可用") : (ai.message || "DeepSeek Key 未生效")
     });
 
     const webhook = await window.mainShell.testWebhook(webhookUrl).catch((error) => ({ ok: false, message: String(error?.message || error) }));
@@ -2221,11 +2241,11 @@ function renderAiTestTrace(result = {}) {
   if (trace.model) badges.push(`模型 ${trace.model}`);
   if (trace.thinking) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
   if (trace.judgmentQueried) {
-    badges.push(trace.judgmentUsed ? `外部知识库 ${trace.judgmentCount || 0} 条` : "外部知识库未命中");
+    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
     if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
     if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
   } else {
-    badges.push("未查询外部知识库");
+    badges.push("未查询判断库");
   }
   if (trace.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
   const latency = Number(result.latencyMs || trace.latencyMs || 0);
@@ -2233,8 +2253,8 @@ function renderAiTestTrace(result = {}) {
   const steps = [
     "发送测试",
     "收集上下文",
-    trace.judgmentQueried ? (trace.judgmentUsed ? `外部知识库命中${Number(trace.judgmentCount || 0)}条` : "外部知识库未命中") : "未查询外部知识库",
-    "调用AI接口",
+    trace.judgmentQueried ? (trace.judgmentUsed ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中") : "未查询判断库",
+    "调用远方AI API",
     trace.thinking === "disabled" ? "Thinking关闭" : "Thinking开启",
     trace.reviewEnabled ? (trace.reviewApplied ? "审核改写" : "审核通过") : "",
     "返回结果"
@@ -2244,7 +2264,7 @@ function renderAiTestTrace(result = {}) {
       ${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}
     </div>
     <div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>
-    ${trace.judgmentError ? `<div class="hint fail-text">外部知识库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+    ${trace.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 

@@ -8,7 +8,7 @@ export function aiProcessSteps(trace = {}, usedJudgmentLibrary = false) {
   } else {
     steps.push("未查询判断库");
   }
-  steps.push("调用AI接口");
+  steps.push("调用远方AI API");
   steps.push(trace?.thinking === "disabled" ? "Thinking关闭" : "Thinking开启");
   if (trace?.reviewEnabled) steps.push(trace?.reviewApplied ? "审核并改写" : "审核通过");
   steps.push("发送文字");

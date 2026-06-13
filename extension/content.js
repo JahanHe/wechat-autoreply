@@ -31,7 +31,7 @@
     } else {
       steps.push("未查询判断库");
     }
-    steps.push("调用AI接口");
+    steps.push("调用远方AI API");
     steps.push(trace?.thinking === "disabled" ? "Thinking关闭" : "Thinking开启");
     if (trace?.reviewEnabled) steps.push(trace?.reviewApplied ? "审核并改写" : "审核通过");
     steps.push("发送文字");
@@ -172,13 +172,15 @@
 
   // extension/source/index.js
   (() => {
-    const VERSION = "0.4.1";
+    const VERSION = "0.4.4";
     const CONFIG = {
       enabled: true,
       aiFallback: true,
       aiEndpoint: "http://127.0.0.1:8787/reply",
       aiSlowMs: 15e3,
       fallbackReplyMs: 6e4,
+      completionCheckEnabled: true,
+      maxCustomerVisibleRetries: 2,
       noResponseAlertMs: 9e4,
       noResponseCheckMs: 5e3,
       maxTextParts: 2,
@@ -279,6 +281,9 @@
       replied: loadReplied(),
       inFlight: /* @__PURE__ */ new Set(),
       pendingAiFollowups: /* @__PURE__ */ new Map(),
+      replyTasks: loadReplyTasks(),
+      customerMemories: loadCustomerMemories(),
+      ruleCandidates: loadRuleCandidates(),
       pendingCustomerMessages: /* @__PURE__ */ new Map(),
       quickRepliesUsed: loadQuickRepliesUsed(),
       waitingRepliesUsed: loadWaitingRepliesUsed(),
@@ -490,22 +495,58 @@
       if (now - state.lastReplyAt < CONFIG.minReplyGapMs) return;
       state.inFlight.add(key);
       let responseSent = false;
+      let forceApiReply = false;
+      let activeTask = createReplyTask(latest, sessionKey, "api_reply");
+      setStep("reading_memory", "读取记忆", activeTask.isNewCustomer ? "新客户，正在创建客户记忆" : "老客户，正在读取客户记忆", {
+        customer: latest.text,
+        messageType: latest.type
+      });
+      rememberCustomerMessage(activeTask, latest);
       try {
         const actionRule = matchActionRule(latestForMatching);
         if (actionRule) {
+          const ruleMode = normalizeRuleMode(actionRule, "final");
+          activeTask = updateReplyTask(activeTask, {
+            route: "local_action",
+            status: ruleMode === "ignore" ? "cancelled" : "rule_sent",
+            ruleName: actionRule.name || "",
+            ruleMode,
+            finalReply: {
+              required: ruleMode === "quick_then_api",
+              sent: ruleMode !== "quick_then_api",
+              text: summarizeActionText(actionRule.actions || []),
+              sentAt: null
+            }
+          });
+          if (ruleMode === "ignore") {
+            markReplied(key);
+            setStep("ignored", "已忽略", `规则 ${actionRule.name || "未命名"} 设置为忽略`, { customer: latest.text });
+            reportEvent("reply_sent", taskPayload(activeTask, {
+              stage: "ignore",
+              sourceType: "ignore",
+              usedRuleLibrary: true,
+              reason,
+              customer: latest.text,
+              rule: actionRule.name || "",
+              status: "已忽略"
+            }));
+            completeMemoryTask(activeTask, { result: "solved", reason: "规则模式为 ignore" });
+            return;
+          }
           setStep("matching_rule", "匹配规则", `已匹配动作规则：${actionRule.name || "未命名"}`, { customer: latest.text });
           const result = await executeActions(actionRule.actions || [], latest.text, actionRule.name || "", sessionKey);
           if (!result.ok) {
             setStep("reply_failed", "回复失败", result.message || "动作规则执行失败", { customer: latest.text });
-            reportEvent("reply_failed", { stage: "action_rule", sourceType: "action_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: actionRule.name || "", error: result.message });
+            activeTask = updateReplyTask(activeTask, { status: "failed" });
+            reportEvent("reply_failed", taskPayload(activeTask, { stage: "action_rule", sourceType: "action_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: actionRule.name || "", error: result.message }));
             return;
           }
           responseSent = true;
-          markReplied(key);
+          if (ruleMode !== "quick_then_api") markReplied(key);
           state.lastReplyAt = Date.now();
           const actionStatus = runtimeStatusForActionResult(result, actionRule.actions || []);
           setStep(actionStatus.code, actionStatus.label, actionStatus.detail, { customer: latest.text, actionType: actionStatus.actionType });
-          reportReplySent({
+          const sentPayload = taskPayload(activeTask, {
             stage: "action_rule",
             sourceType: "action_rule",
             usedRuleLibrary: true,
@@ -518,11 +559,40 @@
             actions: summarizeActions(actionRule.actions || []),
             reply: summarizeActionText(actionRule.actions || [])
           });
+          reportReplySent(sentPayload);
           log("action rule executed", { reason, customer: latest.text, actionRule, result });
-          return;
+          activeTask = updateReplyTask(activeTask, {
+            status: ruleMode === "quick_then_api" ? "pending_api" : "rule_sent",
+            finalReply: {
+              required: ruleMode === "quick_then_api",
+              sent: ruleMode !== "quick_then_api",
+              text: sentPayload.reply || "",
+              sentAt: Date.now()
+            }
+          });
+          if (ruleMode === "quick_then_api") {
+            rememberCustomerReply(activeTask, sentPayload);
+            forceApiReply = true;
+          } else {
+            await finalizeReplyTask(activeTask, sentPayload, { allowRemediation: ruleMode !== "action_only" });
+            return;
+          }
         }
-        const imageReply = matchImageReply(latestForMatching);
+        const imageReply = forceApiReply ? null : matchImageReply(latestForMatching);
         if (imageReply) {
+          const ruleMode = normalizeRuleMode(imageReply, "final");
+          activeTask = updateReplyTask(activeTask, {
+            route: "local_action",
+            status: "rule_sent",
+            ruleName: imageReply.name || "",
+            ruleMode,
+            finalReply: {
+              required: false,
+              sent: true,
+              text: String(imageReply.caption || ""),
+              sentAt: null
+            }
+          });
           setStep("matching_image", "匹配图片", `已匹配图片规则：${imageReply.name || "未命名"}`, { customer: latest.text });
           const caption = String(imageReply.caption || "我发你图片看下").trim();
           if (caption) setStep("sending_text", "发送文字", "正在发送图片说明文字", { customer: latest.text });
@@ -531,7 +601,8 @@
           const imageResult = await requestImageReply(imageReply, latest.text);
           if (!imageResult.sent) {
             setStep("reply_failed", "回复失败", imageResult.message || "图片回复发送失败", { customer: latest.text, actionType: "image" });
-            reportEvent("reply_failed", {
+            activeTask = updateReplyTask(activeTask, { status: "failed" });
+            reportEvent("reply_failed", taskPayload(activeTask, {
               stage: "image_reply",
               sourceType: "image_rule",
               usedRuleLibrary: true,
@@ -540,14 +611,14 @@
               reply: caption,
               captionSent,
               error: imageResult.message
-            });
+            }));
             return;
           }
           responseSent = true;
           markReplied(key);
           state.lastReplyAt = Date.now();
           setStep(imageResult.sent ? "image_sent" : imageResult.pasted ? "monitoring" : "reply_failed", imageResult.sent ? "图片已发" : imageResult.pasted ? "待确认" : "回复失败", imageResult.message || "图片回复处理完成", { customer: latest.text, actionType: "image" });
-          reportReplySent({
+          const sentPayload = taskPayload(activeTask, {
             stage: "image_reply",
             sourceType: "image_rule",
             usedRuleLibrary: true,
@@ -560,11 +631,22 @@
             actions: [{ type: "image", path: imageReply.path || imageReply.imagePath || "" }],
             reply: caption
           });
+          reportReplySent(sentPayload);
+          activeTask = updateReplyTask(activeTask, {
+            finalReply: { required: false, sent: true, text: caption, sentAt: Date.now() }
+          });
           log("image reply matched", { reason, customer: latest.text, imageReply, imageResult });
+          await finalizeReplyTask(activeTask, sentPayload, { allowRemediation: ruleMode !== "action_only" });
           return;
         }
-        const panelAction = matchPanelAction(latest.text);
+        const panelAction = forceApiReply ? null : matchPanelAction(latest.text);
         if (panelAction) {
+          activeTask = updateReplyTask(activeTask, {
+            route: "local_action",
+            status: "rule_sent",
+            ruleName: panelAction.successStatus || panelAction.button || "",
+            ruleMode: normalizeRuleMode(panelAction, "final")
+          });
           const panelRuntime = runtimeStatusForPanelAction(panelAction);
           setStep(panelRuntime.matchCode, panelRuntime.matchLabel, panelRuntime.matchDetail, { customer: latest.text, actionType: panelRuntime.actionType });
           setStep(panelRuntime.sendCode, panelRuntime.sendLabel, panelRuntime.sendDetail, { customer: latest.text, actionType: panelRuntime.actionType });
@@ -574,7 +656,7 @@
             markReplied(key);
             state.lastReplyAt = now;
             setStep(panelRuntime.doneCode, panelRuntime.doneLabel, panelRuntime.doneDetail, { customer: latest.text, actionType: panelRuntime.actionType });
-            reportReplySent({
+            const sentPayload = taskPayload(activeTask, {
               stage: "panel_action",
               sourceType: "panel_action",
               usedRuleLibrary: true,
@@ -586,31 +668,64 @@
               status: panelAction.successStatus || "",
               actions: [summarizeAction(panelAction)]
             });
+            reportReplySent(sentPayload);
             log("panel action sent", { reason, customer: latest.text, action: panelAction });
+            await finalizeReplyTask(activeTask, sentPayload, { allowRemediation: activeTask.ruleMode !== "action_only" });
             return;
           }
         }
-        const ruleReply = matchRuleReply(latestForMatching);
-        if (ruleReply) {
+        const textRule = forceApiReply ? null : matchTextRule(latestForMatching);
+        const ruleReply = textRule?.reply || "";
+        if (textRule) {
+          const ruleMode = normalizeRuleMode(textRule, "final");
+          activeTask = updateReplyTask(activeTask, {
+            route: "local_rule",
+            status: ruleMode === "ignore" ? "cancelled" : "rule_sent",
+            ruleName: textRule.name || "",
+            ruleMode,
+            finalReply: {
+              required: ruleMode === "quick_then_api",
+              sent: Boolean(ruleReply) && ruleMode !== "quick_then_api",
+              text: ruleReply,
+              sentAt: null
+            }
+          });
+          if (ruleMode === "ignore" || !String(ruleReply || "").trim()) {
+            markReplied(key);
+            setStep("ignored", "已忽略", `规则 ${textRule.name || "未命名"} 设置为忽略`, { customer: latest.text });
+            const ignoredPayload = taskPayload(activeTask, {
+              stage: "ignore",
+              sourceType: "ignore",
+              usedRuleLibrary: true,
+              reason,
+              customer: latest.text,
+              rule: textRule.name || "",
+              status: "已忽略"
+            });
+            reportReplySent(ignoredPayload);
+            completeMemoryTask(activeTask, { result: "solved", reason: "规则模式为 ignore" });
+            return;
+          }
           setStep("matching_rule", "匹配规则", "已匹配文字回复规则", { customer: latest.text });
           if (hasSessionReply(sessionKey, ruleReply)) {
             setStep("duplicate", "跳过重复", "本会话已经发送过相同话术", { customer: latest.text });
-            reportEvent("reply_skipped_duplicate", { stage: "rule_duplicate", sourceType: "text_rule", reason, customer: latest.text, reply: ruleReply });
+            reportEvent("reply_skipped_duplicate", taskPayload(activeTask, { stage: "rule_duplicate", sourceType: "text_rule", reason, customer: latest.text, reply: ruleReply }));
           } else {
             setStep("sending_text", "发送文字", "正在发送规则库文字回复", { customer: latest.text, actionType: "text" });
             const sent = await sendReplyParts(ruleReply);
             if (!sent) {
               setStep("reply_failed", "回复失败", "规则库文字未能成功发送", { customer: latest.text, actionType: "text" });
-              reportEvent("reply_failed", { stage: "rule", sourceType: "text_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: ruleReply });
+              activeTask = updateReplyTask(activeTask, { status: "failed" });
+              reportEvent("reply_failed", taskPayload(activeTask, { stage: "rule", sourceType: "text_rule", usedRuleLibrary: true, reason, customer: latest.text, reply: ruleReply }));
               warn("send failed", { reason, latest, reply: ruleReply });
               return;
             }
             responseSent = true;
-            markReplied(key);
+            if (ruleMode !== "quick_then_api") markReplied(key);
             rememberSessionReply(sessionKey, ruleReply);
             state.lastReplyAt = now;
             setStep("text_sent", "文字已发", "规则库文字回复已发送", { customer: latest.text, actionType: "text" });
-            reportReplySent({
+            const sentPayload = taskPayload(activeTask, {
               stage: "rule",
               sourceType: "text_rule",
               usedRuleLibrary: true,
@@ -621,8 +736,24 @@
               status: "文字已发送",
               reply: ruleReply
             });
+            reportReplySent(sentPayload);
             log("rule replied", { reason, customer: latest.text, reply: ruleReply });
-            return;
+            activeTask = updateReplyTask(activeTask, {
+              status: ruleMode === "quick_then_api" ? "pending_api" : "rule_sent",
+              finalReply: {
+                required: ruleMode === "quick_then_api",
+                sent: ruleMode !== "quick_then_api",
+                text: ruleReply,
+                sentAt: Date.now()
+              }
+            });
+            if (ruleMode === "quick_then_api") {
+              rememberCustomerReply(activeTask, sentPayload);
+              forceApiReply = true;
+            } else {
+              await finalizeReplyTask(activeTask, sentPayload, { allowRemediation: true });
+              return;
+            }
           }
         }
         let slowReply = "";
@@ -636,9 +767,15 @@
         let fallbackTimer = null;
         let slowPromise = null;
         let fallbackPromise = null;
+        activeTask = updateReplyTask(activeTask, {
+          route: "api_reply",
+          status: "pending_api",
+          finalReply: { required: true, sent: false, text: "", sentAt: null }
+        });
         state.pendingAiFollowups.set(key, {
           key,
           sessionKey,
+          taskId: activeTask.taskId,
           customer: latest.text,
           startedAt: Date.now()
         });
@@ -651,7 +788,7 @@
         const sendSlowReply = async () => {
           if (!CONFIG.enabled || aiCompleted || fallbackStarted || slowStarted) return false;
           slowStarted = true;
-          setStep("sending_ack", "发送承接", "AI仍在思考，正在生成承接语", { customer: latest.text });
+          setStep("sending_ack", "发送承接", "AI API仍在生成，正在准备15秒承接语", { customer: latest.text });
           slowReply = await askQuickReply(latest.text);
           if (!slowReply || aiCompleted || fallbackStarted) return false;
           if (!await ensureSessionActive(sessionKey)) return false;
@@ -663,8 +800,13 @@
             state.quickAckedSessions.add(sessionKey);
             persistQuickAckedSessions();
             state.lastReplyAt = Date.now();
-            setStep("async_api", "异步API", "承接语已发送，后台继续调用AI生成详细回复", { customer: latest.text });
-            reportReplySent({
+            activeTask = updateReplyTask(activeTask, {
+              status: "ack_sent",
+              ack: { sent: true, text: slowReply, sentAt: Date.now() },
+              finalReply: { required: true, sent: false, text: "", sentAt: null }
+            });
+            setStep("async_api", "异步API", "15秒承接语已发送，继续等待AI API最终回复", { customer: latest.text });
+            reportReplySent(taskPayload(activeTask, {
               stage: "quick_ack",
               sourceType: "quick_ack",
               usedRuleLibrary: false,
@@ -674,19 +816,19 @@
               customer: latest.text,
               status: "15秒承接语已发送",
               reply: slowReply
-            });
+            }));
             log("slow quick ack sent", { reason, customer: latest.text, reply: slowReply, sessionKey });
             return true;
           }
           setStep("reply_failed", "回复失败", "承接语未能成功发送", { customer: latest.text });
-          reportEvent("reply_failed", { stage: "quick_ack", sourceType: "quick_ack", usedDirectReply: true, reason, customer: latest.text, reply: slowReply });
+          reportEvent("reply_failed", taskPayload(activeTask, { stage: "quick_ack", sourceType: "quick_ack", usedDirectReply: true, reason, customer: latest.text, reply: slowReply }));
           return false;
         };
         const sendFallbackReply = async (trigger, allowAfterAi = false) => {
           if (!CONFIG.enabled || fallbackStarted || fallbackSent) return false;
           if (aiCompleted && !allowAfterAi) return false;
           fallbackStarted = true;
-          setStep("sending_fallback", "发送兜底", "AI尚无可用结果，正在生成兜底回复", { customer: latest.text });
+          setStep("sending_fallback", "补救回复", "正在生成AI API补救回复", { customer: latest.text });
           fallbackReplyText = await askFallbackReply(latest.text);
           if (!fallbackReplyText) {
             fallbackStarted = false;
@@ -702,8 +844,8 @@
             responseSent = true;
             rememberSessionReply(sessionKey, fallbackReplyText);
             state.lastReplyAt = Date.now();
-            setStep("text_sent", "文字已发", "兜底文字已发送给当前客户", { customer: latest.text });
-            reportReplySent({
+            setStep("text_sent", "文字已发", "AI API补救回复已发送给当前客户", { customer: latest.text });
+            reportReplySent(taskPayload(activeTask, {
               stage: "fallback_reply",
               sourceType: "fallback_reply",
               usedRuleLibrary: false,
@@ -711,14 +853,14 @@
               usedAi: false,
               reason,
               customer: latest.text,
-              status: trigger === "timeout" ? "60秒兜底已发送" : "AI无结果兜底已发送",
+              status: "AI API补救回复已发送",
               reply: fallbackReplyText
-            });
+            }));
             log("fallback sent", { reason, trigger, customer: latest.text, reply: fallbackReplyText });
             return true;
           }
-          setStep("reply_failed", "回复失败", "兜底回复未能成功发送", { customer: latest.text });
-          reportEvent("reply_failed", { stage: "fallback_reply", sourceType: "fallback_reply", usedDirectReply: true, reason, customer: latest.text, reply: fallbackReplyText });
+          setStep("reply_failed", "回复失败", "AI API补救回复未能成功发送", { customer: latest.text });
+          reportEvent("reply_failed", taskPayload(activeTask, { stage: "fallback_reply", sourceType: "fallback_reply", usedDirectReply: true, reason, customer: latest.text, reply: fallbackReplyText }));
           fallbackStarted = false;
           return false;
         };
@@ -738,7 +880,7 @@
           }
           return fallbackPromise;
         };
-        setStep("querying_judgment", "查外部库", "正在检索外部知识库和本地缓存", { customer: latest.text });
+        setStep("querying_judgment", "查判断库", "正在检索判断库和本地知识库缓存", { customer: latest.text });
         if (shouldSendQuickAck(sessionKey)) {
           waitingTimer = window.setTimeout(() => {
             startSlowReply().catch((error) => warn("slow reply failed", error));
@@ -747,7 +889,17 @@
           log("skip 15s quick ack", { reason, customer: latest.text, sessionKey });
         }
         fallbackTimer = window.setTimeout(() => {
-          startFallbackReply("timeout").catch((error) => warn("fallback reply failed", error));
+          if (aiCompleted) return;
+          activeTask = updateReplyTask(activeTask, { status: "delayed" });
+          setStep("api_delayed", "AI延迟", "超过60秒仍在等待AI API最终回复", { customer: latest.text });
+          reportEvent("reply_delayed", taskPayload(activeTask, {
+            stage: "api_delayed",
+            sourceType: "api_reply",
+            usedAi: true,
+            reason,
+            customer: latest.text,
+            status: "60秒延迟处理"
+          }));
         }, normalizeDelay(CONFIG.fallbackReplyMs, 6e4));
         const aiResult = await askLocalAi(latest.text, "deep");
         aiCompleted = true;
@@ -758,43 +910,38 @@
         const usedJudgmentLibrary = Boolean(aiResult?.judgments?.used);
         const followupStage = usedJudgmentLibrary ? "judgment_ai" : "ai_followup";
         if (!aiReply || slowReply && normalize(aiReply) === normalize(slowReply)) {
-          const fallbackOk = fallbackSent || await startFallbackReply("ai_empty", true);
-          if (fallbackOk) {
-            markReplied(key);
-          } else {
-            setStep(responseSent ? "waiting_ai" : "reply_failed", responseSent ? "等待AI" : "回复失败", responseSent ? "承接语已发送，但AI没有可用结果" : "AI和兜底均未产生可用回复", { customer: latest.text });
-            reportEvent("reply_failed", { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, usedJudgmentLibrary, reason, customer: latest.text });
-          }
+          setStep(responseSent ? "waiting_ai" : "reply_failed", responseSent ? "等待AI" : "回复失败", responseSent ? "承接语已发送，但AI API没有可用最终回复" : "AI API没有产生可用回复", { customer: latest.text });
+          const remediated = await remediateReplyTask(activeTask, {
+            result: "unknown",
+            reason: "AI API返回空回复或仅返回承接语",
+            nextAction: "api_remediate"
+          }, { stage: "ai_empty", sourceType: "ai_followup", usedAi: true, usedJudgmentLibrary });
+          if (remediated) markReplied(key);
           return;
         }
         if (hasSessionReply(sessionKey, aiReply)) {
-          const fallbackOk = fallbackSent || await startFallbackReply("ai_duplicate", true);
-          markReplied(key);
-          if (!fallbackOk) {
-            setStep("duplicate", "跳过重复", "AI回复与本会话已有回复重复", { customer: latest.text });
-            reportEvent("ai_followup_skipped", {
-              stage: followupStage,
-              sourceType: followupStage,
-              usedAi: true,
-              usedJudgmentLibrary,
-              reason,
-              customer: latest.text,
-              reply: aiReply,
-              skippedReason: "duplicate_session_reply"
-            });
-          }
+          setStep("duplicate", "跳过重复", "AI API回复与本会话已有回复重复", { customer: latest.text });
+          const remediated = await remediateReplyTask(activeTask, {
+            result: "partial",
+            reason: "AI API回复与本会话已有回复重复",
+            nextAction: "api_remediate"
+          }, { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary });
+          if (remediated) markReplied(key);
           return;
         }
-        setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送外部知识库和 AI 生成的回复" : "正在发送AI生成的文字回复", { customer: latest.text, actionType: "text" });
+        setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送判断库增强回复" : "正在发送AI API生成的文字回复", { customer: latest.text, actionType: "text" });
         const sessionReady = await ensureSessionActive(sessionKey);
         const followupSent = sessionReady ? await sendReplyParts(aiReply) : false;
-        let fallbackAfterSendFailure = false;
         if (followupSent) {
           responseSent = true;
           markReplied(key);
           rememberSessionReply(sessionKey, aiReply);
           state.lastReplyAt = Date.now();
-          reportReplySent({
+          activeTask = updateReplyTask(activeTask, {
+            status: "api_final_sent",
+            finalReply: { required: true, sent: true, text: aiReply, sentAt: Date.now() }
+          });
+          const sentPayload = taskPayload(activeTask, {
             stage: followupStage,
             sourceType: followupStage,
             usedRuleLibrary: false,
@@ -803,22 +950,19 @@
             usedJudgmentLibrary,
             reason,
             customer: latest.text,
-            status: usedJudgmentLibrary ? "外部知识库 / AI 已发送" : "AI 已发送",
+            status: usedJudgmentLibrary ? "判断库增强回复已发送" : "AI API回复已发送",
             reply: aiReply,
             latencyMs: aiResult?.latencyMs || null,
             aiTrace: aiResult?.trace || null,
             processSteps: aiProcessSteps(aiResult?.trace, usedJudgmentLibrary)
           });
+          reportReplySent(sentPayload);
+          await finalizeReplyTask(activeTask, sentPayload, { allowRemediation: true });
         } else {
-          fallbackAfterSendFailure = fallbackSent || await startFallbackReply("ai_send_failed", true);
-          if (fallbackAfterSendFailure) {
-            markReplied(key);
-          } else {
-            reportEvent(responseSent ? "ai_followup_failed" : "reply_failed", { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary, reason, customer: latest.text, reply: aiReply });
-          }
+          activeTask = updateReplyTask(activeTask, { status: "failed" });
+          reportEvent(responseSent ? "ai_followup_failed" : "reply_failed", taskPayload(activeTask, { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary, reason, customer: latest.text, reply: aiReply, error: "AI API最终回复未能发送" }));
         }
-        const completed = followupSent || fallbackAfterSendFailure;
-        setStep(completed ? "text_sent" : "reply_failed", completed ? "文字已发" : "回复失败", followupSent ? usedJudgmentLibrary ? "外部知识库和 AI 生成的回复已发送" : "AI文字回复已发送" : fallbackAfterSendFailure ? "AI补充发送失败，已发送兜底回复" : "AI补充回复未能发送", { customer: latest.text, actionType: "text" });
+        setStep(followupSent ? "text_sent" : "reply_failed", followupSent ? "文字已发" : "回复失败", followupSent ? usedJudgmentLibrary ? "判断库增强回复已发送" : "AI API最终回复已发送" : "AI API最终回复未能发送", { customer: latest.text, actionType: "text" });
         log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply, judgments: aiResult?.judgments || null });
       } finally {
         state.pendingAiFollowups.delete(key);
@@ -1040,6 +1184,208 @@
     function messageReplyKey(message, sessionKey = currentSessionKey()) {
       return `${sessionKey}:${message?.id || ""}:${message?.type || "text"}:${message?.text || ""}`;
     }
+    function customerIdForSession(sessionKey) {
+      return `customer_${simpleHash(String(sessionKey || currentSessionKey()))}`;
+    }
+    function createReplyTask(message, sessionKey, route = "api_reply", rule = null) {
+      const messageId = String(message?.id || simpleHash(`${message?.type || "text"}:${message?.text || ""}`));
+      const customerId = customerIdForSession(sessionKey);
+      const existing = Array.from(state.replyTasks.values()).find((item) => {
+        return item.sessionKey === sessionKey && item.messageId === messageId && !["completed", "cancelled", "merged"].includes(item.status);
+      });
+      if (existing) return existing;
+      const memory = getCustomerMemory(customerId, sessionKey);
+      const now = Date.now();
+      const task = {
+        taskId: `task_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        customerId,
+        sessionKey,
+        messageId,
+        messageType: String(message?.type || "text"),
+        customerText: String(message?.text || ""),
+        route,
+        status: "created",
+        ruleName: String(rule?.name || ""),
+        ruleMode: normalizeRuleMode(rule),
+        isNewCustomer: memory.isNewCustomer,
+        customerVisibleRetryCount: 0,
+        maxCustomerVisibleRetries: normalizeRetryLimit(),
+        ack: { sent: false, text: "", sentAt: null },
+        finalReply: { required: route === "api_reply", sent: false, text: "", sentAt: null },
+        completion: { checked: false, result: "unknown", reason: "", nextAction: "" },
+        createdAt: now,
+        updatedAt: now
+      };
+      state.replyTasks.set(task.taskId, task);
+      persistReplyTasks();
+      reportTask(task);
+      return task;
+    }
+    function updateReplyTask(task, patch = {}) {
+      if (!task) return null;
+      const next = {
+        ...task,
+        ...patch,
+        ack: { ...task.ack || {}, ...patch.ack || {} },
+        finalReply: { ...task.finalReply || {}, ...patch.finalReply || {} },
+        completion: { ...task.completion || {}, ...patch.completion || {} },
+        updatedAt: Date.now()
+      };
+      state.replyTasks.set(next.taskId, next);
+      persistReplyTasks();
+      reportTask(next);
+      return next;
+    }
+    function reportTask(task) {
+      reportEvent("reply_task_updated", exportTask(task));
+    }
+    function exportTask(task = {}) {
+      return {
+        taskId: task.taskId,
+        customerId: task.customerId,
+        sessionKey: task.sessionKey,
+        messageId: task.messageId,
+        messageType: task.messageType,
+        customerText: clip2(task.customerText, 180),
+        route: task.route,
+        status: task.status,
+        ruleName: task.ruleName || "",
+        ruleMode: task.ruleMode || "",
+        isNewCustomer: task.isNewCustomer === true,
+        customerVisibleRetryCount: Number(task.customerVisibleRetryCount || 0),
+        maxCustomerVisibleRetries: Number(task.maxCustomerVisibleRetries || normalizeRetryLimit()),
+        ack: task.ack || {},
+        finalReply: task.finalReply || {},
+        completion: task.completion || {},
+        createdAt: task.createdAt || 0,
+        updatedAt: task.updatedAt || Date.now()
+      };
+    }
+    function normalizeRuleMode(rule, fallback = "final") {
+      const mode = String(rule?.mode || fallback || "final").trim();
+      if (["final", "quick_then_api", "action_only", "ignore"].includes(mode)) return mode;
+      const text = String(rule?.reply || rule?.name || "").trim();
+      if (!text && Array.isArray(rule?.actions) && rule.actions.some((action) => action?.type === "ignore")) return "ignore";
+      if (/^(谢谢|感谢|好的谢谢|明白了|知道了|ok|OK)$/.test(text)) return "ignore";
+      return "final";
+    }
+    function normalizeRetryLimit() {
+      const value = Number(CONFIG.maxCustomerVisibleRetries);
+      return Number.isFinite(value) ? Math.max(0, Math.min(5, Math.floor(value))) : 2;
+    }
+    function getCustomerMemory(customerId, sessionKey) {
+      const key = String(customerId || customerIdForSession(sessionKey));
+      const existing = state.customerMemories[key];
+      if (existing) {
+        return { ...existing, isNewCustomer: false };
+      }
+      const memory = {
+        customerId: key,
+        sessionKey,
+        isNewCustomer: true,
+        firstSeenAt: Date.now(),
+        lastSeenAt: Date.now(),
+        recentCustomerMessages: [],
+        recentKfReplies: [],
+        sentRules: [],
+        sentActions: [],
+        unfinishedTasks: [],
+        completionResults: [],
+        solvedTopics: [],
+        candidateSources: []
+      };
+      state.customerMemories[key] = memory;
+      persistCustomerMemories();
+      reportCustomerMemory(memory);
+      return memory;
+    }
+    function rememberCustomerMessage(task, message) {
+      const memory = getCustomerMemory(task.customerId, task.sessionKey);
+      memory.isNewCustomer = false;
+      memory.lastSeenAt = Date.now();
+      memory.recentCustomerMessages = [
+        ...Array.isArray(memory.recentCustomerMessages) ? memory.recentCustomerMessages : [],
+        {
+          messageId: task.messageId,
+          type: String(message?.type || task.messageType || "text"),
+          text: clip2(String(message?.text || task.customerText || ""), 240),
+          at: Date.now()
+        }
+      ].slice(-20);
+      if (!memory.unfinishedTasks.includes(task.taskId)) memory.unfinishedTasks.push(task.taskId);
+      memory.unfinishedTasks = memory.unfinishedTasks.slice(-20);
+      persistCustomerMemories();
+      reportCustomerMemory(memory);
+    }
+    function rememberCustomerReply(task, payload = {}) {
+      if (!task) return;
+      const memory = getCustomerMemory(task.customerId, task.sessionKey);
+      const reply = String(payload.reply || "").trim();
+      if (reply) {
+        memory.recentKfReplies = [
+          ...Array.isArray(memory.recentKfReplies) ? memory.recentKfReplies : [],
+          {
+            taskId: task.taskId,
+            sourceType: payload.sourceType || payload.stage || task.route || "",
+            text: clip2(reply, 240),
+            at: Date.now()
+          }
+        ].slice(-20);
+      }
+      if (payload.rule || task.ruleName) {
+        const rule = String(payload.rule || task.ruleName);
+        memory.sentRules = uniqueTail([...memory.sentRules || [], rule], 40);
+      }
+      for (const action of Array.isArray(payload.actions) ? payload.actions : []) {
+        memory.sentActions = uniqueTail([...memory.sentActions || [], `${action.type || "action"}:${action.productId || action.path || action.button || ""}`], 60);
+      }
+      persistCustomerMemories();
+      reportCustomerMemory(memory);
+    }
+    function completeMemoryTask(task, completion = {}) {
+      const memory = getCustomerMemory(task.customerId, task.sessionKey);
+      memory.unfinishedTasks = (memory.unfinishedTasks || []).filter((id) => id !== task.taskId);
+      memory.completionResults = [
+        ...memory.completionResults || [],
+        {
+          taskId: task.taskId,
+          result: completion.result || task.completion?.result || "unknown",
+          reason: clip2(completion.reason || task.completion?.reason || "", 160),
+          at: Date.now()
+        }
+      ].slice(-40);
+      if ((completion.result || task.completion?.result) === "solved") {
+        memory.solvedTopics = uniqueTail([...memory.solvedTopics || [], clip2(task.customerText, 80)], 40);
+      }
+      persistCustomerMemories();
+      reportCustomerMemory(memory);
+    }
+    function reportCustomerMemory(memory) {
+      reportEvent("customer_memory_updated", {
+        ...memory,
+        recentCustomerMessages: (memory.recentCustomerMessages || []).slice(-8),
+        recentKfReplies: (memory.recentKfReplies || []).slice(-8)
+      });
+    }
+    function uniqueTail(items, limit) {
+      return Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean))).slice(-limit);
+    }
+    function taskPayload(task, extra = {}) {
+      return {
+        taskId: task?.taskId || "",
+        customerId: task?.customerId || "",
+        sessionKey: task?.sessionKey || "",
+        isNewCustomer: task?.isNewCustomer === true,
+        route: task?.route || "",
+        ruleMode: task?.ruleMode || "",
+        ackSent: task?.ack?.sent === true,
+        finalReplySent: task?.finalReply?.sent === true,
+        completionResult: task?.completion?.result || "",
+        completionReason: task?.completion?.reason || "",
+        remediationCount: Number(task?.customerVisibleRetryCount || 0),
+        ...extra
+      };
+    }
     function enrichMessageWithContext(message) {
       if (!message) return message;
       return {
@@ -1055,16 +1401,23 @@
       return selected.map((message) => message.text).filter(Boolean).join(" ");
     }
     function matchRuleReply(message) {
+      return matchTextRule(message)?.reply || "";
+    }
+    function matchTextRule(message) {
       const text = messageSearchText(message);
       const rules = Array.isArray(CONFIG.rules) && CONFIG.rules.length > 0 ? CONFIG.rules : DEFAULT_RULES;
       for (const rule of rules) {
         if (!rule) continue;
         if (rule.enabled === false) continue;
         if (ruleMatchesSearchText(rule, text)) {
-          return rule.reply;
+          return {
+            ...rule,
+            reply: String(rule.reply || ""),
+            mode: normalizeRuleMode(rule)
+          };
         }
       }
-      return "";
+      return null;
     }
     function matchActionRule(message) {
       const rules = Array.isArray(CONFIG.actionRules) ? CONFIG.actionRules : [];
@@ -1518,7 +1871,7 @@
       try {
         setStep("collecting", "收集上下文", "正在读取最近消息和客服页上下文", { customer: message });
         const sideContext = await collectSidebarContext(message);
-        setStep("api_calling", "调用API", "正在请求本地AI服务和外部知识库", { customer: message });
+        setStep("api_calling", "调用API", "正在通过本机回复中转服务请求远方AI API", { customer: message });
         const request = fetch(CONFIG.aiEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1529,12 +1882,12 @@
             sideContext
           })
         });
-        setStep("ai_thinking", "AI思考中", "AI正在结合外部知识库和会话上下文生成回复", { customer: message });
+        setStep("ai_thinking", "AI生成中", "AI API正在结合判断库和会话上下文生成回复", { customer: message });
         const response = await request;
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         const reply = String(data.reply || "").trim();
-        setStep(reply ? "ai_returned" : "reply_failed", reply ? "AI已返回" : "回复失败", reply ? "AI已经生成可发送的回复" : "AI返回了空回复", { customer: message });
+        setStep(reply ? "ai_returned" : "reply_failed", reply ? "AI已返回" : "回复失败", reply ? "AI API已经生成可发送的回复" : "AI API返回了空回复", { customer: message });
         return {
           reply,
           judgments: data.judgments || null,
@@ -1543,7 +1896,7 @@
         };
       } catch (error) {
         warn("ai fallback failed", error);
-        setStep("reply_failed", "回复失败", `AI请求失败：${String(error?.message || error)}`, { customer: message });
+        setStep("reply_failed", "回复失败", `AI API请求失败：${String(error?.message || error)}`, { customer: message });
         reportEvent("ai_failed", { message, error: String(error?.message || error) });
         return "";
       }
@@ -1552,7 +1905,7 @@
       const configured = pickConfiguredReply("quick", CONFIG.quickAckReplies, CONFIG.quickAck, CONFIG.localQuickReplies);
       if (configured) return configured;
       try {
-        setStep("sending_ack", "发送承接", "正在生成AI慢回复承接语", { customer: message });
+        setStep("sending_ack", "发送承接", "正在生成15秒承接语", { customer: message });
         const response = await fetch(endpointFor("/quick-reply"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1581,7 +1934,7 @@
       const configured = pickConfiguredReply("waiting", CONFIG.fallbackReplies, CONFIG.fallbackReply, CONFIG.localWaitingReplies);
       if (configured) return configured;
       try {
-        setStep("sending_fallback", "发送兜底", "正在生成兜底回复", {});
+        setStep("sending_fallback", "补救回复", "正在生成60秒延迟处理回复", {});
         const response = await fetch(endpointFor("/waiting-reply"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1597,7 +1950,7 @@
         if (data.id) state.waitingRepliesUsed.add(data.id);
         persistWaitingRepliesUsed();
         const text = String(data.text || "").trim();
-        setStep(text ? "sending_fallback" : "reply_failed", text ? "发送兜底" : "回复失败", text ? "兜底回复已经生成，准备发送" : "没有生成可用兜底回复");
+        setStep(text ? "sending_fallback" : "reply_failed", text ? "补救回复" : "回复失败", text ? "延迟处理回复已经生成，准备发送" : "没有生成可用延迟处理回复");
         return text || pickLocalWaitingReply();
       } catch (error) {
         warn("waiting reply failed", error);
@@ -1608,6 +1961,241 @@
       const configured = pickConfiguredReply("fallback", CONFIG.fallbackReplies, CONFIG.fallbackReply, CONFIG.localWaitingReplies);
       if (configured) return configured;
       return askWaitingReply(message);
+    }
+    async function checkReplyCompletion(task, payload = {}) {
+      if (!CONFIG.completionCheckEnabled || !task) {
+        return { result: "solved", reason: "完成度检查已关闭", nextAction: "" };
+      }
+      task = updateReplyTask(task, { status: "checking_completion" });
+      setStep("checking_completion", "检查完成", "正在检查本次回复是否解决客户问题", { customer: task.customerText });
+      try {
+        const memory = getCustomerMemory(task.customerId, task.sessionKey);
+        const response = await fetch(endpointFor("/completion/check"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId: task.taskId,
+            customerText: task.customerText,
+            history: [
+              ...(memory.recentCustomerMessages || []).slice(-4).map((item) => ({ from: "customer", text: item.text })),
+              ...(memory.recentKfReplies || []).slice(-4).map((item) => ({ from: "kf", text: item.text }))
+            ].slice(-8),
+            reply: payload.reply || task.finalReply?.text || "",
+            actions: payload.actions || [],
+            source: payload.sourceType || payload.stage || task.route || ""
+          })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        return normalizeCompletionResult(data);
+      } catch (error) {
+        warn("completion check failed", error);
+        return {
+          result: "unknown",
+          reason: `完成度检查失败：${safeErrorMessage(error)}`,
+          nextAction: "api_remediate",
+          suggestedReply: "",
+          suggestedActions: []
+        };
+      }
+    }
+    async function finalizeReplyTask(task, payload = {}, options = {}) {
+      if (!task) return null;
+      rememberCustomerReply(task, payload);
+      const completion = await checkReplyCompletion(task, payload);
+      task = updateReplyTask(task, {
+        status: statusFromCompletion(completion),
+        completion: {
+          checked: true,
+          result: completion.result,
+          reason: completion.reason || "",
+          nextAction: completion.nextAction || ""
+        }
+      });
+      if (payload.usedAi && ["solved", "partial"].includes(completion.result)) {
+        createRuleCandidate(task, payload, completion);
+      }
+      if (completion.result === "solved") {
+        task = updateReplyTask(task, { status: "completed" });
+        completeMemoryTask(task, completion);
+        return task;
+      }
+      if (completion.result === "partial" || completion.result === "unknown") {
+        if (options.allowRemediation === false) {
+          completeMemoryTask(task, completion);
+          return task;
+        }
+        return remediateReplyTask(task, completion, payload);
+      }
+      if (completion.result === "need_action") {
+        task = updateReplyTask(task, { status: "need_action" });
+        reportEvent("reply_failed", taskPayload(task, {
+          stage: "completion_need_action",
+          sourceType: payload.sourceType || task.route,
+          usedAi: Boolean(payload.usedAi),
+          customer: task.customerText,
+          error: completion.reason || "完成度检查认为需要明确动作"
+        }));
+        return task;
+      }
+      if (completion.result === "risky") {
+        task = updateReplyTask(task, { status: "risky" });
+        reportEvent("reply_failed", taskPayload(task, {
+          stage: "completion_risky",
+          sourceType: payload.sourceType || task.route,
+          customer: task.customerText,
+          error: completion.reason || "风险回复已拦截"
+        }));
+        return task;
+      }
+      task = updateReplyTask(task, { status: "waiting_human" });
+      reportEvent("reply_failed", taskPayload(task, {
+        stage: "completion_need_human",
+        sourceType: payload.sourceType || task.route,
+        customer: task.customerText,
+        error: completion.reason || "需要人工处理"
+      }));
+      return task;
+    }
+    async function remediateReplyTask(task, completion, previousPayload = {}) {
+      const retryCount = Number(task.customerVisibleRetryCount || 0);
+      const maxRetries = Number(task.maxCustomerVisibleRetries || normalizeRetryLimit());
+      if (retryCount >= maxRetries) {
+        const next = updateReplyTask(task, { status: "waiting_human" });
+        completeMemoryTask(next, { ...completion, result: "need_human", reason: completion.reason || "自动补救次数已达上限" });
+        reportEvent("reply_failed", taskPayload(next, {
+          stage: "completion_retry_limit",
+          sourceType: previousPayload.sourceType || task.route,
+          usedAi: Boolean(previousPayload.usedAi),
+          customer: task.customerText,
+          error: "自动补救次数已达上限，转人工"
+        }));
+        return next;
+      }
+      task = updateReplyTask(task, {
+        status: "retrying",
+        customerVisibleRetryCount: retryCount + 1
+      });
+      setStep("retrying", "补救中", "正在调用AI API生成补充回复", { customer: task.customerText });
+      const prompt = [
+        task.customerText,
+        completion.reason ? `上一次回复未完成原因：${completion.reason}` : "",
+        "请补充一句能直接发给客户的客服回复，不要重复已发话术"
+      ].filter(Boolean).join("\n");
+      const aiResult = await askLocalAi(prompt, "deep");
+      const remedialReply = String(aiResult?.reply || aiResult || completion.suggestedReply || "").trim();
+      if (!remedialReply || hasSessionReply(task.sessionKey, remedialReply)) {
+        const next = updateReplyTask(task, { status: "waiting_human" });
+        completeMemoryTask(next, { ...completion, result: "need_human", reason: completion.reason || "AI API没有生成可用补救回复" });
+        reportEvent("reply_failed", taskPayload(next, {
+          stage: "api_remediation_empty",
+          sourceType: "api_remediation",
+          usedAi: true,
+          customer: task.customerText,
+          error: "AI API没有生成可用补救回复"
+        }));
+        return next;
+      }
+      if (!await ensureSessionActive(task.sessionKey)) {
+        const next = updateReplyTask(task, { status: "waiting_human" });
+        reportEvent("ai_followup_failed", taskPayload(next, {
+          stage: "api_remediation",
+          sourceType: "api_remediation",
+          usedAi: true,
+          customer: task.customerText,
+          reply: remedialReply,
+          error: "当前会话已切换，补救回复未发送"
+        }));
+        return next;
+      }
+      const sent = await sendReplyParts(remedialReply);
+      if (!sent) {
+        const next = updateReplyTask(task, { status: "failed" });
+        reportEvent("ai_followup_failed", taskPayload(next, {
+          stage: "api_remediation",
+          sourceType: "api_remediation",
+          usedAi: true,
+          customer: task.customerText,
+          reply: remedialReply,
+          error: "AI API补救回复发送失败"
+        }));
+        return next;
+      }
+      rememberSessionReply(task.sessionKey, remedialReply);
+      state.lastReplyAt = Date.now();
+      task = updateReplyTask(task, {
+        status: "api_final_sent",
+        finalReply: {
+          required: true,
+          sent: true,
+          text: remedialReply,
+          sentAt: Date.now()
+        }
+      });
+      const payload = taskPayload(task, {
+        stage: "api_remediation",
+        sourceType: "api_remediation",
+        usedRuleLibrary: false,
+        usedDirectReply: false,
+        usedAi: true,
+        usedJudgmentLibrary: Boolean(aiResult?.judgments?.used),
+        customer: task.customerText,
+        status: "AI API补救回复已发送",
+        reply: remedialReply,
+        latencyMs: aiResult?.latencyMs || null,
+        aiTrace: aiResult?.trace || null,
+        processSteps: aiProcessSteps(aiResult?.trace, Boolean(aiResult?.judgments?.used))
+      });
+      reportReplySent(payload);
+      return finalizeReplyTask(task, payload, { allowRemediation: task.customerVisibleRetryCount < maxRetries });
+    }
+    function normalizeCompletionResult(value = {}) {
+      const allowed = /* @__PURE__ */ new Set(["solved", "partial", "need_action", "need_human", "risky", "unknown"]);
+      const result = allowed.has(String(value.result || "")) ? String(value.result) : "unknown";
+      return {
+        result,
+        reason: String(value.reason || "").trim().slice(0, 240),
+        nextAction: String(value.nextAction || "").trim().slice(0, 120),
+        suggestedReply: String(value.suggestedReply || "").trim(),
+        suggestedActions: Array.isArray(value.suggestedActions) ? value.suggestedActions.slice(0, 5) : []
+      };
+    }
+    function statusFromCompletion(completion = {}) {
+      const map = {
+        solved: "completed",
+        partial: "partial",
+        need_action: "need_action",
+        need_human: "waiting_human",
+        risky: "risky",
+        unknown: "partial"
+      };
+      return map[completion.result] || "partial";
+    }
+    function createRuleCandidate(task, payload = {}, completion = {}) {
+      const answer = String(payload.reply || task.finalReply?.text || "").trim();
+      if (!answer || !task.customerText) return;
+      const id = `candidate_${simpleHash(`${task.customerText}:${answer}`)}`;
+      const existing = state.ruleCandidates[id];
+      const candidate = {
+        id,
+        question: task.customerText,
+        answer,
+        suggestedKeywords: suggestKeywords(task.customerText),
+        suggestedMode: task.ruleMode === "quick_then_api" ? "quick_then_api" : "final",
+        suggestedActions: [{ type: "text", text: answer }],
+        source: payload.usedJudgmentLibrary ? "judgment_api" : "api_reply",
+        count: Number(existing?.count || 0) + 1,
+        status: existing?.status || "pending_review",
+        completionResult: completion.result || "",
+        lastSeenAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      state.ruleCandidates[id] = candidate;
+      persistRuleCandidates();
+      reportEvent("rule_candidate_created", candidate);
+    }
+    function suggestKeywords(text) {
+      return Array.from(new Set(String(text || "").replace(/[，。！？!?、,.]/g, " ").split(/\s+/).map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 8)));
     }
     function pickConfiguredReply(kind, listValue, singleValue, fallbackList = []) {
       const list = replyList(listValue);
@@ -1995,6 +2583,30 @@ ${text}`);
         return /* @__PURE__ */ new Set();
       }
     }
+    function loadReplyTasks() {
+      try {
+        const items = JSON.parse(localStorage.getItem(`${STATE_KEY}_reply_tasks`) || "[]");
+        return new Map((Array.isArray(items) ? items : []).map((item) => [item.taskId, item]).filter(([id]) => id));
+      } catch {
+        return /* @__PURE__ */ new Map();
+      }
+    }
+    function loadCustomerMemories() {
+      try {
+        const value = JSON.parse(localStorage.getItem(`${STATE_KEY}_customer_memories`) || "{}");
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      } catch {
+        return {};
+      }
+    }
+    function loadRuleCandidates() {
+      try {
+        const value = JSON.parse(localStorage.getItem(`${STATE_KEY}_rule_candidates`) || "{}");
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      } catch {
+        return {};
+      }
+    }
     function loadSessionReplyMemory() {
       try {
         const value = JSON.parse(localStorage.getItem(`${STATE_KEY}_session_reply_memory`) || "{}");
@@ -2021,6 +2633,18 @@ ${text}`);
     }
     function persistFallbackRepliesUsed() {
       localStorage.setItem(`${STATE_KEY}_fallback_replies`, JSON.stringify(Array.from(state.fallbackRepliesUsed).slice(-20)));
+    }
+    function persistReplyTasks() {
+      const items = Array.from(state.replyTasks.values()).slice(-500);
+      localStorage.setItem(`${STATE_KEY}_reply_tasks`, JSON.stringify(items));
+    }
+    function persistCustomerMemories() {
+      const entries = Object.entries(state.customerMemories).slice(-500);
+      localStorage.setItem(`${STATE_KEY}_customer_memories`, JSON.stringify(Object.fromEntries(entries)));
+    }
+    function persistRuleCandidates() {
+      const entries = Object.entries(state.ruleCandidates).slice(-300);
+      localStorage.setItem(`${STATE_KEY}_rule_candidates`, JSON.stringify(Object.fromEntries(entries)));
     }
     function hasSessionReply(sessionKey, reply) {
       const signature = replySignature(reply);

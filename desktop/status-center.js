@@ -18,12 +18,20 @@ export const BOT_RUNTIME_STATUSES = {
   matching_image: status("匹配图片", "active", "匹配"),
   matching_product: status("匹配商品", "active", "匹配"),
   collecting: status("收集上下文", "active", "AI"),
+  reading_memory: status("读取记忆", "active", "AI"),
   querying_judgment: status("查询判断库", "active", "AI"),
   api_calling: status("调用API", "active", "AI"),
   async_api: status("异步API", "active", "AI"),
-  ai_thinking: status("AI思考中", "active", "AI"),
+  ai_thinking: status("AI生成中", "active", "AI"),
   ai_returned: status("AI已返回", "active", "AI"),
   waiting_ai: status("等待AI", "warn", "AI"),
+  checking_completion: status("检查完成", "active", "AI"),
+  completion_partial: status("部分完成", "warn", "AI"),
+  retrying: status("补救中", "active", "AI"),
+  api_delayed: status("AI延迟", "warn", "AI"),
+  waiting_human: status("待人工", "bad", "人工"),
+  risky: status("风险拦截", "bad", "审核"),
+  need_action: status("需要动作", "warn", "动作"),
   sending_reply: status("正在回复", "active", "发送"),
   sending_text: status("发送文字", "active", "发送"),
   sending_image: status("发送图片", "active", "发送"),
@@ -32,7 +40,7 @@ export const BOT_RUNTIME_STATUSES = {
   sending_file: status("发送文件", "active", "发送"),
   sending_material: status("发送素材", "active", "发送"),
   sending_ack: status("发送承接", "active", "发送"),
-  sending_fallback: status("发送兜底", "active", "发送"),
+  sending_fallback: status("补救回复", "active", "发送"),
   text_sent: status("文字已发", "ok", "完成"),
   image_sent: status("图片已发", "ok", "完成"),
   product_sent: status("商品已发", "ok", "完成"),
@@ -66,11 +74,19 @@ export function inferBotStatusCode(raw, extra = {}, options = {}) {
   if (/匹配.*图片/.test(text)) return "matching_image";
   if (/匹配.*商品/.test(text)) return "matching_product";
   if (/规则/.test(text) && /匹配|执行/.test(text)) return "matching_rule";
+  if (/记忆/.test(text)) return "reading_memory";
   if (/上下文/.test(text)) return "collecting";
   if (/判断库.*查询|查询判断/.test(text)) return "querying_judgment";
   if (/异步.*API/.test(text)) return "async_api";
   if (/调用.*API/.test(text)) return "api_calling";
-  if (/AI.*请求|AI.*思考/.test(text)) return "ai_thinking";
+  if (/AI.*请求|AI.*思考|AI.*生成/.test(text)) return "ai_thinking";
+  if (/检查完成|完成度/.test(text)) return "checking_completion";
+  if (/部分完成/.test(text)) return "completion_partial";
+  if (/补救/.test(text)) return "retrying";
+  if (/AI延迟|延迟任务/.test(text)) return "api_delayed";
+  if (/待人工|人工处理/.test(text)) return "waiting_human";
+  if (/风险/.test(text)) return "risky";
+  if (/需要动作/.test(text)) return "need_action";
   if (/AI.*返回/.test(text)) return "ai_returned";
   if (/继续等.*AI|等待AI/.test(text)) return "waiting_ai";
   if (/邀请下单/.test(text) && !/已/.test(text)) return "sending_order";
@@ -79,7 +95,7 @@ export function inferBotStatusCode(raw, extra = {}, options = {}) {
   if (/发送.*文件|文件.*发送中/.test(text)) return "sending_file";
   if (/发送.*素材|素材.*发送中/.test(text)) return "sending_material";
   if (/发送.*承接|承接.*发送中/.test(text)) return "sending_ack";
-  if (/发送.*兜底|兜底.*发送中/.test(text)) return "sending_fallback";
+  if (/发送.*兜底|兜底.*发送中|补救回复/.test(text)) return "sending_fallback";
   if (/发送.*文字|正在回复/.test(text)) return "sending_text";
   if (/图片.*已发送|图片已发/.test(text)) return "image_sent";
   if (/商品.*已发送|商品已发/.test(text)) return "product_sent";
@@ -106,8 +122,8 @@ export function createUiStatusSnapshot(payload = {}) {
   const page = payload.page || {};
   return {
     runtime: lamp(bot.label || bot.status || "检测中", bot.tone || "active", bot.detail || ""),
-    ai: lamp(payload.ai?.ok ? "AI正常" : "AI异常", payload.ai?.ok ? "ok" : "bad", payload.ai?.message || ""),
-    local: lamp(payload.localServiceOk === false ? "本地异常" : "本地已接", payload.localServiceOk === false ? "bad" : "ok"),
+    ai: lamp(payload.ai?.ok && payload.ai?.hasKey !== false ? "API正常" : "API异常", payload.ai?.ok && payload.ai?.hasKey !== false ? "ok" : "bad", payload.ai?.message || ""),
+    local: lamp(payload.localServiceOk === false ? "中转异常" : "中转已接", payload.localServiceOk === false ? "bad" : "ok"),
     script: lamp(page.scriptHealthy ? "脚本就绪" : "脚本待定", page.scriptHealthy ? "ok" : "warn"),
     login: lamp(page.authenticated ? "登录正常" : "登录待定", page.authenticated ? "ok" : "warn"),
     botEnabled: payload.enabled !== false,

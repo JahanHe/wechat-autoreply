@@ -94,14 +94,14 @@ function assertAsyncFollowupSource(source) {
     throw new Error("缺少独立的异步 AI 任务状态");
   }
   if (source.includes('skippedReason: "fallback_already_sent"')) {
-    throw new Error("兜底回复仍会截断最终 AI 回复");
+    throw new Error("60秒延迟处理仍会截断最终 AI API 回复");
   }
   const slowBlock = source.slice(source.indexOf("const sendSlowReply"), source.indexOf("const sendFallbackReply"));
   if (slowBlock.includes("markReplied(key)")) {
     throw new Error("承接语仍被错误标记为最终回复");
   }
-  if (!source.includes('const fallbackOk = fallbackSent || await startFallbackReply("ai_empty", true);') || !source.includes("if (fallbackOk) {\n          markReplied(key);")) {
-    throw new Error("AI空结果的终局兜底没有标记消息已处理");
+  if (!source.includes('reportEvent("reply_delayed"') || !source.includes("remediateReplyTask(activeTask")) {
+    throw new Error("AI API延迟和空结果没有进入任务补救链路");
   }
 }
 
@@ -405,7 +405,7 @@ async function testAiTraceUi(page) {
       }
     });
   });
-  await page.getByText("外部知识库 3 条", { exact: true }).waitFor();
+  await page.getByText("判断库 3 条", { exact: true }).waitFor();
   await page.getByText("Thinking 开启", { exact: true }).waitFor();
   await page.getByText("审核通过", { exact: true }).waitFor();
 }
@@ -419,11 +419,11 @@ async function testLogTrace(page) {
         at: Date.now(),
         kind: "sent",
         sourceType: "judgment_ai",
-        sourceLabel: "外部知识库补充",
+        sourceLabel: "判断库增强回复",
         customer: "会员专区怎么使用",
         reply: "您可以从订单详情进入会员专区",
         latencyMs: 2450,
-        processSteps: ["检测消息", "收集上下文", "外部知识库命中2条", "调用AI接口", "审核通过", "发送文字"],
+        processSteps: ["检测消息", "收集上下文", "判断库命中2条", "调用远方AI API", "审核通过", "发送文字"],
         aiTrace: {
           model: "deepseek-v4-flash",
           thinking: "enabled",
@@ -439,7 +439,7 @@ async function testLogTrace(page) {
     };
     renderLogs();
   });
-  await page.getByText("外部知识库 2 条", { exact: true }).waitFor();
+  await page.getByText("判断库 2 条", { exact: true }).waitFor();
   await page.getByText("Thinking 开启", { exact: true }).waitFor();
   const steps = await page.locator(".process-chain span").count();
   if (steps !== 6) throw new Error(`日志处理步骤数量异常: ${steps}`);

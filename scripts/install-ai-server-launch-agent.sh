@@ -66,6 +66,6 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 1
 done
 
-echo "AI 服务已提交给 launchd，但 10 秒内还没有通过健康检查"
+echo "本机回复中转服务已提交给 launchd，但 10 秒内还没有通过健康检查"
 echo "请查看 /tmp/wechat-kf-ai-server.err.log"
 exit 1

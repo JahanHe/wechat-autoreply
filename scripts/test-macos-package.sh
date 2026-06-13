@@ -152,7 +152,7 @@ const control = JSON.parse(fs.readFileSync(controlPath, "utf8"));
 const ai = JSON.parse(fs.readFileSync(aiPath, "utf8"));
 const knowledge = JSON.parse(fs.readFileSync(knowledgePath, "utf8"));
 if (!control.ok || control.app !== "小店AI客服" || !control.authRequired) throw new Error("本机控制服务健康状态异常");
-if (!ai.ok || ai.serviceName !== "xiaodian-ai-service") throw new Error("本地 AI 服务健康状态异常");
+if (!ai.ok || ai.serviceName !== "xiaodian-ai-service") throw new Error("本机回复中转服务健康状态异常");
 if (!Array.isArray(knowledge.results) || !knowledge.results.length) throw new Error("打包知识库查询没有命中");
 if (!knowledge.index || knowledge.index.files < 1 || knowledge.index.chunks < 1) throw new Error("打包知识库索引为空");
 console.log(JSON.stringify({

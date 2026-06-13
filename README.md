@@ -1,10 +1,10 @@
 # 小店AI客服
 
 [![构建安装包](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml/badge.svg)](https://github.com/JahanHe/Shop-ai-reply/actions/workflows/build-installers.yml)
-[![发布 v0.4.3](https://img.shields.io/badge/release-v0.4.3-111827)](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.4.3)
+[![发布 v0.4.4](https://img.shields.io/badge/release-v0.4.4-111827)](https://github.com/JahanHe/Shop-ai-reply/releases/tag/v0.4.4)
 [![许可证 MIT](https://img.shields.io/badge/license-MIT-cc785c)](LICENSE)
 
-小店AI客服是一个微信小店客服桌面自动回复工具。它把微信小店客服页映射到 Electron 桌面应用里，并提供规则库、AI 回复、外部知识库、商品卡片/邀请下单、图片/文件发送、Webhook 通知、悬浮窗和长期运行守护。
+小店AI客服是一个微信小店客服桌面自动回复工具。它把微信小店客服页映射到 Electron 桌面应用里，并提供本地规则回复、AI API 回复、判断库增强、商品卡片/邀请下单、图片/文件发送、Webhook 通知、悬浮窗、回复任务追踪和长期运行守护。
 
 > 微信小店客服页属于第三方网页映射与自动化场景，请在自己的店铺、账号权限和平台规则范围内谨慎使用。外部知识库是私有外部服务，需要授权账号和权限；本项目不会提供或绕过任何第三方权限。
 
@@ -14,13 +14,13 @@
 
 | 系统 | 文件 |
 | --- | --- |
-| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-macos-arm64.dmg) |
-| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-windows-setup.exe) |
-| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-windows-portable.exe) |
+| macOS Apple Silicon | [xiaodian-ai-kefu-macos-arm64.dmg](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.4/xiaodian-ai-kefu-macos-arm64.dmg) |
+| Windows 安装版 | [xiaodian-ai-kefu-windows-setup.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.4/xiaodian-ai-kefu-windows-setup.exe) |
+| Windows 便携版 | [xiaodian-ai-kefu-windows-portable.exe](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.4/xiaodian-ai-kefu-windows-portable.exe) |
 
 macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubleshooting.md](docs/mac-install-troubleshooting.md)。
 
-发布说明：[docs/release-notes/v0.4.3.md](docs/release-notes/v0.4.3.md)
+发布说明：[docs/release-notes/v0.4.4.md](docs/release-notes/v0.4.4.md)
 
 历史变更：[CHANGELOG.md](CHANGELOG.md)
 
@@ -30,8 +30,11 @@ macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubles
 | --- | --- |
 | 桌面工作台 | 主控台承载客服页、回复中心、运行监控和系统设置 |
 | 菜单规范 | 后续 Mac 使用系统菜单栏，Windows 使用小型三条杠菜单，详见 [桌面端原生菜单设计规范](docs/desktop-native-menu-guidelines.md) |
-| 回复动作 | 支持文字、图片、文件、商品卡片、邀请下单、忽略和 AI 后续回复 |
+| 回复动作 | 支持文字、图片、文件、商品卡片、邀请下单、忽略、本地规则回复和 AI API 最终补充 |
 | 规则匹配 | 真实会话和手动测试共用规则匹配逻辑，减少测试和实际行为差异 |
+| 回复任务 | 每条客户消息生成 ReplyTask，追踪承接、最终回复、完成度、补救和转人工状态 |
+| 客户记忆 | 按会话生成客户 ID，记录最近消息、已发规则、已发动作、未完成任务和完成度 |
+| 规则候选池 | AI API 成功回复后生成候选规则，必须人工审核后才进入正式规则库 |
 | 状态可见 | 主控台、悬浮窗、托盘、Webhook 和回复记录同步展示运行状态 |
 | 安全边界 | API Key、Webhook、外部知识库访问凭证、控制 Token 和运行缓存只保存在本机运行目录 |
 
@@ -69,27 +72,34 @@ macOS 如果提示“无法验证开发者”，看：[docs/mac-install-troubles
 flowchart TD
   A["发现客户最新消息"] --> B{"Bot 是否开启"}
   B -- "否" --> Z["只监控，不回复"]
-  B -- "是" --> C{"是否重复处理"}
-  C -- "是" --> Z
-  C -- "否" --> D{"命中动作规则"}
-  D -- "是" --> E["文字/图片/文件/商品/邀请下单/忽略"]
-  D -- "否" --> F{"命中文字或图片规则"}
-  F -- "是" --> G["发送确定性回复"]
-  F -- "否" --> H["查询知识库、外部知识库和 AI"]
-  H --> I{"15 秒内返回"}
-  I -- "是" --> J["发送 AI 精准回复"]
-  I -- "否" --> K["发送承接语"]
-  K --> L{"60 秒内返回"}
-  L -- "是" --> J
-  L -- "否" --> M["发送兜底语"]
-  E --> R["记录日志、追踪记录和状态"]
-  G --> R
-  J --> R
-  M --> R
-  R --> S["Webhook 总结和状态同步"]
+  B -- "是" --> C["识别客户并读取客户记忆"]
+  C --> D["创建 ReplyTask"]
+  D --> E{"命中本地规则"}
+  E -- "final" --> F["本地规则/图片/文件/商品/邀请下单"]
+  E -- "quick_then_api" --> G["先发本地快速回复"]
+  E -- "action_only" --> H["只执行自动化页面动作"]
+  E -- "ignore" --> I["只写日志和记忆"]
+  E -- "未命中" --> J["进入 AI API 回复"]
+  G --> J
+  J --> K["本机回复中转服务组装上下文"]
+  K --> L["调用远方 AI API 和判断库"]
+  L --> M{"15 秒内有最终答案"}
+  M -- "否" --> N["发送15秒承接语，任务继续"]
+  M -- "是" --> O["发送 AI API 最终回复"]
+  N --> O
+  O --> P["回复完成度检查"]
+  F --> P
+  H --> P
+  P --> Q{"完成了吗"}
+  Q -- "solved" --> R["写日志、客户记忆、规则候选"]
+  Q -- "partial/unknown" --> S["最多补救2次"]
+  Q -- "need_action/risky/need_human" --> T["通知人工处理"]
+  S --> P
+  R --> U["Webhook 总结和状态同步"]
+  T --> U
 ```
 
-确定性规则优先，AI 只做兜底或补充判断。
+本地规则优先，AI API 负责未命中、深度判断、最终补充和补救。15 秒承接语不是最终回复；60 秒默认只标记延迟、写日志和通知，不直接给客户发固定兜底。
 
 ## 本地开发
 

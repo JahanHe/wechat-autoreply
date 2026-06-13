@@ -81,7 +81,7 @@ function renderStatus(config) {
 async function checkServerStatus() {
   const endpoint = (aiEndpoint.value || DEFAULTS.aiEndpoint).replace(/\/reply$/, "/health");
   status.className = "status";
-  status.textContent = "正在检查本地 AI 服务...";
+  status.textContent = "正在检查本机回复中转服务...";
 
   try {
     const response = await fetch(endpoint);
@@ -97,7 +97,7 @@ async function checkServerStatus() {
     status.textContent = `API 已就绪：${data.model}，thinking=${data.thinking}，review=${data.review || "unknown"}`;
   } catch {
     status.className = "status error";
-    status.textContent = "本地 AI 服务未启动：请先运行安装脚本启动后台服务";
+    status.textContent = "本机回复中转服务未启动：请先运行安装脚本启动后台服务";
   }
 }
 

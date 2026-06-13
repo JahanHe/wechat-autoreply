@@ -20,10 +20,11 @@ loadDotEnv(CONFIG_ROOT, { override: true });
 
 const PORT = Number(process.env.PORT || 8787);
 export const AI_SERVICE_NAME = "xiaodian-ai-service";
-export const AI_SERVICE_PROTOCOL = 2;
+export const AI_SERVICE_PROTOCOL = 3;
 export const AI_SERVICE_ROUTES = [
   "/health",
   "/reply",
+  "/completion/check",
   "/quick-reply",
   "/waiting-reply",
   "/knowledge/search",
@@ -201,6 +202,16 @@ export function createAiServer() {
       json(res, 200, await refreshJudgmentCache(body || {}));
     } catch (error) {
       json(res, 500, { error: "judgment_refresh_failed", message: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/completion/check") {
+    try {
+      const body = await readJson(req);
+      json(res, 200, await checkReplyCompletion(body || {}));
+    } catch (error) {
+      json(res, 500, { error: "completion_check_failed", message: error.message });
     }
     return;
   }
@@ -454,6 +465,126 @@ async function reviewReply({ draft, message, context, sideContext, aiConfig, pro
   const data = await postDeepSeek(payload, aiConfig.reviewTimeoutMs, aiConfig);
   const reply = sanitizeReply(data.choices?.[0]?.message?.content?.trim());
   return reply || draft;
+}
+
+async function checkReplyCompletion(input = {}) {
+  const customerText = String(input.customerText || input.message || "").trim().slice(0, 800);
+  const reply = String(input.reply || "").trim().slice(0, 800);
+  const history = Array.isArray(input.history) ? input.history.slice(-8) : [];
+  const actions = Array.isArray(input.actions) ? input.actions.slice(0, 8) : [];
+  const source = String(input.source || "").trim();
+  const fallback = heuristicCompletionCheck({ customerText, reply, actions, source });
+  const aiConfig = getAiConfig();
+  if (!aiConfig.apiKey || !customerText) return fallback;
+
+  const payload = {
+    model: aiConfig.model,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "你是微信小店客服回复完成度检查器，只判断本次客服回复是否解决客户当前问题。",
+          "只输出 JSON，不要解释。",
+          "result 只能是 solved、partial、need_action、need_human、risky、unknown。",
+          "客户要求平台外联系方式、私下交易、无法承诺的售后结果时应标记 risky 或 need_human。",
+          "如果回复只是承接语、等待语、空回复，应标记 partial 或 unknown。"
+        ].join("\n")
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          taskId: String(input.taskId || ""),
+          customerText,
+          history,
+          reply,
+          actions,
+          source
+        })
+      }
+    ],
+    thinking: { type: aiConfig.thinking },
+    reasoning_effort: "low",
+    stream: false
+  };
+
+  try {
+    const data = await postDeepSeek(payload, Math.min(Number(aiConfig.reviewTimeoutMs || 25000), 30000), aiConfig);
+    const content = String(data.choices?.[0]?.message?.content || "").trim();
+    const parsed = parseJsonObject(content);
+    return normalizeCompletionCheck(parsed, fallback);
+  } catch (error) {
+    return {
+      ...fallback,
+      reason: fallback.reason || `完成度检查退回启发式：${String(error?.message || error).slice(0, 120)}`,
+      transport: "heuristic_after_error"
+    };
+  }
+}
+
+function heuristicCompletionCheck({ customerText, reply, actions, source }) {
+  const question = String(customerText || "").trim();
+  const answer = String(reply || "").trim();
+  const hasAction = Array.isArray(actions) && actions.length > 0;
+  const actionTypes = (actions || []).map((item) => String(item?.type || ""));
+
+  if (!question) return completionResult("unknown", "没有客户问题文本，无法判断完成度");
+  if (/(加微信|微信号|电话|手机号|联系方式|私聊|私下|转账)/.test(`${question}\n${answer}`)) {
+    return completionResult("risky", "涉及联系方式或平台外交易风险");
+  }
+  if (!answer && !hasAction) return completionResult("unknown", "没有客服回复或自动化动作");
+  if (/稍等|我看一下|还在看|正在处理|马上/.test(answer) && answer.length <= 28) {
+    return completionResult("partial", "当前只是承接语，不是最终答案", "wait_api_final");
+  }
+  if (/(怎么买|购买|下单|付款|链接|发商品|商品)/.test(question) && !actionTypes.includes("product") && !/商品|入口|下单|付款|链接/.test(answer)) {
+    return completionResult("need_action", "客户可能需要商品卡或邀请下单动作", "send_product_or_order");
+  }
+  if (/(图片|截图|目录|怎么使用|权益|包含什么|进群)/.test(question) && actionTypes.includes("image")) {
+    return completionResult("solved", "已发送匹配图片或图文动作");
+  }
+  if (hasAction || answer.length >= 8 || source === "api_reply" || source === "judgment_api") {
+    return completionResult("solved", "已有明确回复或自动化动作");
+  }
+  return completionResult("partial", "回复过短，建议补充说明", "api_remediate");
+}
+
+function completionResult(result, reason = "", nextAction = "", suggestedReply = "", suggestedActions = []) {
+  return {
+    result,
+    reason,
+    nextAction,
+    suggestedReply,
+    suggestedActions,
+    transport: "heuristic"
+  };
+}
+
+function normalizeCompletionCheck(value, fallback) {
+  const allowed = new Set(["solved", "partial", "need_action", "need_human", "risky", "unknown"]);
+  const result = allowed.has(String(value?.result || "")) ? String(value.result) : fallback.result;
+  return {
+    result,
+    reason: String(value?.reason || fallback.reason || "").slice(0, 240),
+    nextAction: String(value?.nextAction || fallback.nextAction || "").slice(0, 120),
+    suggestedReply: sanitizeReply(String(value?.suggestedReply || fallback.suggestedReply || "")),
+    suggestedActions: Array.isArray(value?.suggestedActions) ? value.suggestedActions.slice(0, 5) : [],
+    transport: "ai_api"
+  };
+}
+
+function parseJsonObject(content) {
+  const text = String(content || "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
 }
 
 function postDeepSeek(payload, timeoutMs, aiConfig = getAiConfig()) {

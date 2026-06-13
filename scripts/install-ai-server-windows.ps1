@@ -44,7 +44,7 @@ Register-ScheduledTask `
   -Trigger $trigger `
   -Principal $principal `
   -Settings $settings `
-  -Description "小店AI客服本地 AI 服务" | Out-Null
+  -Description "小店AI客服本机回复中转服务" | Out-Null
 
 Start-ScheduledTask -TaskName $taskName
 
@@ -58,4 +58,4 @@ for ($i = 0; $i -lt 15; $i++) {
   }
 }
 
-Write-Error "AI 服务已提交给任务计划程序，但 15 秒内没有通过健康检查。请查看：$env:TEMP\wechat-kf-ai-server.err.log"
+Write-Error "本机回复中转服务已提交给任务计划程序，但 15 秒内没有通过健康检查。请查看：$env:TEMP\wechat-kf-ai-server.err.log"

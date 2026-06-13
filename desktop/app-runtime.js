@@ -45,8 +45,8 @@ const RUNYU_AUTH_PARTITION = "persist:runyu-auth";
 const RUNYU_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const RUNYU_AUTH_HISTORY_LIMIT = 100;
 const AI_SERVICE_NAME = "xiaodian-ai-service";
-const AI_SERVICE_PROTOCOL = 2;
-const AI_REQUIRED_ROUTES = ["/reply", "/judgments/status", "/judgments/search", "/judgments/refresh"];
+const AI_SERVICE_PROTOCOL = 3;
+const AI_REQUIRED_ROUTES = ["/reply", "/completion/check", "/judgments/status", "/judgments/search", "/judgments/refresh"];
 
 app.setName(APP_DISPLAY_NAME);
 
@@ -102,10 +102,16 @@ const notifyCooldowns = new Map();
 const healthIssues = new Map();
 const NOTIFY_OUTBOX_LIMIT = 200;
 const REPLY_RECORD_LIMIT = 5000;
+const REPLY_TASK_LIMIT = 1000;
+const CUSTOMER_MEMORY_LIMIT = 1000;
+const RULE_CANDIDATE_LIMIT = 500;
 let notifyOutbox = [];
 let notifyOutboxTimer = null;
 let notifyOutboxFlushing = false;
 let replyRecords = [];
+let replyTasks = [];
+let customerMemories = [];
+let ruleCandidates = [];
 let replySummaryState = {
   lastHourlySlot: "",
   lastDailyDate: ""
@@ -176,6 +182,7 @@ async function startDesktopApp() {
   installApplicationMenu();
   await loadNotifyOutbox();
   await loadReplyRecords();
+  await loadReplyTaskStores();
   await loadReplySummaryState();
   applyLoginItemSetting();
   syncPowerBlocker();
@@ -195,7 +202,7 @@ async function startDesktopApp() {
   startJudgmentRefreshScheduler();
   startNotifyOutboxPump();
   startReplySummaryScheduler();
-  await sendNotification("app_started", `${APP_DISPLAY_NAME}已启动`, "程序、悬浮窗和本地 AI 服务已开始运行", {
+  await sendNotification("app_started", `${APP_DISPLAY_NAME}已启动`, "程序、悬浮窗和本机回复中转服务已开始运行", {
     cooldownMs: 60_000
   });
   await notifyMissingWebhookIfNeeded();
@@ -458,6 +465,18 @@ function replyRecordsPath() {
   return resolve(app.getPath("userData"), "reply-records.json");
 }
 
+function replyTasksPath() {
+  return resolve(app.getPath("userData"), "reply-tasks.json");
+}
+
+function customerMemoriesPath() {
+  return resolve(app.getPath("userData"), "customer-memories.json");
+}
+
+function ruleCandidatesPath() {
+  return resolve(app.getPath("userData"), "rule-candidates.json");
+}
+
 function replySummaryStatePath() {
   return resolve(app.getPath("userData"), "reply-summary-state.json");
 }
@@ -634,7 +653,7 @@ async function startAiServerWithNotify() {
       at: Date.now(),
       message: String(error?.message || error)
     };
-    await sendNotification("ai_start_failed", "本地 AI 服务启动失败", lastAiHealth.message, {
+    await sendNotification("ai_start_failed", "本机回复中转服务启动失败", lastAiHealth.message, {
       severity: "critical",
       recoveryKey: "ai",
       cooldownMs: 60_000
@@ -1159,7 +1178,7 @@ async function checkAiFromMenu(source) {
   await checkAiHealth({ notifyOk: source === "mac-menu" });
   refreshDesktopMenuSurfaces();
   if (source === "mac-menu") {
-    showNativeMenuResult("AI 连通性", lastAiHealth.ok ? "AI 服务连接正常。" : lastAiHealth.message || "AI 服务检查失败。");
+    showNativeMenuResult("AI API连通性", lastAiHealth.ok ? "AI API连接正常。" : lastAiHealth.message || "AI API检查失败。");
   }
   return { ok: Boolean(lastAiHealth.ok), ai: lastAiHealth, status: statusPayload() };
 }
@@ -1680,7 +1699,7 @@ function updateTrayMenu() {
     { label: "显示悬浮窗", click: () => runDesktopMenuCommand("floating.show", { source: "tray" }) },
     { label: enabled ? "暂停 Bot 接管" : "开启 Bot 接管", click: () => runDesktopMenuCommand(enabled ? "bot.pause" : "bot.enable", { source: "tray" }) },
     { label: "重载客服页", click: () => runDesktopMenuCommand("workbench.reload", { source: "tray" }) },
-    { label: "检查 AI 服务", click: () => runDesktopMenuCommand("api.checkAi", { source: "tray" }) },
+    { label: "检查 AI API", click: () => runDesktopMenuCommand("api.checkAi", { source: "tray" }) },
     { type: "separator" },
     {
       label: "退出程序",
@@ -2141,6 +2160,8 @@ function statusPayload() {
     judgmentLibrary: config?.judgmentLibrary || {},
     judgmentDownload: getJudgmentDownloadStatus(),
     records,
+    replyTasks: replyTaskStats(),
+    ruleCandidates: ruleCandidateStats(),
     now: Date.now(),
     runtimeContext: snapshotAppContext(appContext)
   };
@@ -2181,6 +2202,18 @@ async function workbenchSnapshotPayload() {
     recordsSummary: {
       ...status.records,
       recent: recentRecords.items.slice(0, 6)
+    },
+    replyTasks: {
+      summary: replyTaskStats(),
+      recent: replyTasks.slice(-12).reverse()
+    },
+    customerMemories: {
+      total: customerMemories.length,
+      recent: customerMemories.slice(-8).reverse()
+    },
+    ruleCandidates: {
+      summary: ruleCandidateStats(),
+      recent: ruleCandidates.slice(-12).reverse()
     },
     judgmentStatus,
     notifyOutbox: notifyOutbox.slice(-20).reverse(),
@@ -4130,6 +4163,54 @@ async function handleBotEvent(event = {}) {
   const customer = clip(String(payload.customer || payload.message || ""), 100);
   const stage = payload.stage ? `阶段：${payload.stage}` : "";
 
+  if (type === "reply_task_updated") {
+    await upsertReplyTask(payload);
+    const label = taskStatusLabel(payload.status);
+    if (label) {
+      updateFloatingStatus(label, {
+        code: taskStatusCode(payload.status),
+        detail: payload.completion?.reason || payload.status || "",
+        customer,
+        actionType: payload.route || ""
+      });
+    }
+    return;
+  }
+
+  if (type === "customer_memory_updated") {
+    await upsertCustomerMemory(payload);
+    return;
+  }
+
+  if (type === "rule_candidate_created") {
+    await upsertRuleCandidate(payload);
+    return;
+  }
+
+  if (type === "reply_delayed") {
+    await upsertReplyTask({ ...payload, status: "delayed" });
+    updateFloatingStatus("AI延迟", {
+      code: "api_delayed",
+      detail: "超过60秒仍在等待AI API最终回复",
+      customer,
+      actionType: "api_reply"
+    });
+    await recordReplyEvent("timeout", {
+      ...payload,
+      stage: "api_delayed",
+      sourceType: "api_reply",
+      usedAi: true,
+      status: "60秒延迟处理"
+    });
+    await sendNotification(
+      `reply_delayed:${payload.taskId || ""}:${customer}`,
+      "AI API回复延迟",
+      [stage, customer ? `客户：${customer}` : "", "状态：已记录延迟，仍等待最终回复"].filter(Boolean).join("\n"),
+      { severity: "warning", cooldownMs: 60_000 }
+    );
+    return;
+  }
+
   if (type === "reply_sent") {
     const runtime = runtimeStatusForReplyEvent(payload);
     updateFloatingStatus(runtime.label, runtime);
@@ -4185,7 +4266,7 @@ async function handleBotEvent(event = {}) {
       actionType: "ai"
     });
     await recordReplyEvent("failed", { ...payload, stage: "ai_failed" });
-    await sendNotification("ai_failed", "AI 回复请求失败", payload.error || "本地 AI 服务没有返回可用回复", {
+    await sendNotification("ai_failed", "AI API回复请求失败", payload.error || "本机回复中转服务没有返回可用回复", {
       severity: "warning"
     });
     return;
@@ -4197,6 +4278,46 @@ async function handleBotEvent(event = {}) {
       severity: "warning"
     });
   }
+}
+
+function taskStatusLabel(status) {
+  const labels = {
+    created: "任务创建",
+    rule_sent: "规则已发",
+    pending_api: "等待AI",
+    ack_sent: "已发承接",
+    api_final_sent: "最终已发",
+    checking_completion: "检查完成",
+    completed: "回复完成",
+    partial: "部分完成",
+    need_action: "需要动作",
+    retrying: "补救中",
+    delayed: "AI延迟",
+    waiting_human: "待人工",
+    risky: "风险拦截",
+    failed: "回复失败",
+    merged: "任务合并",
+    cancelled: "已取消"
+  };
+  return labels[String(status || "")] || "";
+}
+
+function taskStatusCode(status) {
+  const codes = {
+    pending_api: "waiting_ai",
+    ack_sent: "waiting_ai",
+    api_final_sent: "text_sent",
+    checking_completion: "checking_completion",
+    completed: "reply_done",
+    partial: "completion_partial",
+    need_action: "need_action",
+    retrying: "retrying",
+    delayed: "api_delayed",
+    waiting_human: "waiting_human",
+    risky: "risky",
+    failed: "reply_failed"
+  };
+  return codes[String(status || "")] || "monitoring";
 }
 
 function runtimeStatusForReplyEvent(payload = {}) {
@@ -4223,13 +4344,16 @@ function runtimeStatusForReplyEvent(payload = {}) {
     return { code: "quick_sent", label: "快捷已发", detail: "快捷语已发送给当前客户", customer, actionType: "quick_reply" };
   }
   if (stage === "quick_ack") {
-    return { code: "waiting_ai", label: "等待AI", detail: "承接语已发送，继续等待AI详细回复", customer, actionType: stage };
+    return { code: "waiting_ai", label: "等待AI", detail: "15秒承接语已发送，继续等待AI API最终回复", customer, actionType: stage };
   }
   if (stage === "fallback_reply") {
-    return { code: "text_sent", label: "文字已发", detail: "兜底回复已发送给当前客户", customer, actionType: stage };
+    return { code: "retrying", label: "补救中", detail: "AI API补救回复已发送给当前客户", customer, actionType: stage };
   }
   if (stage === "judgment_ai") {
-    return { code: "text_sent", label: "文字已发", detail: "外部知识库和 AI 生成的回复已发送", customer, actionType: stage };
+    return { code: "text_sent", label: "文字已发", detail: "判断库增强回复已发送", customer, actionType: stage };
+  }
+  if (stage === "api_remediation") {
+    return { code: "retrying", label: "补救中", detail: "AI API补救回复已发送", customer, actionType: stage };
   }
   return { code: "text_sent", label: "文字已发", detail: "文字回复已发送给当前客户", customer, actionType: stage || "text" };
 }
@@ -4249,6 +4373,133 @@ async function loadReplyRecords() {
 async function saveReplyRecords() {
   await mkdir(dirname(replyRecordsPath()), { recursive: true });
   await writeFile(replyRecordsPath(), JSON.stringify(replyRecords.slice(-REPLY_RECORD_LIMIT), null, 2), "utf8");
+}
+
+async function loadReplyTaskStores() {
+  replyTasks = await loadRuntimeArray(replyTasksPath(), REPLY_TASK_LIMIT, "reply tasks");
+  customerMemories = await loadRuntimeArray(customerMemoriesPath(), CUSTOMER_MEMORY_LIMIT, "customer memories");
+  ruleCandidates = await loadRuntimeArray(ruleCandidatesPath(), RULE_CANDIDATE_LIMIT, "rule candidates");
+}
+
+async function loadRuntimeArray(path, limit, label) {
+  if (!existsSync(path)) return [];
+  try {
+    const items = JSON.parse(await readFile(path, "utf8"));
+    return Array.isArray(items) ? items.slice(-limit) : [];
+  } catch (error) {
+    console.error(`[runtime] load ${label} failed`, error);
+    return [];
+  }
+}
+
+async function saveReplyTasks() {
+  await mkdir(dirname(replyTasksPath()), { recursive: true });
+  await writeFile(replyTasksPath(), JSON.stringify(replyTasks.slice(-REPLY_TASK_LIMIT), null, 2), "utf8");
+}
+
+async function saveCustomerMemories() {
+  await mkdir(dirname(customerMemoriesPath()), { recursive: true });
+  await writeFile(customerMemoriesPath(), JSON.stringify(customerMemories.slice(-CUSTOMER_MEMORY_LIMIT), null, 2), "utf8");
+}
+
+async function saveRuleCandidates() {
+  await mkdir(dirname(ruleCandidatesPath()), { recursive: true });
+  await writeFile(ruleCandidatesPath(), JSON.stringify(ruleCandidates.slice(-RULE_CANDIDATE_LIMIT), null, 2), "utf8");
+}
+
+async function upsertReplyTask(task = {}) {
+  const id = String(task.taskId || "").trim();
+  if (!id) return null;
+  const saved = {
+    ...task,
+    taskId: id,
+    updatedAt: Number(task.updatedAt || Date.now())
+  };
+  const index = replyTasks.findIndex((item) => item.taskId === id);
+  if (index >= 0) replyTasks[index] = { ...replyTasks[index], ...saved };
+  else replyTasks.push(saved);
+  replyTasks = replyTasks
+    .sort((a, b) => Number(a.updatedAt || a.createdAt || 0) - Number(b.updatedAt || b.createdAt || 0))
+    .slice(-REPLY_TASK_LIMIT);
+  await saveReplyTasks().catch((error) => console.error("[runtime] save reply task failed", error));
+  broadcastStatus();
+  return saved;
+}
+
+async function upsertCustomerMemory(memory = {}) {
+  const id = String(memory.customerId || memory.sessionKey || "").trim();
+  if (!id) return null;
+  const saved = {
+    ...memory,
+    customerId: id,
+    updatedAt: Number(memory.updatedAt || Date.now())
+  };
+  const index = customerMemories.findIndex((item) => String(item.customerId || item.sessionKey || "") === id);
+  if (index >= 0) customerMemories[index] = { ...customerMemories[index], ...saved };
+  else customerMemories.push(saved);
+  customerMemories = customerMemories
+    .sort((a, b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0))
+    .slice(-CUSTOMER_MEMORY_LIMIT);
+  await saveCustomerMemories().catch((error) => console.error("[runtime] save customer memory failed", error));
+  broadcastStatus();
+  return saved;
+}
+
+async function upsertRuleCandidate(candidate = {}) {
+  const id = String(candidate.id || "").trim();
+  if (!id) return null;
+  const saved = {
+    status: "pending_review",
+    count: 1,
+    ...candidate,
+    id,
+    updatedAt: Number(candidate.updatedAt || Date.now())
+  };
+  const index = ruleCandidates.findIndex((item) => item.id === id);
+  if (index >= 0) {
+    ruleCandidates[index] = {
+      ...ruleCandidates[index],
+      ...saved,
+      count: Number(ruleCandidates[index].count || 0) + Number(candidate.count || 1)
+    };
+  } else {
+    ruleCandidates.push(saved);
+  }
+  ruleCandidates = ruleCandidates
+    .sort((a, b) => Number(a.updatedAt || a.lastSeenAt || 0) - Number(b.updatedAt || b.lastSeenAt || 0))
+    .slice(-RULE_CANDIDATE_LIMIT);
+  await saveRuleCandidates().catch((error) => console.error("[runtime] save rule candidate failed", error));
+  broadcastStatus();
+  return saved;
+}
+
+function replyTaskStats(items = replyTasks) {
+  const counts = countBy(items.map((item) => String(item.status || "unknown")));
+  const open = items.filter((item) => !["completed", "cancelled", "merged"].includes(String(item.status || ""))).length;
+  return {
+    total: items.length,
+    open,
+    pendingApi: Number(counts.pending_api || 0) + Number(counts.ack_sent || 0) + Number(counts.delayed || 0),
+    ackSent: items.filter((item) => item?.ack?.sent === true).length,
+    delayed: Number(counts.delayed || 0),
+    retrying: Number(counts.retrying || 0),
+    partial: Number(counts.partial || 0),
+    needAction: Number(counts.need_action || 0),
+    waitingHuman: Number(counts.waiting_human || 0),
+    risky: Number(counts.risky || 0),
+    failed: Number(counts.failed || 0),
+    completed: Number(counts.completed || 0)
+  };
+}
+
+function ruleCandidateStats(items = ruleCandidates) {
+  const counts = countBy(items.map((item) => String(item.status || "pending_review")));
+  return {
+    total: items.length,
+    pendingReview: Number(counts.pending_review || 0),
+    approved: Number(counts.approved || 0),
+    rejected: Number(counts.rejected || 0)
+  };
 }
 
 async function loadReplySummaryState() {
@@ -4291,6 +4542,11 @@ async function recordReplyEvent(kind, payload = {}) {
     at: Date.now(),
     kind,
     stage: String(payload.stage || ""),
+    taskId: String(payload.taskId || ""),
+    customerId: String(payload.customerId || ""),
+    isNewCustomer: payload.isNewCustomer === true,
+    route: String(payload.route || ""),
+    ruleMode: String(payload.ruleMode || ""),
     sourceType: source.sourceType,
     sourceLabel: source.sourceLabel,
     usedRuleLibrary: source.usedRuleLibrary,
@@ -4304,7 +4560,13 @@ async function recordReplyEvent(kind, payload = {}) {
     actions: Array.isArray(payload.actions) ? payload.actions.slice(0, 8) : [],
     latencyMs: Number.isFinite(Number(payload.latencyMs)) ? Number(payload.latencyMs) : null,
     aiTrace: normalizeAiTrace(payload.aiTrace),
-    processSteps: normalizeProcessSteps(payload.processSteps, source, payload)
+    processSteps: normalizeProcessSteps(payload.processSteps, source, payload),
+    ackSent: payload.ackSent === true || payload.ack?.sent === true,
+    finalReplySent: payload.finalReplySent === true || payload.finalReply?.sent === true,
+    completionResult: String(payload.completionResult || payload.completion?.result || ""),
+    completionReason: clip(String(payload.completionReason || payload.completion?.reason || ""), 180),
+    remediationCount: Number(payload.remediationCount || payload.customerVisibleRetryCount || 0),
+    candidateCreated: payload.candidateCreated === true
   };
   replyRecords.push(record);
   replyRecords = replyRecords.slice(-REPLY_RECORD_LIMIT);
@@ -4339,7 +4601,7 @@ function normalizeProcessSteps(value, source, payload) {
   const steps = ["检测消息"];
   if (source.usedRuleLibrary) steps.push("匹配规则库");
   if (source.usedDirectReply) steps.push("选择直接回复");
-  if (source.usedAi) steps.push("调用AI接口");
+  if (source.usedAi) steps.push("调用远方AI API");
   for (const action of Array.isArray(payload.actions) ? payload.actions : []) {
     const labels = {
       text: "发送文字",
@@ -4350,7 +4612,7 @@ function normalizeProcessSteps(value, source, payload) {
       quick_reply: "发送快捷语",
       ignore: "忽略消息"
     };
-    steps.push(labels[String(action?.type || "")] || "执行页面动作");
+    steps.push(labels[String(action?.type || "")] || "执行自动化页面动作");
   }
   if (!payload.actions?.length) steps.push(payload.status || payload.reply ? "发送文字" : "完成处理");
   return steps.slice(0, 12);
@@ -4364,7 +4626,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (payload.usedJudgmentLibrary === true || stage === "judgment_ai") {
     return {
       sourceType: "judgment_ai",
-      sourceLabel: "外部知识库补充",
+      sourceLabel: "判断库增强回复",
       usedRuleLibrary: false,
       usedDirectReply: false,
       usedAi: true
@@ -4373,8 +4635,8 @@ function classifyReplySource(stageValue, payload = {}) {
 
   if (payload.usedAi === true || /^ai/.test(stage)) {
     return {
-      sourceType: "ai_followup",
-      sourceLabel: "AI 接管",
+      sourceType: stage === "api_remediation" ? "api_remediation" : "ai_followup",
+      sourceLabel: stage === "api_remediation" ? "AI补救回复" : "AI API回复",
       usedRuleLibrary: false,
       usedDirectReply: false,
       usedAi: true
@@ -4384,7 +4646,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (stage === "panel_action") {
     return {
       sourceType: "panel_action",
-      sourceLabel: "页面动作",
+      sourceLabel: "自动化页面动作",
       usedRuleLibrary: true,
       usedDirectReply: false,
       usedAi: false
@@ -4394,7 +4656,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (stage === "action_rule" || hasProductAction) {
     return {
       sourceType: "action_rule",
-      sourceLabel: "动作规则库",
+      sourceLabel: "本地动作规则",
       usedRuleLibrary: true,
       usedDirectReply: false,
       usedAi: false
@@ -4404,7 +4666,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (stage === "image_reply") {
     return {
       sourceType: "image_rule",
-      sourceLabel: "图片规则库",
+      sourceLabel: "图片回复",
       usedRuleLibrary: true,
       usedDirectReply: false,
       usedAi: false
@@ -4414,7 +4676,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (stage === "rule") {
     return {
       sourceType: "text_rule",
-      sourceLabel: "文本规则库",
+      sourceLabel: "本地规则回复",
       usedRuleLibrary: true,
       usedDirectReply: false,
       usedAi: false
@@ -4424,7 +4686,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (stage === "quick_ack") {
     return {
       sourceType: "quick_ack",
-      sourceLabel: "直接承接",
+      sourceLabel: "15秒承接语",
       usedRuleLibrary: false,
       usedDirectReply: true,
       usedAi: false
@@ -4444,7 +4706,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (stage === "fallback_reply") {
     return {
       sourceType: "fallback_reply",
-      sourceLabel: "60秒兜底",
+      sourceLabel: "60秒延迟处理",
       usedRuleLibrary: false,
       usedDirectReply: true,
       usedAi: false
@@ -4565,12 +4827,30 @@ function buildReplySummaryBody(records, label) {
   const timeout = records.filter((item) => item.kind === "timeout");
   const customers = new Set(records.map((item) => item.customer).filter(Boolean));
   const actionCounts = countBy(records.flatMap((item) => item.actions || []).map((item) => item.type || "action"));
+  const localRuleCount = records.filter((item) => ["text_rule", "image_rule", "action_rule"].includes(String(item.sourceType || ""))).length;
+  const automationActionCount = records.filter((item) => Array.isArray(item.actions) && item.actions.length > 0).length;
+  const aiApiCount = records.filter((item) => item.usedAi || ["ai_followup", "api_remediation", "judgment_ai"].includes(String(item.sourceType || ""))).length;
+  const judgmentCount = records.filter((item) => item.usedJudgmentLibrary || item.sourceType === "judgment_ai").length;
+  const ackCount = records.filter((item) => item.stage === "quick_ack" || item.ackSent).length;
+  const delayedCount = records.filter((item) => item.stage === "api_delayed" || item.completionResult === "delayed").length;
+  const remediationCount = records.reduce((sum, item) => sum + Number(item.remediationCount || 0), 0);
+  const waitingHumanCount = records.filter((item) => item.completionResult === "need_human" || item.status === "waiting_human").length;
+  const candidateCount = records.filter((item) => item.candidateCreated).length;
   const lines = [
     `时间：${label}`,
     `客户问题：${customers.size} 条`,
     `成功记录：${sent.length} 条`,
     `失败记录：${failed.length} 条`,
-    `超时记录：${timeout.length} 条`
+    `超时记录：${timeout.length} 条`,
+    `本地规则回复：${localRuleCount} 条`,
+    `自动化动作：${automationActionCount} 条`,
+    `AI API回复：${aiApiCount} 条`,
+    `判断库增强：${judgmentCount} 条`,
+    `15秒承接：${ackCount} 次`,
+    `延迟任务：${delayedCount} 条`,
+    `补救次数：${remediationCount} 次`,
+    `转人工：${waitingHumanCount} 条`,
+    `规则候选新增：${candidateCount} 条`
   ];
   const actionLine = Object.entries(actionCounts)
     .map(([name, count]) => `${name} ${count}`)
@@ -4597,7 +4877,10 @@ function summaryRecordLine(item) {
     status,
     item.sourceLabel ? `来源:${item.sourceLabel}` : "",
     item.stage ? `阶段:${item.stage}` : "",
+    item.taskId ? `任务:${clip(item.taskId, 18)}` : "",
     item.rule ? `规则:${clip(item.rule, 30)}` : "",
+    item.completionResult ? `完成度:${item.completionResult}` : "",
+    item.remediationCount ? `补救:${item.remediationCount}` : "",
     actionText ? `动作:${actionText}` : "",
     item.customer ? `客户:${clip(item.customer, 42)}` : "",
     item.reply ? `回复:${clip(item.reply, 42)}` : "",
@@ -4675,16 +4958,16 @@ async function checkAiHealth({ notifyOk = false } = {}) {
     };
 
     if (!data.hasKey) {
-      await sendNotification("ai_missing_key", "本地 AI 服务缺少 API Key", "请检查项目 .env 里的 DEEPSEEK_API_KEY", {
+      await sendNotification("ai_missing_key", "AI API缺少 API Key", "请检查项目 .env 里的 DEEPSEEK_API_KEY", {
         severity: "critical",
         recoveryKey: "ai"
       });
     } else if (notifyOk) {
-      await sendNotification("ai_health_ok", "AI 服务正常", lastAiHealth.message, {
+      await sendNotification("ai_health_ok", "AI API正常", lastAiHealth.message, {
         cooldownMs: 30_000
       });
     }
-    if (data.hasKey) await notifyHealthRecovered("ai", "AI 服务已恢复", lastAiHealth.message);
+    if (data.hasKey) await notifyHealthRecovered("ai", "AI API已恢复", lastAiHealth.message);
   } catch (error) {
     lastAiHealth = {
       ok: false,
@@ -4692,7 +4975,7 @@ async function checkAiHealth({ notifyOk = false } = {}) {
       at: Date.now(),
       message: String(error?.message || error)
     };
-    await sendNotification("ai_down", "本地 AI 服务异常", `${lastAiHealth.message}\n程序将尝试重启 AI 服务`, {
+    await sendNotification("ai_down", "本机回复中转服务异常", `${lastAiHealth.message}\n程序将尝试重启中转服务`, {
       severity: "critical",
       recoveryKey: "ai",
       cooldownMs: 60_000
@@ -4911,7 +5194,7 @@ function findRuleTrigger(message, bot = {}) {
   if (actionRule) {
     return {
       sourceType: "action_rule",
-      sourceLabel: "动作规则库",
+      sourceLabel: "本地动作规则",
       ruleName: String(actionRule.name || "未命名动作规则"),
       actions: summarizeRuleActions(actionRule.actions),
       rawActions: cloneJson(actionRule.actions || []),
@@ -4927,7 +5210,7 @@ function findRuleTrigger(message, bot = {}) {
   if (imageRule) {
     return {
       sourceType: "image_rule",
-      sourceLabel: "图片规则库",
+      sourceLabel: "图片回复",
       ruleName: String(imageRule.name || "未命名图片规则"),
       reply: String(imageRule.caption || "").trim(),
       actions: [{ type: "image", path: String(imageRule.path || imageRule.imagePath || "") }],
@@ -4942,7 +5225,7 @@ function findRuleTrigger(message, bot = {}) {
   if (textRule) {
     return {
       sourceType: "text_rule",
-      sourceLabel: "文本规则库",
+      sourceLabel: "本地规则回复",
       ruleName: String(textRule.name || "未命名文字规则"),
       reply: String(textRule.reply || "").trim(),
       actions: [{ type: "text", text: String(textRule.reply || "").trim() }]
@@ -5581,7 +5864,7 @@ async function testJudgmentLibrary(payload = {}) {
     errorCode: error?.code || "JUDGMENT_SEARCH_FAILED",
     httpStatus: Number(error?.status || 0),
     message: error?.code === "LOCAL_AI_ROUTE_404"
-      ? "本机 AI 服务缺少外部知识库路由，程序将切换到兼容服务端口"
+      ? "本机回复中转服务缺少判断库路由，程序将切换到兼容服务端口"
       : String(error?.message || error),
     results: []
   }));

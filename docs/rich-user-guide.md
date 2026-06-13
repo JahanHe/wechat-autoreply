@@ -6,15 +6,15 @@
 
 ## 一句话定位
 
-这是一个把微信小店客服页封装成桌面应用的自动回复工具。它不是单纯的浏览器脚本，而是一个带主控制台、客服页映射、悬浮窗、规则库、本地 AI 服务、页面动作接口、Webhook 通知和安装包发布流程的桌面客服工作台。
+这是一个把微信小店客服页封装成桌面应用的自动回复工具。它不是单纯的浏览器脚本，而是一个带主控制台、客服页映射、悬浮窗、规则库、本机回复中转服务、页面动作接口、Webhook 通知和安装包发布流程的桌面客服工作台。
 
 ## 下载安装
 
 正式安装包在 GitHub 发布页：
 
-- [macOS Apple Silicon DMG](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-macos-arm64.dmg)
-- [Windows 安装版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-windows-setup.exe)
-- [Windows 便携版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.3/xiaodian-ai-kefu-windows-portable.exe)
+- [macOS Apple Silicon DMG](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.4/xiaodian-ai-kefu-macos-arm64.dmg)
+- [Windows 安装版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.4/xiaodian-ai-kefu-windows-setup.exe)
+- [Windows 便携版](https://github.com/JahanHe/Shop-ai-reply/releases/download/v0.4.4/xiaodian-ai-kefu-windows-portable.exe)
 
 首次打开后会先进入初始化页：
 
@@ -62,7 +62,7 @@ flowchart LR
   Page --> Bot["content.js 自动回复 Bot"]
   Bot --> Rules["确定性规则"]
   Bot --> Actions["页面动作接口"]
-  Bot --> AI["本地 AI 服务 127.0.0.1:8787"]
+  Bot --> AI["本机回复中转服务 127.0.0.1:8787"]
   Actions --> Page
   App --> Notify["企业微信 Webhook"]
   App --> Records["回复记录和汇总"]
@@ -87,7 +87,7 @@ flowchart TD
   I -- "是" --> M["发送 AI 精准回复"]
   L --> N{"60 秒内是否有可用答案"}
   N -- "是" --> M
-  N -- "否" --> O["轮换发送兜底回复"]
+  N -- "否" --> O["轮换发送延迟处理"]
   O --> P["AI稍后返回仍继续发送详细答案"]
   E --> J["记录动作结果"]
   G --> J
@@ -180,7 +180,7 @@ flowchart TD
 即时通知包含：
 
 - 客服页需要扫码登录，并发送二维码截图。
-- AI 服务缺少 API Key 或请求异常。
+- AI API 缺少 API Key 或请求异常。
 - 回复失败、超时、页面崩溃、页面跑偏。
 - 图片或文件路径缺失。
 
