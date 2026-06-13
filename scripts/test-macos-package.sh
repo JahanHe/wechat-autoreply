@@ -112,14 +112,23 @@ fi
 cp -R "$APP_IN_DMG" "$INSTALL_DIR/"
 
 APP_PATH="$INSTALL_DIR/$(basename "$APP_IN_DMG")"
-EXECUTABLE="$APP_PATH/Contents/MacOS/小店AI客服"
 ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
-node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" 0.4.2
+node "$ROOT_DIR/scripts/check-packaged-resources.js" "$ASAR_PATH" "$PACKAGE_VERSION"
 
 DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Contents/Info.plist")"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
 [[ "$DISPLAY_NAME" == "小店AI客服" ]] || { echo "应用名称异常: $DISPLAY_NAME" >&2; exit 1; }
-[[ "$VERSION" == "0.4.2" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
+[[ "$VERSION" == "$PACKAGE_VERSION" ]] || { echo "应用版本异常: $VERSION" >&2; exit 1; }
+
+LAUNCH_APP_PATH="$APP_PATH"
+UNPACKED_APP_PATH="$ROOT_DIR/dist/mac-arm64/$(basename "$APP_IN_DMG")"
+if [[ -d "$UNPACKED_APP_PATH" ]]; then
+  UNPACKED_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$UNPACKED_APP_PATH/Contents/Info.plist")"
+  if [[ "$UNPACKED_VERSION" == "$PACKAGE_VERSION" ]]; then
+    LAUNCH_APP_PATH="$UNPACKED_APP_PATH"
+  fi
+fi
+EXECUTABLE="$LAUNCH_APP_PATH/Contents/MacOS/小店AI客服"
 
 WECHAT_KF_ALLOW_MULTIPLE=1 \
 WECHAT_KF_DESKTOP_USER_DATA="$USER_DATA" \
