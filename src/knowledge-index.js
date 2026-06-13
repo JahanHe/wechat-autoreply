@@ -46,6 +46,10 @@ export function createKnowledgeIndex(options = {}) {
     };
   }
 
+  function records() {
+    return ensureCache().chunks.map((chunk) => ({ ...chunk }));
+  }
+
   function startWatching() {
     if (watcher || !existsSync(directory)) return Boolean(watcher);
     try {
@@ -85,7 +89,7 @@ export function createKnowledgeIndex(options = {}) {
     return cache;
   }
 
-  return { search, reload, status, startWatching, close };
+  return { search, reload, status, records, startWatching, close };
 }
 
 export function buildCache(directory) {

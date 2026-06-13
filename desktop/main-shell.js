@@ -3,24 +3,27 @@ const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selec
 
 const navItems = [
   { id: "page", target: "page", title: "工作台", icon: "messages", description: "客服页映射、扫码登录和当前接管状态。" },
-  { id: "rules", target: "rules", title: "知识库", icon: "reply", description: "规则库、Bot策略、AI风格和外部知识库。" },
+  { id: "rules", target: "knowledge", title: "知识库", icon: "reply", description: "知识总览、规则库、AI参考和统一测试。" },
   { id: "dashboard", target: "dashboard", title: "监控", icon: "activity", description: "实时状态、回复日志和异常追踪。" },
   { id: "settings", target: "setup", title: "设置", icon: "settings", description: "初始化、Webhook、悬浮窗和退出设置。" }
 ];
 
 const sectionGroups = {
   page: ["page"],
-  rules: ["rules", "bot", "api", "judgments"],
+  rules: ["knowledge", "rules", "aiReference", "testCenter"],
   dashboard: ["dashboard", "logs"],
-  settings: ["setup", "webhook", "floating", "help"]
+  settings: ["setup", "bot", "api", "judgments", "webhook", "floating", "help"]
 };
 
 const viewLabels = {
   page: "客服页",
+  knowledge: "知识总览",
   rules: "规则库",
+  aiReference: "AI参考",
+  testCenter: "测试中心",
   bot: "Bot策略",
-  api: "API风格",
-  judgments: "外部知识库",
+  api: "AI API",
+  judgments: "外部知识同步",
   dashboard: "总览",
   logs: "日志",
   webhook: "Webhook",
@@ -46,7 +49,7 @@ const sourceLabels = {
   fallback_reply: { label: "60秒延迟处理", className: "direct" },
   ai_followup: { label: "AI API回复", className: "ai" },
   api_remediation: { label: "AI补救回复", className: "ai" },
-  judgment_ai: { label: "判断库增强回复", className: "judgment" },
+  judgment_ai: { label: "同步资料增强回复", className: "judgment" },
   rule_candidate: { label: "规则候选池", className: "rule" },
   ignore: { label: "忽略", className: "direct" },
   unknown: { label: "未分类", className: "" }
@@ -68,6 +71,10 @@ const state = {
   setupChecks: [],
   setupRunning: false,
   ruleTestResult: null,
+  pipelineTestResult: null,
+  knowledgeOverview: null,
+  expandedRuleKey: "",
+  ruleFilter: "all",
   apiKeyShown: false,
   runyuCookieShown: false,
   loading: false,
@@ -114,14 +121,15 @@ async function init() {
     if (["setup", "judgments", "dashboard"].includes(state.view)) renderView();
     renderChrome();
   });
-  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel] = await Promise.all([
+  const [settings, status, records, judgments, judgmentDownload, workbench, menuModel, knowledgeOverview] = await Promise.all([
     window.mainShell.getSettings(),
     window.mainShell.getStatus(),
     window.mainShell.getReplyRecords({ limit: 300 }),
     window.mainShell.getJudgmentsStatus(),
     window.mainShell.getJudgmentsDownloadStatus(),
     window.mainShell.getWorkbenchSnapshot ? window.mainShell.getWorkbenchSnapshot() : Promise.resolve(null),
-    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(null)
+    window.mainShell.getMenuModel ? window.mainShell.getMenuModel() : Promise.resolve(null),
+    window.mainShell.getKnowledgeOverview ? window.mainShell.getKnowledgeOverview() : Promise.resolve(null)
   ]);
   state.settings = settings;
   state.status = status;
@@ -129,6 +137,7 @@ async function init() {
   state.judgments = judgments;
   state.workbench = workbench;
   state.menuModel = menuModel;
+  state.knowledgeOverview = knowledgeOverview;
   state.runyuAuth = judgments?.auth || status?.runyuAuth || null;
   state.judgmentDownload = judgmentDownload;
   renderChrome();
@@ -298,6 +307,10 @@ async function switchView(view) {
   state.detail = null;
   renderChrome();
   renderView();
+  if (["knowledge", "aiReference", "testCenter"].includes(state.view) && window.mainShell.getKnowledgeOverview) {
+    state.knowledgeOverview = await window.mainShell.getKnowledgeOverview().catch(() => state.knowledgeOverview);
+    renderView();
+  }
   try {
     state.status = await window.mainShell.setMode(state.view === "page" ? "page" : state.view);
     renderChrome();
@@ -369,8 +382,11 @@ function renderView() {
   if (state.view === "page") renderPageView();
   else if (state.view === "setup") renderSetup();
   else if (state.view === "dashboard") renderDashboard();
+  else if (state.view === "knowledge") renderKnowledgeOverview();
   else if (state.view === "bot") renderBot();
   else if (state.view === "api") renderApi();
+  else if (state.view === "aiReference") renderAiReference();
+  else if (state.view === "testCenter") renderTestCenter();
   else if (state.view === "judgments") renderJudgments();
   else if (state.view === "webhook") renderWebhook();
   else if (state.view === "rules") renderRules();
@@ -409,6 +425,133 @@ function renderPageView() {
       </div>
     </div>
   `;
+}
+
+function renderKnowledgeOverview() {
+  const overview = state.knowledgeOverview || {};
+  const stats = knowledgeRuleStats(state.settings?.config?.bot || {});
+  const external = overview.externalSynced || {};
+  const local = overview.local || {};
+  const profile = state.settings?.assistantProfile || {};
+  content.innerHTML = `
+    ${pageHead("知识总览", "集中查看直接回复规则、本机自建资料和已经下载到本机的外部同步资料。")}
+    <div class="grid cols-4 knowledge-metrics">
+      ${overviewButton("全部规则", stats.total, `启用 ${stats.enabled} · 停用 ${stats.disabled}`, "rules", "all")}
+      ${overviewButton("本机自建资料", Number(local.chunks || 0) + Number(local.manualSections || 0), `${local.files || 0} 个文件 · ${local.manualSections || 0} 个人工区段`, "aiReference", "local")}
+      ${overviewButton("外部同步资料", external.records || 0, `${(external.sources || []).length} 个来源 · ${external.updatedAt ? formatFullTime(external.updatedAt) : "尚未下载"}`, "aiReference", "external")}
+      ${overviewButton("规则候选", state.status?.ruleCandidates?.pendingReview || 0, `总计 ${state.status?.ruleCandidates?.total || 0} 条`, "rules", "candidates")}
+    </div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <section class="card">
+        <div class="section-title"><div><h3>规则分类</h3><div class="hint">点击分类进入紧凑规则列表。</div></div><button data-overview-view="rules" data-rule-filter="all">管理规则</button></div>
+        <div class="knowledge-list">
+          ${knowledgeSummaryRow("文字规则", stats.text, "rules", "text")}
+          ${knowledgeSummaryRow("组合动作", stats.action, "rules", "action")}
+          ${knowledgeSummaryRow("图片规则", stats.image, "rules", "image")}
+          ${knowledgeSummaryRow("文件规则", stats.file, "rules", "file")}
+          ${knowledgeSummaryRow("商品卡", stats.product, "rules", "product")}
+          ${knowledgeSummaryRow("邀请下单", stats.invite, "rules", "invite")}
+        </div>
+      </section>
+      <section class="card">
+        <div class="section-title"><div><h3>AI 参考状态</h3><div class="hint">AI 只读取本机资料，回复时不会实时查询外部服务器。</div></div><button data-overview-view="aiReference">编辑 AI 参考</button></div>
+        <div class="knowledge-list">
+          ${knowledgeStatusRow("回复人格", profile.stylePrompt || profile.soulPrompt ? "已配置" : "未配置", Boolean(profile.stylePrompt || profile.soulPrompt))}
+          ${knowledgeStatusRow("边界与审核", profile.guardrailsPrompt || profile.reviewPrompt ? "已配置" : "未配置", Boolean(profile.guardrailsPrompt || profile.reviewPrompt))}
+          ${knowledgeStatusRow("本机文件索引", `${local.chunks || 0} 个片段`, Number(local.chunks || 0) > 0)}
+          ${knowledgeStatusRow("外部同步索引", external.records ? `${external.records} 条可用` : "尚未下载", Number(external.records || 0) > 0)}
+          ${knowledgeStatusRow("远端生产查询", "已禁止", true)}
+        </div>
+      </section>
+    </div>
+    <section class="card" style="margin-top:14px">
+      <div class="section-title"><div><h3>同步与测试</h3><div class="hint">外部连接只用于下载和更新，本机索引负责实际回复检索。</div></div></div>
+      <div class="toolbar" style="justify-content:flex-start">
+        <button data-overview-view="judgments">外部知识同步</button>
+        <button data-overview-view="testCenter" class="primary">打开测试中心</button>
+        <button data-overview-view="api">AI API 接入</button>
+        <button data-overview-view="bot">Bot 策略</button>
+      </div>
+    </section>
+  `;
+  $$('[data-overview-view]').forEach((button) => button.addEventListener("click", () => {
+    if (button.dataset.ruleFilter) state.ruleFilter = button.dataset.ruleFilter;
+    switchView(button.dataset.overviewView);
+  }));
+}
+
+function renderAiReference() {
+  const profile = state.settings.assistantProfile || {};
+  const overview = state.knowledgeOverview || {};
+  const external = overview.externalSynced || {};
+  content.innerHTML = `
+    ${pageHead("AI 参考", "统一管理回复人格、本机自建资料和已经下载到本机的外部同步资料。", `<button id="saveAiReference" class="primary">保存 AI 参考</button>`)}
+    ${profileStatus(profile)}
+    <div class="grid cols-2">
+      <section class="card">
+        <h3>回复人格</h3>
+        <div class="form-grid">
+          ${toggleRow("sidebarContextEnabled", "读取客服页右侧上下文", "让 AI 参考当前页面可见的商品和用户信息。", profile.sidebarContextEnabled !== false, "span-2")}
+          ${toggleRow("reviewEnabled", "启用回复审核", "发送前过滤越界、承诺和联系方式风险。", profile.reviewEnabled !== false, "span-2")}
+          ${textareaField("stylePrompt", "回复语气", profile.stylePrompt || "", "客服说话的语气和措辞偏好。")}
+          ${textareaField("soulPrompt", "风格灵魂", profile.soulPrompt || "", "人设、判断方式和品牌感。")}
+          ${textareaField("guardrailsPrompt", "边界规则", profile.guardrailsPrompt || "", "不能说、不能承诺和不能引导的内容。")}
+          ${textareaField("reviewPrompt", "审核补充规则", profile.reviewPrompt || "", "二次审核的额外检查项。")}
+        </div>
+      </section>
+      <section class="card">
+        <h3>本机自建资料</h3>
+        <div class="grid">
+          ${toggleRow("knowledgeFilesEnabled", "读取 knowledge-base 文件", "开启后检索应用内本机知识文件。", profile.knowledgeFilesEnabled !== false)}
+          ${textareaField("knowledgeText", "手动知识", profile.knowledgeText || "", "直接写入本机配置，作为 AI 参考。")}
+          ${textareaField("referenceText", "参考回复", profile.referenceText || "", "供 AI 学习表达方式，不会直接原样发送。")}
+        </div>
+      </section>
+    </div>
+    <section class="card" style="margin-top:14px">
+      <div class="section-title"><div><h3>外部同步资料</h3><div class="hint">资料已下载到本机索引。生产回复不会连接外部服务器。</div></div><button id="openExternalSync">管理同步</button></div>
+      <div class="badge-row">
+        <span class="badge rule">本机可用 ${external.records || 0} 条</span>
+        <span class="badge">来源 ${(external.sources || []).join("、") || "无"}</span>
+        <span class="badge">更新 ${external.updatedAt ? formatFullTime(external.updatedAt) : "尚未下载"}</span>
+      </div>
+      <div class="toolbar" style="justify-content:flex-start;margin-top:12px"><button id="browseExternalKnowledge">查询本机同步资料</button></div>
+      <div id="externalKnowledgeBrowser" class="knowledge-browser"></div>
+    </section>
+  `;
+  bindToggleButtons();
+  $("#saveAiReference").addEventListener("click", saveAiReferenceSettings);
+  $("#openExternalSync").addEventListener("click", () => switchView("judgments"));
+  $("#browseExternalKnowledge").addEventListener("click", () => runInlineKnowledgeSearch(true));
+}
+
+function renderTestCenter() {
+  const result = state.pipelineTestResult;
+  content.innerHTML = `
+    ${pageHead("测试中心", "统一验证正式路由、规则动作、AI 人格和本机知识资料。默认只模拟，不会发送给客户。")}
+    <section class="card">
+      <div class="form-grid">
+        ${selectField("pipelineTestMode", "测试模式", "smart_route", [
+          ["smart_route", "智能路由：规则优先，未命中再 AI"],
+          ["rule_match", "规则匹配：只看命中结果"],
+          ["rule_action", "规则动作：模拟或真实执行"],
+          ["ai_local", "AI：只参考本机自建资料"],
+          ["ai_full_local", "AI：包含外部同步资料"],
+          ["knowledge_search", "本机知识检索：不调用 AI"]
+        ], "真实动作仅在规则动作模式可用。", "span-2")}
+        ${textareaField("pipelineTestMessage", "客户测试消息", "会员专区包含什么权益", "使用接近真实客户的问法。", "span-2")}
+      </div>
+      <div class="toolbar" style="justify-content:flex-start;margin-top:12px">
+        <button id="runPipelineSimulation" class="primary">运行模拟测试</button>
+        <button id="runPipelineExecution">真实执行规则动作</button>
+      </div>
+    </section>
+    <section id="pipelineTestResult" class="card" style="margin-top:14px;min-height:160px">
+      ${result ? renderPipelineTestResult(result) : `<div class="empty">测试结果会显示回复路径、规则、动作、本机资料命中和 AI Trace。</div>`}
+    </section>
+  `;
+  $("#runPipelineSimulation").addEventListener("click", () => runPipelineTest(false));
+  $("#runPipelineExecution").addEventListener("click", () => runPipelineTest(true));
 }
 
 function buildTopStates(payload) {
@@ -564,14 +707,14 @@ function renderSetup() {
   const missing = setupMissingItems();
   const runyuAuth = currentRunyuAuth();
   content.innerHTML = `
-    ${pageHead("初始化配置", "首次运行配置 DeepSeek Key、企业微信 Webhook，并在这台电脑配置外部知识库；保存后会自动做功能安全自检。", `
+    ${pageHead("初始化配置", "首次运行配置 DeepSeek Key、企业微信 Webhook和外部知识同步；保存后会自动做功能安全自检。", `
       <button id="runSetupSelfCheck" class="primary">${state.setupRunning ? "自检中..." : "保存并自检"}</button>
       <button id="skipToKfPage" class="dark">去扫码登录</button>
     `)}
     <div class="grid cols-3">
       ${metricCard("DeepSeek Key", missing.apiKey ? "待配置" : "已填写", "用于 AI 精准回复和审核。", missing.apiKey ? "warn" : "ok")}
       ${metricCard("Webhook", missing.webhook ? "待配置" : "已填写", "用于扫码、异常、总结通知。", missing.webhook ? "warn" : "ok")}
-      ${metricCard("外部知识库", runyuAuthLabel(runyuAuth), runyuAuth.message || "用于复杂问题先查外部知识库。", runyuAuthTone(runyuAuth))}
+      ${metricCard("外部知识同步", runyuAuthLabel(runyuAuth), runyuAuth.message || "连接后将资料下载到本机供 AI 使用。", runyuAuthTone(runyuAuth))}
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
@@ -580,7 +723,7 @@ function renderSetup() {
           ${passwordField("setupDeepseekApiKey", "DeepSeek API Key", env.deepseekApiKey || "", "只保存到本机 .env，不会提交到 GitHub。", "span-2")}
           ${field("setupWebhookUrl", "企业微信 Webhook", env.wecomWebhookUrl || notify.wecomWebhookUrl || "", "用于发送扫码截图、异常告警、小时总结和每日总览。", "span-2")}
           <div class="field span-2">
-            <label>外部知识库网络配置</label>
+            <label>外部知识同步配置</label>
             <div class="toolbar" style="justify-content:flex-start">
               <button id="setupRunyuLogin" type="button" class="primary">打开网络配置页</button>
               <button id="setupCaptureRunyuCookie" type="button">获取访问凭证</button>
@@ -595,20 +738,20 @@ function renderSetup() {
           </div>
           ${passwordField("setupRunyuWebCookie", "访问凭证（手工备用）", env.runyuWebCookie || "", "只有自动获取不可用时才需要手工粘贴。凭证只保存在本机。", "span-2")}
           ${field("setupDeepseekModel", "模型", env.deepseekModel || "deepseek-v4-flash", "默认不用改。")}
-          ${field("setupRunyuBaseUrl", "外部知识库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "网络调用模式只填服务域名，不要带具体接口路径。")}
+          ${field("setupRunyuBaseUrl", "外部资料源 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填服务域名，不要带具体接口路径。")}
         </div>
       </div>
       <div class="card">
         <h3>初始化流程</h3>
         <div class="grid">
-          ${setupStep("1", "完成本机配置", "写入 Key 和 Webhook，并配置外部知识库网络调用或本地导入。", !missing.apiKey && !missing.webhook && !missing.cookie)}
-          ${setupStep("2", "功能安全自检", "检查 AI Key、Webhook、外部知识库测试查询、规则库和守护状态。", state.setupChecks.length > 0 && state.setupChecks.every((item) => item.ok))}
+          ${setupStep("1", "完成本机配置", "写入 Key 和 Webhook，并配置外部资料同步连接。", !missing.apiKey && !missing.webhook && !missing.cookie)}
+          ${setupStep("2", "功能安全自检", "检查 AI Key、Webhook、外部同步连接、规则库和守护状态。", state.setupChecks.length > 0 && state.setupChecks.every((item) => item.ok))}
           ${setupStep("3", "扫码小店客服", "自检完成后进入客服页映射，扫码登录并选择会话。", Boolean(state.status?.page?.ready))}
         </div>
         <div id="setupCheckResult" class="download-panel" style="margin-top:12px">
           ${renderSetupChecks()}
         </div>
-        <p class="hint">外部知识库支持网络调用和本地缓存；后续可以在“外部知识库”页调整来源、类型、刷新周期和本地数据。</p>
+        <p class="hint">外部连接只负责下载和增量同步；实际回复始终检索本机资料。</p>
       </div>
     </div>
   `;
@@ -627,7 +770,7 @@ function renderSetup() {
 function currentRunyuAuth() {
   return state.runyuAuth || state.judgments?.auth || state.status?.runyuAuth || {
     status: "unconfigured",
-    message: "尚未配置外部知识库"
+    message: "尚未配置外部知识同步"
   };
 }
 
@@ -643,7 +786,7 @@ function runyuLoginFlowHtml(auth = {}) {
   return `
     <div class="grid" style="gap:6px;margin-top:10px">
       ${setupStep("1", "打开网络配置页", "应用使用这台电脑独立的配置窗口。", pageOpened)}
-      ${setupStep("2", "确认配置完成", "看到外部知识库授权或配置完成后，再回到控制台。", loginConfirmed)}
+      ${setupStep("2", "确认配置完成", "看到外部知识源授权完成后，再回到控制台。", loginConfirmed)}
       ${setupStep("3", "获取并验证凭证", "点击“获取访问凭证”，通过真实查询后完成。", connected)}
       ${setupStep("4", "初始化本地缓存", "验证成功后自动下载 10 条测试数据，本地可引用后才算完成。", downloaded)}
     </div>
@@ -653,12 +796,12 @@ function runyuLoginFlowHtml(auth = {}) {
 function runyuNextActionHtml(auth = {}) {
   const code = String(auth.errorCode || "");
   let title = "下一步：打开网络配置页";
-  let body = "点击“打开网络配置页”，在独立窗口完成外部知识库授权或网络配置。每台新电脑都需要单独配置一次；本地导入模式可跳过网络凭证。";
+  let body = "点击“打开网络配置页”，在独立窗口完成外部知识同步授权。每台新电脑都需要单独配置一次；已有本机资料不会因暂时断网失效。";
   if (["monitoring", "login_required"].includes(auth.status)) {
     title = "需要您确认网络配置";
     body = auth.cookieDetected
-      ? "系统已发现访问凭证。请确认页面已经进入外部知识库授权后的状态，再点击“获取访问凭证”。"
-      : "请在配置窗口完成授权。确认已经进入外部知识库页面后，回到这里点击“获取访问凭证”。";
+      ? "系统已发现访问凭证。请确认页面已经进入授权后的状态，再点击“获取访问凭证”。"
+      : "请在配置窗口完成授权。确认已经进入外部资料页面后，回到这里点击“获取访问凭证”。";
   } else if (auth.status === "cookie_detected") {
     title = "下一步：获取并验证凭证";
     body = "访问凭证已检测到。请点击“获取访问凭证”，系统会强制查询网络接口，不会用本地缓存冒充成功。";
@@ -666,16 +809,16 @@ function runyuNextActionHtml(auth = {}) {
     title = auth.status === "checking" ? "正在验证访问凭证" : "正在初始化本地缓存";
     body = auth.status === "checking" ? "正在执行网络真实查询，请等待结果。" : "查询已通过，正在下载首次 10 条引用数据。";
   } else if (["connected", "ready"].includes(auth.status)) {
-    title = auth.status === "ready" ? "外部知识库已经可用" : "连接已通过，继续初始化缓存";
+    title = auth.status === "ready" ? "外部同步资料已经可用" : "连接已通过，继续初始化缓存";
     body = auth.status === "ready"
-      ? `远端查询和本地引用缓存均已通过，目前可引用 ${Number(auth.downloadedRecords || state.judgments?.records || 0)} 条。后续可按需全部下载。`
+      ? `同步接口和本机引用缓存均已通过，目前可引用 ${Number(auth.downloadedRecords || state.judgments?.records || 0)} 条。后续可按需全部下载。`
       : "点击“初始化本地缓存”，下载首次可引用数据。";
   } else if (auth.status === "expired" || code === "RUNYU_AUTH_EXPIRED") {
     title = "访问凭证已失效，需要重新配置";
     body = "点击“重新配置”，在新窗口完成授权，再点击“获取访问凭证”。旧凭证会被新凭证替换。";
   } else if (auth.status === "forbidden" || code === "RUNYU_PERMISSION_DENIED") {
     title = "账号没有查询权限";
-    body = "访问凭证已获取，但当前账号不能调用外部知识库。请换有权限的账号重新配置，或联系外部知识库提供方开通权限。";
+    body = "访问凭证已获取，但当前账号没有外部资料同步权限。请换有权限的账号重新配置，或联系资料提供方开通权限。";
   } else if (code === "RUNYU_API_404") {
     title = "接口地址不可用";
     body = "确认 Base URL 只填写服务域名，不带接口路径；保存后点“检查连通性”。仍失败时复制错误信息反馈。";
@@ -683,7 +826,7 @@ function runyuNextActionHtml(auth = {}) {
     title = "没有发现访问凭证";
     body = "返回配置窗口确认已经授权成功，并等待页面加载完成；然后再次点击“获取访问凭证”。";
   } else if (code === "RUNYU_NETWORK_FAILED" || code === "RUNYU_REQUEST_TIMEOUT") {
-    title = "网络暂时无法访问外部知识库";
+    title = "网络暂时无法访问外部同步服务";
     body = "检查网络、代理或防火墙后点击“检查连通性”。无需重复配置，除非随后显示访问凭证已失效。";
   } else if (code === "RUNYU_BOOTSTRAP_EMPTY") {
     title = "查询通过但缓存为空";
@@ -820,7 +963,7 @@ async function copyRunyuDiagnostic(auth = {}) {
   ].filter(Boolean).join("\n");
   try {
     await navigator.clipboard.writeText(diagnostic);
-    showFlash("外部知识库错误信息已复制", "ok");
+    showFlash("外部知识同步错误信息已复制", "ok");
   } catch (error) {
     showFlash(`复制失败：${String(error?.message || error)}`, "error");
   }
@@ -885,7 +1028,7 @@ function renderDashboard() {
       ${metricCard("Bot 接管", status.enabled ? "开启" : "暂停", `${runtime.category || "运行"} / ${formatFullTime(runtime.at || Date.now())}`, status.enabled ? "ok" : "warn")}
       ${metricCard("AI API", status.ai?.ok ? "正常" : "异常", status.ai?.message || "未检查", status.ai?.ok ? "ok" : "bad")}
       ${metricCard("Webhook", status.notify?.enabled ? "推送中" : "未启用", status.notify?.configured ? `待补发 ${status.notify?.outboxCount || 0}` : "未填写 Webhook", status.notify?.enabled ? "ok" : "warn")}
-      ${metricCard("外部知识库", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺访问凭证") : "未启用", judgments.records ? `本地 ${judgments.records} 条` : "未缓存", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
+      ${metricCard("外部同步资料", judgments.enabled ? (judgments.hasCookie ? "已接入" : "缺访问凭证") : "未启用", judgments.records ? `本机 ${judgments.records} 条` : "未下载", judgments.enabled && judgments.hasCookie ? "ok" : judgments.enabled ? "warn" : "warn")}
       ${metricCard("客服页", page.ready ? (page.loading ? "加载中" : "已打开") : "未打开", page.url || "无地址", page.ready ? "ok" : "bad")}
       ${metricCard("悬浮窗", status.floating?.visible ? "显示中" : "已隐藏", status.floating?.alwaysOnTop ? "置顶" : "不置顶", status.floating?.visible ? "ok" : "warn")}
       ${metricCard("长期运行", watchdog.enabled ? "守护中" : "已关闭", `${watchdog.autoStart ? "开机自启" : "未自启"} / ${watchdog.powerSaveBlockerActive ? "防休眠" : "未防休眠"}`, watchdog.enabled && watchdog.powerSaveBlockerActive ? "ok" : "warn")}
@@ -914,7 +1057,7 @@ function renderDashboard() {
           <button id="dashOpenFloat">打开悬浮窗</button>
           <button id="dashReload">重载客服页</button>
           <button id="dashCapture">捕捉页面结构</button>
-          <button id="dashJudgments">外部知识库设置</button>
+          <button id="dashJudgments">外部知识同步</button>
         </div>
       </div>
       <div class="card span-2">
@@ -949,7 +1092,7 @@ function renderBot() {
         <div class="grid">
           ${toggleRow("botEnabled", "默认开启 Bot 接管", "关闭后只监控页面，不自动回复客户。", bot.enabled !== false)}
           ${toggleRow("aiFallback", "无命中规则时调用 AI API", "规则库没有匹配时，会通过本机回复中转服务请求远方 AI API。", bot.aiFallback !== false)}
-          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI API / 判断库时，先等最终答案；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
+          ${toggleRow("quickAckEveryMessage", "复杂问题启用 15 秒承接", "规则未命中且需要 AI API 时，先等最终答案；超过阈值仍无结果才发承接语。", bot.quickAckEveryMessage !== false)}
           ${toggleRow("imageRepliesEnabled", "允许图片回复", "动作规则和图片规则可以上传并发送本地图片。", Boolean(bot.imageRepliesEnabled))}
           ${toggleRow("autoPasteImages", "图片自动上传/粘贴发送", "优先使用页面上传控件，失败时复制到剪贴板再粘贴发送。", Boolean(bot.autoPasteImages))}
           ${toggleRow("panelAutoActionsEnabled", "允许内置自动化页面动作", "当没有命中动作规则时，可按常见购买意图自动点商品、素材库等页面入口。", Boolean(bot.panelAutoActionsEnabled))}
@@ -990,15 +1133,14 @@ function renderBot() {
 
 function renderApi() {
   const env = state.settings.env || {};
-  const profile = state.settings.assistantProfile || {};
   const apiKeyType = state.apiKeyShown ? "text" : "password";
   content.innerHTML = `
-    ${pageHead("API 接入", "配置 DeepSeek 兼容接口、模型、思考模式、审核和客服回复风格。", `
+    ${pageHead("AI API 接入", "只配置远方模型接口、Thinking 和审核超时；回复人格统一在知识库的 AI 参考中管理。", `
       <button id="checkAi" class="dark">健康检查</button>
-      <button id="saveApi" class="primary">保存 API 与风格</button>
+      <button id="saveApi" class="primary">保存 API 设置</button>
     `)}
     <div class="grid cols-2">
-      <div class="card">
+      <section class="card">
         <h3>模型接入</h3>
         <div class="badge-row" style="margin-bottom:10px">
           <span class="badge ${state.status?.ai?.hasKey ? "rule" : "fail"}">${state.status?.ai?.hasKey ? "Key 已配置" : "缺少 Key"}</span>
@@ -1022,52 +1164,31 @@ function renderApi() {
           ${numberField("deepseekTimeoutMs", "请求超时 ms", env.deepseekTimeoutMs || 80000, "AI 生成最长等待时间。")}
           ${numberField("deepseekReviewTimeoutMs", "审核超时 ms", env.deepseekReviewTimeoutMs || 25000, "二次审核最长等待时间。")}
         </div>
-      </div>
-      <div class="card">
-        <h3>真实回复测试</h3>
-        <div class="field">
-          <label for="aiTestMessage">客户测试消息</label>
-          <textarea id="aiTestMessage">客户问：年度会员怎么买？</textarea>
-          <div class="hint">点击测试会调用本地 /reply，验证 Key、模型、风格和知识库是否真实可用。</div>
+      </section>
+      <section class="card">
+        <h3>职责说明</h3>
+        <div class="knowledge-list">
+          ${knowledgeStatusRow("API Key", state.status?.ai?.hasKey ? "已配置" : "缺少", Boolean(state.status?.ai?.hasKey))}
+          ${knowledgeStatusRow("AI API", state.status?.ai?.ok ? "连接正常" : "等待检查", Boolean(state.status?.ai?.ok))}
+          ${knowledgeStatusRow("回复人格", "在知识库 > AI 参考管理", true)}
+          ${knowledgeStatusRow("本机资料", "在知识库 > AI 参考管理", true)}
+          ${knowledgeStatusRow("外部资料", "只从本机同步缓存读取", true)}
         </div>
-        <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
-          <button id="testAiReply" class="primary">生成测试回复</button>
+        <div class="toolbar" style="justify-content:flex-start;margin-top:12px">
+          <button id="openAiReference">编辑 AI 参考</button>
+          <button id="openApiTest">打开测试中心</button>
         </div>
-        <div id="aiTestResult" class="card cream" style="margin-top:12px;min-height:76px">测试结果会显示在这里。</div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <div class="section-title">
-        <div>
-          <h3>知识库、参考库、风格灵魂</h3>
-          <div class="hint">这些内容实时从本机配置读取，改完后点这里或页面顶部保存才会生效。</div>
-        </div>
-        <button id="saveProfile" class="primary">保存风格与知识库</button>
-      </div>
-      ${profileStatus(profile)}
-      <div class="form-grid">
-        ${toggleRow("knowledgeFilesEnabled", "读取本地 knowledge-base", "开启后 AI 会结合仓库内知识文件。", profile.knowledgeFilesEnabled !== false)}
-        ${toggleRow("sidebarContextEnabled", "读取客服页右侧上下文", "开启后 AI 会参考客服页可见的商品和用户信息。", profile.sidebarContextEnabled !== false)}
-        ${toggleRow("reviewEnabled", "启用回复审核", "审核会过滤昵称、联系方式、承诺代查等风险回复。", profile.reviewEnabled !== false)}
-        <div></div>
-        ${textareaField("stylePrompt", "回复语气", profile.stylePrompt || "", "客服说话的语气和措辞偏好。")}
-        ${textareaField("soulPrompt", "风格灵魂", profile.soulPrompt || "", "更底层的人设、判断方式和品牌感。")}
-        ${textareaField("guardrailsPrompt", "边界规则", profile.guardrailsPrompt || "", "不能说、不能承诺、不能引导的内容。")}
-        ${textareaField("reviewPrompt", "审核补充规则", profile.reviewPrompt || "", "二次审核额外检查项。")}
-        ${textareaField("knowledgeText", "手动知识库", profile.knowledgeText || "", "不用改文件，直接写在这里的知识。", "span-2")}
-        ${textareaField("referenceText", "参考回复库", profile.referenceText || "", "可供 AI 模仿的回复样例。", "span-2")}
-      </div>
+      </section>
     </div>
   `;
-  bindToggleButtons();
   $("#toggleApiKey").addEventListener("click", () => {
     state.apiKeyShown = !state.apiKeyShown;
     renderApi();
   });
   $("#checkAi").addEventListener("click", checkAi);
   $("#saveApi").addEventListener("click", saveApiSettings);
-  $("#saveProfile").addEventListener("click", saveApiSettings);
-  $("#testAiReply").addEventListener("click", testAiReply);
+  $("#openAiReference").addEventListener("click", () => switchView("aiReference"));
+  $("#openApiTest").addEventListener("click", () => switchView("testCenter"));
 }
 
 function profileStatus(profile) {
@@ -1091,11 +1212,11 @@ function renderJudgments() {
   const sources = splitKeywords(env.runyuJudgmentsSources || library.sources || "runyu");
   const searchTypes = splitKeywords(env.runyuJudgmentsSearchTypes || library.searchTypes || "judgments");
   content.innerHTML = `
-    ${pageHead("外部知识库", "复杂问题可先查询外部知识库。支持网络调用，也支持导入到本机缓存后检索；超时才承接或兜底。", `
-      <button id="testJudgments">测试 10 条</button>
-      <button id="refreshJudgments" class="dark">立即刷新缓存</button>
-      <button id="downloadAllJudgments" class="dark">同步到本地库</button>
-      <button id="saveJudgments" class="primary">保存外部知识库设置</button>
+    ${pageHead("外部知识同步", "外部连接只用于下载和增量更新。AI 回复始终检索本机缓存，不会实时查询外部服务器。", `
+      <button id="testJudgments">查询本机资料</button>
+      <button id="refreshJudgments" class="dark">增量同步</button>
+      <button id="downloadAllJudgments" class="dark">全部下载</button>
+      <button id="saveJudgments" class="primary">保存同步设置</button>
     `)}
     <div class="grid cols-4">
       ${metricCard("接入状态", library.enabled ? runyuAuthLabel(runyuAuth) : "未启用", runyuAuth.message || status.message || "等待配置", library.enabled ? runyuAuthTone(runyuAuth) : "warn")}
@@ -1105,7 +1226,7 @@ function renderJudgments() {
     </div>
     <div class="grid cols-2" style="margin-top:14px">
       <div class="card">
-        <h3>网络调用</h3>
+        <h3>同步连接</h3>
         <div class="form-grid">
           <div class="field span-2">
             <label>网络配置</label>
@@ -1117,14 +1238,14 @@ function renderJudgments() {
               <button id="reopenRunyuLogin" type="button">重新配置</button>
               <button id="clearRunyuLogin" type="button" class="danger">清除本机凭证</button>
             </div>
-            <div class="hint">网络调用模式需要访问凭证；系统只在您明确点击后保存凭证并验证接口，避免页面尚未完成授权时误判。</div>
+            <div class="hint">访问凭证仅供下载和更新任务使用，不会进入正常客服回复请求。</div>
             ${runyuNextActionHtml(runyuAuth)}
             ${runyuAuthMonitorHtml(runyuAuth, "judgments")}
           </div>
-          ${toggleRow("judgmentEnabled", "启用外部知识库", "开启后 AI 补充回复会先检索外部知识库。", Boolean(library.enabled))}
-          ${toggleRow("judgmentUseRemote", "允许网络调用", "本地缓存不足时，直接调用外部知识库网络接口查询。", library.useRemote !== false)}
-          ${toggleRow("judgmentUseCache", "优先读取本地缓存", "缓存命中会更快，远端结果会自动合并回本地。", library.useCache !== false)}
-          ${toggleRow("judgmentAutoRefresh", "自动刷新本地缓存", "按周期重新拉取关键词结果，只合并变化部分。", library.autoRefreshEnabled !== false)}
+          ${toggleRow("judgmentEnabled", "启用外部知识同步", "允许这台电脑连接外部资料源并下载到本机。", Boolean(library.enabled))}
+          ${toggleRow("judgmentUseRemote", "允许同步联网", "只允许手动或定时同步任务联网，生产回复仍只读本机。", library.syncEnabled !== false && library.useRemote !== false)}
+          <input id="judgmentUseCache" type="checkbox" checked hidden>
+          ${toggleRow("judgmentAutoRefresh", "自动增量同步", "按周期重新拉取资料，只合并新增和变化内容。", library.autoRefreshEnabled !== false)}
           <div class="field span-2">
             <label for="runyuWebCookie">访问凭证（手工备用）</label>
             <div style="display:grid;grid-template-columns:minmax(0,1fr)86px;gap:8px">
@@ -1133,12 +1254,12 @@ function renderJudgments() {
             </div>
             <div class="hint">正常情况使用上面的网络配置页。只有自动获取失败时，才手工粘贴访问凭证。</div>
           </div>
-          ${field("runyuWebBaseUrl", "外部知识库 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "网络调用模式只填服务域名，不要带具体接口路径。")}
+          ${field("runyuWebBaseUrl", "外部资料源 Base URL", env.runyuWebBaseUrl || "https://runyuai.zhiduoke.com.cn", "只填服务域名，不要带具体接口路径。")}
           ${selectField("judgmentRefreshInterval", "自动刷新周期", String(library.refreshIntervalHours || 168), [["24", "每 24 小时"], ["72", "每 3 天"], ["168", "每 7 天"], ["336", "每 14 天"], ["720", "每 30 天"]], "到期后自动刷新缓存。")}
         </div>
       </div>
       <div class="card">
-        <h3>本地缓存范围</h3>
+        <h3>下载范围</h3>
         <div class="field">
           <label>外部知识库来源</label>
           <div class="choice-grid">
@@ -1149,7 +1270,7 @@ function renderJudgments() {
             ${checkboxChoice("judgment-source", "book", "图书", sources.includes("book"))}
             ${checkboxChoice("judgment-source", "dedao", "得到", sources.includes("dedao"))}
           </div>
-          <div class="hint">每次请求只查一个来源，刷新时会按这里的来源逐个合并。</div>
+          <div class="hint">同步任务会按所选来源逐个下载，并在本机保留来源标识。</div>
         </div>
         <div class="field" style="margin-top:14px">
           <label>查询类型</label>
@@ -1160,8 +1281,8 @@ function renderJudgments() {
           </div>
         </div>
         <div class="form-grid" style="margin-top:14px">
-          ${numberField("judgmentMaxResults", "回复引用条数", library.maxResults || 4, "AI 单次最多参考多少条。")}
-          ${numberField("judgmentLimitPerQuery", "实时测试条数", library.limitPerQuery || 8, "每个来源/类型查询多少条。")}
+          ${numberField("judgmentMaxResults", "本机引用上限", library.maxResults || 4, "AI 单次最多从本机同步资料参考多少条。")}
+          ${numberField("judgmentLimitPerQuery", "连接检查条数", library.limitPerQuery || 8, "同步连接检查时每个来源/类型拉取多少条。")}
           ${numberField("judgmentRefreshLimit", "刷新每组上限", library.refreshLimit || 80, "批量刷新每个关键词、来源、类型最多拉多少条。")}
           ${numberField("judgmentFullPageLimit", "本地同步分页", library.fullDownloadPageLimit || 300, "同步到本地库时每页拉取数量。")}
           ${numberField("judgmentFullMaxPages", "每组最大页数", library.fullDownloadMaxPages || 20, "防止远端接口重复返回同一页导致无限循环。")}
@@ -1176,12 +1297,12 @@ function renderJudgments() {
         <p class="hint">如果外部知识库没有全量导出游标，则按关键词增量合并。相同 id 或内容哈希不重复写入，内容变化会更新。</p>
       </div>
       <div class="card">
-        <h3>测试查询</h3>
-        ${field("judgmentTestKeyword", "测试关键词", "会员", "首次测试默认只取 10 条。")}
+        <h3>本机资料验证</h3>
+        ${field("judgmentTestKeyword", "本机查询关键词", "会员", "只查询已经下载到本机的同步资料。")}
         <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
-          <button id="testJudgmentsInline" class="primary">测试 10 条</button>
-          <button id="refreshJudgmentsInline">立即刷新缓存</button>
-          <button id="downloadAllJudgmentsInline">同步到本地库</button>
+          <button id="testJudgmentsInline" class="primary">查询本机资料</button>
+          <button id="refreshJudgmentsInline">增量同步</button>
+          <button id="downloadAllJudgmentsInline">全部下载</button>
         </div>
         ${judgmentDownloadPanel()}
         <div id="judgmentResult" class="card cream" style="margin-top:12px;min-height:120px">测试和刷新结果会显示在这里。</div>
@@ -1307,39 +1428,42 @@ function renderWebhook() {
 
 function renderRules() {
   const bot = state.settings.config?.bot || {};
-  const list = Array.isArray(bot[state.ruleTab]) ? bot[state.ruleTab] : [];
+  const entries = visibleRuleEntries(bot, state.ruleFilter);
   content.innerHTML = `
-    ${pageHead("可视化规则库", "用卡片编辑何时发文字、图片、商品卡片、邀请下单、文件或忽略。高级 JSON 只作为兜底。", `
+    ${pageHead("规则库", "规则默认使用紧凑摘要显示，展开单条后才加载编辑器和图片预览。", `
       <button id="addRule">新增规则</button>
       <button id="validateRules">检查规则</button>
       <button id="saveRules" class="primary">保存规则库</button>
     `)}
-    <div class="tabs">
-      <button data-rule-tab="actionRules" class="${state.ruleTab === "actionRules" ? "active" : ""}">动作规则</button>
-      <button data-rule-tab="rules" class="${state.ruleTab === "rules" ? "active" : ""}">文字规则</button>
-      <button data-rule-tab="imageReplies" class="${state.ruleTab === "imageReplies" ? "active" : ""}">图片规则</button>
+    <div class="tabs rule-category-tabs">
+      ${ruleFilterButton("all", "全部")}
+      ${ruleFilterButton("text", "文字")}
+      ${ruleFilterButton("action", "组合动作")}
+      ${ruleFilterButton("image", "图片")}
+      ${ruleFilterButton("file", "文件")}
+      ${ruleFilterButton("product", "商品卡")}
+      ${ruleFilterButton("invite", "邀请下单")}
+      ${ruleFilterButton("candidates", "候选池")}
     </div>
-    ${renderRuleTestPanel()}
-    <div id="ruleList" class="grid">
-      ${list.length ? list.map((rule, index) => renderRuleCard(state.ruleTab, rule, index)).join("") : `<div class="empty">当前没有规则，点击“新增规则”创建。</div>`}
+    <div id="ruleList" class="rule-compact-list">
+      ${state.ruleFilter === "candidates"
+        ? renderRuleCandidatesSummary()
+        : entries.length
+          ? entries.map((entry) => renderRuleCard(entry.type, entry.rule, entry.index)).join("")
+          : `<div class="empty">当前分类没有规则，点击“新增规则”创建。</div>`}
     </div>
-    <details style="margin-top:14px">
-      <summary>高级 JSON 视图</summary>
-      <p class="hint">用于批量排查或迁移。默认请使用上面的卡片表单。</p>
-      <textarea id="advancedRulesJson" style="min-height:260px">${escapeHtml(JSON.stringify(list, null, 2))}</textarea>
-      <div class="toolbar" style="justify-content:flex-start;margin-top:8px">
-        <button id="applyAdvancedRules">从 JSON 应用到当前分类</button>
-      </div>
-    </details>
+    ${state.ruleFilter !== "candidates" ? `<details class="advanced-rule-json" style="margin-top:14px"><summary>更多操作：高级 JSON</summary><p class="hint">只用于批量排查或迁移，日常请使用紧凑编辑器。</p><textarea id="advancedRulesJson" style="min-height:220px">${escapeHtml(JSON.stringify(bot[currentRuleStorageType()] || [], null, 2))}</textarea><div class="toolbar" style="justify-content:flex-start;margin-top:8px"><button id="applyAdvancedRules">应用到当前规则分类</button></div></details>` : ""}
   `;
-  $$(".tabs button").forEach((button) => {
+  $$("[data-rule-filter]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.ruleTab = button.dataset.ruleTab;
+      commitExpandedRule();
+      state.ruleFilter = button.dataset.ruleFilter;
+      state.expandedRuleKey = "";
       renderRules();
     });
   });
   bindRuleActions();
-  hydrateRulePreviews();
+  hydrateRulePreviews($(".rule-card.expanded") || document);
 }
 
 function renderRuleTestPanel() {
@@ -1395,25 +1519,36 @@ function renderRuleCard(type, rule, index) {
   const keywords = keywordsText(rule.keywords);
   const label = type === "actionRules" ? "动作规则" : type === "imageReplies" ? "图片规则" : "文字规则";
   const typeClass = type === "actionRules" ? "rule" : type === "imageReplies" ? "rule" : "direct";
+  const key = `${type}:${index}`;
+  const expanded = state.expandedRuleKey === key;
+  const keywordSummary = splitKeywords(rule.keywords).slice(0, 3).join(" / ") || "无关键词";
   return `
-    <section class="rule-card" data-rule-type="${type}" data-index="${index}">
+    <section class="rule-card compact ${expanded ? "expanded" : ""}" data-rule-type="${type}" data-index="${index}" data-rule-key="${key}">
       <div class="rule-head">
         <div class="rule-title">
-          <span class="badge ${typeClass}">${label}</span>
+          <i class="dot ${enabled ? "" : "warn"}"></i>
           <strong>${escapeHtml(rule.name || `未命名规则 ${index + 1}`)}</strong>
-          <span class="badge">${enabled ? "已启用" : "已关闭"}</span>
+          <span class="badge ${typeClass}">${label}</span>
+          <span class="rule-keyword-summary">${escapeHtml(keywordSummary)}</span>
+          <span class="badge">${escapeHtml(rule.mode || "final")}</span>
+          <span class="rule-action-summary">${escapeHtml(ruleSummary(type, rule))}</span>
+          <time>${rule.updatedAt ? formatFullTime(rule.updatedAt) : "未记录修改"}</time>
         </div>
         <div class="rule-actions">
-          <button type="button" data-rule-command="duplicate">复制</button>
+          <button type="button" data-rule-command="expand">${expanded ? "收起" : "展开"}</button>
+          <button type="button" data-rule-command="duplicate">复用</button>
+          <button type="button" data-rule-command="toggle-enabled">${enabled ? "停用" : "启用"}</button>
           <button type="button" data-rule-command="delete" class="danger">删除</button>
         </div>
       </div>
-      <div class="rule-editor">
+      ${expanded ? `<div class="rule-editor">
         ${toggleRow(`rule-enabled-${index}`, "启用这条规则", "关闭后不会被自动回复匹配。", enabled, "span-2", "data-rule-field=\"enabled\"")}
         ${field("", "规则名称", rule.name || "", "用于日志和规则管理。", "", "data-rule-field=\"name\"")}
         ${textareaField("", "匹配关键词", keywords, "逗号、顿号或换行分隔，客户消息包含任一关键词就会命中。", "", "data-rule-field=\"keywords\"")}
+        ${selectField("", "规则模式", rule.mode || "final", [["final", "直接完成"], ["quick_then_api", "快速回复后补 AI"], ["action_only", "只执行动作"], ["ignore", "忽略消息"]], "决定规则命中后的后续流程。", "span-2", "data-rule-field=\"mode\"")}
         ${renderRuleSpecificEditor(type, rule)}
-      </div>
+        <div class="span-2 toolbar rule-editor-footer"><button type="button" data-rule-command="cancel-edit">取消</button><button type="button" data-rule-command="save-one" class="primary">保存当前规则</button></div>
+      </div>` : ""}
     </section>
   `;
 }
@@ -1551,7 +1686,7 @@ function renderLogs() {
         <option value="fallback_reply">60秒延迟处理</option>
         <option value="ai_followup">AI API回复</option>
         <option value="api_remediation">AI补救回复</option>
-        <option value="judgment_ai">判断库增强回复</option>
+        <option value="judgment_ai">同步资料增强回复</option>
       </select>
       <button id="refreshLogs" class="primary">刷新日志</button>
     `)}
@@ -1606,11 +1741,11 @@ function renderLogTrace(item) {
   if (trace?.model) badges.push(`模型 ${trace.model}`);
   if (trace) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
   if (trace?.judgmentQueried) {
-    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
+    badges.push(trace.judgmentUsed ? `同步资料 ${trace.judgmentCount || 0} 条` : "同步资料未命中");
     if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
     if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
   } else if (trace) {
-    badges.push("未查询判断库");
+    badges.push("未用同步资料");
   }
   if (trace?.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
   const latency = Number(item.latencyMs || trace?.latencyMs || 0);
@@ -1618,7 +1753,7 @@ function renderLogTrace(item) {
   return `
     ${badges.length ? `<div class="badge-row log-trace-badges">${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}</div>` : ""}
     ${steps.length ? `<div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>` : ""}
-    ${trace?.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+    ${trace?.judgmentError ? `<div class="hint fail-text">同步资料错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 
@@ -1626,7 +1761,7 @@ function renderFloating() {
   const floatWindow = state.settings.config?.floatWindow || {};
   const status = state.status || {};
   content.innerHTML = `
-    ${pageHead("悬浮窗设置", "悬浮窗只显示 AI、本地、脚本和登录状态。隐藏不会关闭程序，可从这里或托盘重新打开。", `
+    ${pageHead("悬浮窗设置", "悬浮窗只显示 AI API、中转服务、脚本和登录状态。隐藏不会关闭程序，可从这里或托盘重新打开。", `
       <button id="showFloat" class="primary">打开悬浮窗</button>
       <button id="hideFloat">隐藏悬浮窗</button>
       <button id="saveFloat" class="dark">保存悬浮窗设置</button>
@@ -1707,7 +1842,7 @@ async function runSetupSelfCheck() {
     return;
   }
   if (!runyuWebCookie && !hasRunyuCredential(env, currentRunyuAuth())) {
-    showFlash("请先完成外部知识库配置并点击“获取访问凭证”", "error");
+    showFlash("请先完成外部知识同步配置并点击“获取访问凭证”", "error");
     return;
   }
 
@@ -1788,11 +1923,11 @@ async function runSetupSelfCheck() {
       message: webhook.message || (webhook.ok ? "Webhook 可用" : "Webhook 不可用")
     });
 
-    const judgments = await window.mainShell.testJudgments({ query: "会员", limit: 10 }).catch((error) => ({ ok: false, message: String(error?.message || error), results: [] }));
+    const judgments = await window.mainShell.testJudgments({ query: "会员", limit: 10, remoteOnly: true }).catch((error) => ({ ok: false, message: String(error?.message || error), results: [] }));
     checks.push({
-      name: "外部知识库测试 10 条",
+      name: "外部同步权限测试",
       ok: Boolean(judgments.ok),
-      message: judgments.ok ? `测试完成，返回 ${judgments.results?.length || 0} 条。` : (judgments.message || "外部知识库不可用")
+      message: judgments.ok ? `远端同步接口可用，返回 ${judgments.results?.length || 0} 条。` : (judgments.message || "外部同步接口不可用")
     });
 
     try {
@@ -1869,7 +2004,13 @@ async function saveApiSettings() {
       deepseekReviewTimeoutMs: String(numberValue("deepseekReviewTimeoutMs", 25000)),
       wecomWebhookUrl: state.settings.env?.wecomWebhookUrl || "",
       port: state.settings.env?.port || ""
-    },
+    }
+  };
+  await saveSettings(payload, "AI API 设置已保存");
+}
+
+async function saveAiReferenceSettings() {
+  const payload = {
     assistantProfile: {
       knowledgeFilesEnabled: checked("knowledgeFilesEnabled"),
       sidebarContextEnabled: checked("sidebarContextEnabled"),
@@ -1882,7 +2023,9 @@ async function saveApiSettings() {
       reviewPrompt: value("reviewPrompt")
     }
   };
-  await saveSettings(payload, "API 与风格设置已保存");
+  await saveSettings(payload, "AI 参考已保存");
+  state.knowledgeOverview = await window.mainShell.getKnowledgeOverview().catch(() => state.knowledgeOverview);
+  renderAiReference();
 }
 
 function collectJudgmentSettings() {
@@ -1894,6 +2037,7 @@ function collectJudgmentSettings() {
       judgmentLibrary: {
         enabled: checked("judgmentEnabled"),
         useRemote: checked("judgmentUseRemote"),
+        syncEnabled: checked("judgmentUseRemote"),
         useCache: checked("judgmentUseCache"),
         autoRefreshEnabled: checked("judgmentAutoRefresh"),
         refreshIntervalHours: numberValue("judgmentRefreshInterval", 168),
@@ -1927,10 +2071,10 @@ function collectJudgmentSettings() {
 
 async function saveJudgmentSettings(options = {}) {
   const payload = collectJudgmentSettings();
-  if (!payload.config.judgmentLibrary.sources.length) throw new Error("至少选择一个外部知识库来源");
+  if (!payload.config.judgmentLibrary.sources.length) throw new Error("至少选择一个外部资料来源");
   if (!payload.config.judgmentLibrary.searchTypes.length) throw new Error("至少选择一个查询类型");
   if (!payload.config.judgmentLibrary.refreshKeywords.length) throw new Error("至少填写一个刷新关键词");
-  await saveSettings(payload, options.message || "外部知识库设置已保存");
+  await saveSettings(payload, options.message || "外部同步设置已保存");
   state.judgments = await window.mainShell.getJudgmentsStatus();
   state.judgmentDownload = await window.mainShell.getJudgmentsDownloadStatus();
   if (state.view === "judgments" && options.render !== false) renderJudgments();
@@ -1939,13 +2083,13 @@ async function saveJudgmentSettings(options = {}) {
 
 async function testJudgments() {
   const box = $("#judgmentResult");
-  if (box) box.textContent = "正在保存配置并测试 10 条...";
+  if (box) box.textContent = "正在保存配置并查询本机同步资料...";
   try {
-    await saveJudgmentSettings({ message: "外部知识库设置已保存，开始测试", render: false });
+    await saveJudgmentSettings({ message: "外部同步设置已保存，开始查询本机资料", render: false });
     const result = await window.mainShell.testJudgments({ query: value("judgmentTestKeyword") || "会员", limit: 10 });
     state.judgments = await window.mainShell.getJudgmentsStatus();
     if (box) box.innerHTML = judgmentResultHtml(result);
-    showFlash(result.ok ? `外部知识库测试完成：${result.results?.length || 0} 条` : result.message, result.ok ? "ok" : "error");
+    showFlash(result.ok ? `本机同步资料命中：${result.results?.length || 0} 条` : result.message, result.ok ? "ok" : "error");
   } catch (error) {
     if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
     showFlash(String(error?.message || error), "error");
@@ -1953,7 +2097,7 @@ async function testJudgments() {
 }
 
 async function openRunyuLogin(reset = false) {
-  showFlash(reset ? "正在清理旧会话并打开外部知识库配置..." : "正在打开外部知识库配置...");
+  showFlash(reset ? "正在清理旧会话并打开外部知识同步配置..." : "正在打开外部知识同步配置...");
   try {
     state.runyuAuth = await window.mainShell.openRunyuLogin({ reset });
     state.judgments = await window.mainShell.getJudgmentsStatus();
@@ -1965,7 +2109,7 @@ async function openRunyuLogin(reset = false) {
 }
 
 async function captureRunyuCookie() {
-  showFlash("正在获取访问凭证并执行真实查询验证...");
+  showFlash("正在获取访问凭证并验证同步权限...");
   try {
     state.runyuAuth = await window.mainShell.captureRunyuCookie();
     const [settings, judgments] = await Promise.all([
@@ -1985,7 +2129,7 @@ async function captureRunyuCookie() {
 }
 
 async function verifyRunyuAuth() {
-  showFlash("正在强制查询远端外部知识库，检查访问凭证...");
+  showFlash("正在访问远端同步接口，检查访问凭证...");
   try {
     state.runyuAuth = await window.mainShell.verifyRunyuAuth();
     state.judgments = await window.mainShell.getJudgmentsStatus();
@@ -2000,7 +2144,7 @@ async function verifyRunyuAuth() {
 }
 
 async function bootstrapRunyuLibrary() {
-  showFlash("正在强制查询远端并初始化本地缓存...");
+  showFlash("正在验证远端同步接口并初始化本机缓存...");
   try {
     state.runyuAuth = await window.mainShell.bootstrapRunyuLibrary();
     state.judgments = await window.mainShell.getJudgmentsStatus();
@@ -2015,9 +2159,9 @@ async function bootstrapRunyuLibrary() {
 }
 
 async function clearRunyuLogin() {
-  const confirmed = window.confirm("确定清除这台电脑保存的外部知识库访问凭证吗？清除后需要重新配置。");
+  const confirmed = window.confirm("确定清除这台电脑保存的外部知识同步访问凭证吗？清除后需要重新配置。");
   if (!confirmed) return;
-  showFlash("正在清除本机外部知识库访问凭证...");
+  showFlash("正在清除本机外部知识同步访问凭证...");
   try {
     state.runyuAuth = await window.mainShell.clearRunyuLogin();
     const [settings, judgments] = await Promise.all([
@@ -2027,7 +2171,7 @@ async function clearRunyuLogin() {
     state.settings = settings;
     state.judgments = judgments;
     renderView();
-    showFlash("本机外部知识库访问凭证已清除", "ok");
+    showFlash("本机外部知识同步访问凭证已清除", "ok");
   } catch (error) {
     showFlash(String(error?.message || error), "error");
   }
@@ -2037,7 +2181,7 @@ async function refreshJudgments() {
   const box = $("#judgmentResult");
   if (box) box.textContent = "正在保存配置并刷新本地缓存...";
   try {
-    const payload = await saveJudgmentSettings({ message: "外部知识库设置已保存，开始刷新", render: false });
+    const payload = await saveJudgmentSettings({ message: "外部同步设置已保存，开始增量同步", render: false });
     const library = payload.config.judgmentLibrary;
     const result = await window.mainShell.refreshJudgments({
       keywords: library.refreshKeywords,
@@ -2046,8 +2190,9 @@ async function refreshJudgments() {
       limit: library.refreshLimit
     });
     state.judgments = await window.mainShell.getJudgmentsStatus();
+    state.knowledgeOverview = await window.mainShell.getKnowledgeOverview().catch(() => state.knowledgeOverview);
     if (box) box.innerHTML = judgmentRefreshHtml(result);
-    showFlash(result.ok ? `刷新完成：新增 ${result.added || 0}，更新 ${result.updated || 0}` : result.message, result.ok ? "ok" : "error");
+    showFlash(result.ok ? `同步完成：新增 ${result.added || 0}，更新 ${result.updated || 0}` : result.message, result.ok ? "ok" : "error");
   } catch (error) {
     if (box) box.innerHTML = `<strong>失败：</strong><div class="hint">${escapeHtml(String(error?.message || error))}</div>`;
     showFlash(String(error?.message || error), "error");
@@ -2058,7 +2203,7 @@ async function downloadAllJudgments() {
   const box = $("#judgmentResult");
   if (box) box.textContent = "正在保存配置并启动全局下载...";
   try {
-    const payload = await saveJudgmentSettings({ message: "外部知识库设置已保存，开始全局下载", render: false });
+    const payload = await saveJudgmentSettings({ message: "外部同步设置已保存，开始全部下载", render: false });
     const library = payload.config.judgmentLibrary;
     state.judgmentDownload = await window.mainShell.startJudgmentsFullDownload({
       keywords: library.refreshKeywords,
@@ -2084,6 +2229,9 @@ function pollJudgmentDownloadIfNeeded() {
   state.judgmentPollTimer = setTimeout(async () => {
     state.judgmentDownload = await window.mainShell.getJudgmentsDownloadStatus();
     state.judgments = await window.mainShell.getJudgmentsStatus();
+    if (state.judgmentDownload.status !== "running") {
+      state.knowledgeOverview = await window.mainShell.getKnowledgeOverview().catch(() => state.knowledgeOverview);
+    }
     if (state.view === "judgments") renderJudgments();
   }, 1500);
 }
@@ -2091,11 +2239,11 @@ function pollJudgmentDownloadIfNeeded() {
 function judgmentResultHtml(result) {
   const items = Array.isArray(result.results) ? result.results.slice(0, 10) : [];
   if (!result.ok && !items.length) {
-    return `<strong>失败：</strong><div class="hint">${escapeHtml(result.message || result.error || "外部知识库查询失败")}</div>`;
+    return `<strong>失败：</strong><div class="hint">${escapeHtml(result.message || result.error || "本机同步资料查询失败")}</div>`;
   }
   return `
     <strong>查询结果：${items.length} 条</strong>
-    <div class="hint">远端 ${Number(result.fromRemote || 0)}，缓存 ${Number(result.fromCache || 0)}${result.error ? `，错误：${escapeHtml(result.error)}` : ""}</div>
+    <div class="hint">本机命中 ${Number(result.fromCache || items.length || 0)}，生产远端查询 0${result.error ? `，错误：${escapeHtml(result.error)}` : ""}</div>
     <div class="judgment-results">
       ${items.map((item) => `
         <div class="judgment-item">
@@ -2110,7 +2258,7 @@ function judgmentResultHtml(result) {
 
 function judgmentRefreshHtml(result) {
   return `
-    <strong>${escapeHtml(result.status ? "下载状态" : "刷新结果")}</strong>
+    <strong>${escapeHtml(result.status ? "下载状态" : "同步结果")}</strong>
     <div class="hint">拉取 ${Number(result.fetched || 0)} · 新增 ${Number(result.added || 0)} · 更新 ${Number(result.updated || 0)} · 不变 ${Number(result.unchanged || 0)} · 总计 ${Number(result.total || 0)}</div>
     ${result.cachePath ? `<div class="hint">缓存：${escapeHtml(result.cachePath)}</div>` : ""}
     ${result.current ? `<div class="hint">当前：${escapeHtml(result.current)}</div>` : ""}
@@ -2163,14 +2311,15 @@ async function saveFloatingSettings() {
 
 async function saveRules() {
   const bot = state.settings.config?.bot || {};
+  commitExpandedRule();
   const nextBot = {
     rules: bot.rules || [],
     actionRules: bot.actionRules || [],
     imageReplies: bot.imageReplies || []
   };
-  nextBot[state.ruleTab] = collectRulesFromDom(state.ruleTab);
   validateRuleLibrary(nextBot);
   await saveSettings({ config: { bot: nextBot } }, "规则库已保存");
+  state.expandedRuleKey = "";
   renderRules();
 }
 
@@ -2241,11 +2390,11 @@ function renderAiTestTrace(result = {}) {
   if (trace.model) badges.push(`模型 ${trace.model}`);
   if (trace.thinking) badges.push(trace.thinking === "disabled" ? "Thinking 关闭" : "Thinking 开启");
   if (trace.judgmentQueried) {
-    badges.push(trace.judgmentUsed ? `判断库 ${trace.judgmentCount || 0} 条` : "判断库未命中");
+    badges.push(trace.judgmentUsed ? `同步资料 ${trace.judgmentCount || 0} 条` : "同步资料未命中");
     if (trace.judgmentFromCache) badges.push(`本地 ${trace.judgmentFromCache}`);
     if (trace.judgmentFromRemote) badges.push(`远端 ${trace.judgmentFromRemote}`);
   } else {
-    badges.push("未查询判断库");
+    badges.push("未用同步资料");
   }
   if (trace.reviewEnabled) badges.push(trace.reviewApplied ? "审核改写" : "审核通过");
   const latency = Number(result.latencyMs || trace.latencyMs || 0);
@@ -2253,7 +2402,7 @@ function renderAiTestTrace(result = {}) {
   const steps = [
     "发送测试",
     "收集上下文",
-    trace.judgmentQueried ? (trace.judgmentUsed ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中") : "未查询判断库",
+    trace.judgmentQueried ? (trace.judgmentUsed ? `同步资料命中${Number(trace.judgmentCount || 0)}条` : "同步资料未命中") : "未用同步资料",
     "调用远方AI API",
     trace.thinking === "disabled" ? "Thinking关闭" : "Thinking开启",
     trace.reviewEnabled ? (trace.reviewApplied ? "审核改写" : "审核通过") : "",
@@ -2264,7 +2413,7 @@ function renderAiTestTrace(result = {}) {
       ${badges.map((text) => `<span class="badge ai">${escapeHtml(text)}</span>`).join("")}
     </div>
     <div class="process-chain">${steps.map((step, index) => `<span>${index + 1}. ${escapeHtml(step)}</span>`).join("")}</div>
-    ${trace.judgmentError ? `<div class="hint fail-text">判断库错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
+    ${trace.judgmentError ? `<div class="hint fail-text">同步资料错误：${escapeHtml(trace.judgmentError)}</div>` : ""}
   `;
 }
 
@@ -2284,8 +2433,6 @@ async function loadLogsFromFilters() {
 }
 
 function bindRuleActions() {
-  $("#testRuleMatch")?.addEventListener("click", () => runRuleTriggerTest(false));
-  $("#executeRuleMatch")?.addEventListener("click", () => runRuleTriggerTest(true));
   $("#saveRules").addEventListener("click", () => {
     try {
       saveRules();
@@ -2296,8 +2443,7 @@ function bindRuleActions() {
   $("#validateRules").addEventListener("click", () => {
     try {
       validateRuleLibrary({
-        ...state.settings.config.bot,
-        [state.ruleTab]: collectRulesFromDom(state.ruleTab)
+        ...state.settings.config.bot
       });
       showFlash("规则检查通过", "ok");
     } catch (error) {
@@ -2306,16 +2452,20 @@ function bindRuleActions() {
   });
   $("#addRule").addEventListener("click", () => {
     const bot = state.settings.config.bot;
-    const list = Array.isArray(bot[state.ruleTab]) ? bot[state.ruleTab] : [];
-    list.push(defaultRule(state.ruleTab));
-    bot[state.ruleTab] = list;
+    const type = newRuleStorageType();
+    const list = Array.isArray(bot[type]) ? bot[type] : [];
+    const rule = defaultRule(type, state.ruleFilter);
+    list.push(rule);
+    bot[type] = list;
+    state.expandedRuleKey = `${type}:${list.length - 1}`;
     renderRules();
   });
-  $("#applyAdvancedRules").addEventListener("click", () => {
+  $("#applyAdvancedRules")?.addEventListener("click", () => {
     try {
       const parsed = JSON.parse($("#advancedRulesJson").value || "[]");
       if (!Array.isArray(parsed)) throw new Error("当前分类 JSON 必须是数组");
-      state.settings.config.bot[state.ruleTab] = parsed;
+      state.settings.config.bot[currentRuleStorageType()] = parsed;
+      state.expandedRuleKey = "";
       renderRules();
       showFlash("JSON 已应用到当前分类，请点击保存规则库", "ok");
     } catch (error) {
@@ -2327,8 +2477,9 @@ function bindRuleActions() {
     if (!command) {
       const card = event.target.closest(".rule-card");
       if (card && !event.target.closest("input, textarea, select, button")) {
-        const list = state.settings.config.bot[state.ruleTab] || [];
-        setDetail("rule", list[Number(card.dataset.index || 0)] || {});
+        commitExpandedRule();
+        state.expandedRuleKey = card.dataset.ruleKey || "";
+        renderRules();
       }
       return;
     }
@@ -2363,14 +2514,61 @@ function bindRuleActions() {
     }
     const card = event.target.closest(".rule-card");
     const index = Number(card?.dataset.index || -1);
-    const list = state.settings.config.bot[state.ruleTab] || [];
-    if (command === "delete" && index >= 0) {
-      list.splice(index, 1);
+    const type = card?.dataset.ruleType || currentRuleStorageType();
+    const list = state.settings.config.bot[type] || [];
+    if (command === "expand" && index >= 0) {
+      const nextKey = card.dataset.ruleKey || `${type}:${index}`;
+      if (state.expandedRuleKey === nextKey) {
+        commitExpandedRule();
+        state.expandedRuleKey = "";
+      } else {
+        commitExpandedRule();
+        state.expandedRuleKey = nextKey;
+      }
       renderRules();
+      return;
+    }
+    if (command === "cancel-edit") {
+      state.expandedRuleKey = "";
+      renderRules();
+      return;
+    }
+    if (command === "save-one" && index >= 0) {
+      commitRuleCard(card);
+      try {
+        validateRuleLibrary(state.settings.config.bot);
+        saveSettings({ config: { bot: { rules: state.settings.config.bot.rules, actionRules: state.settings.config.bot.actionRules, imageReplies: state.settings.config.bot.imageReplies } } }, "当前规则已保存")
+          .then(() => {
+            state.expandedRuleKey = "";
+            renderRules();
+          })
+          .catch(() => {});
+      } catch (error) {
+        showFlash(String(error?.message || error), "error");
+      }
+      return;
+    }
+    if (command === "delete" && index >= 0) {
+      if (!window.confirm(`确定删除规则“${list[index]?.name || "未命名规则"}”吗？`)) return;
+      list.splice(index, 1);
+      state.expandedRuleKey = "";
+      renderRules();
+      return;
     }
     if (command === "duplicate" && index >= 0) {
-      list.splice(index + 1, 0, cloneJson(list[index]));
+      const copy = cloneJson(list[index]);
+      copy.name = uniqueRuleName(`${copy.name || "未命名规则"} - 复用`, list);
+      copy.updatedAt = Date.now();
+      list.splice(index + 1, 0, copy);
+      state.expandedRuleKey = `${type}:${index + 1}`;
       renderRules();
+      return;
+    }
+    if (command === "toggle-enabled" && index >= 0) {
+      list[index].enabled = list[index].enabled === false;
+      list[index].updatedAt = Date.now();
+      renderRules();
+      return;
     }
     if (command === "add-action") {
       $(".action-list", card).insertAdjacentHTML("beforeend", renderActionRow({ type: "text", text: "" }, $$(".action-row", card).length));
@@ -2382,7 +2580,7 @@ function bindRuleActions() {
   });
   $("#ruleList").addEventListener("change", (event) => {
     if (!event.target?.matches?.("[data-action-field='type']")) return;
-    state.settings.config.bot[state.ruleTab] = collectRulesFromDom(state.ruleTab);
+    commitRuleCard(event.target.closest(".rule-card"));
     renderRules();
   });
 }
@@ -2430,24 +2628,39 @@ async function hydrateRulePreviews(scope = document) {
 }
 
 function collectRulesFromDom(type) {
-  return $$(".rule-card[data-rule-type]").map((card) => {
-    const base = cloneJson((state.settings.config.bot[type] || [])[Number(card.dataset.index)] || {});
-    const enabledInput = $("[data-rule-field='enabled']", card);
-    base.enabled = enabledInput ? enabledInput.checked : true;
-    base.name = inputValue($("[data-rule-field='name']", card));
-    base.keywords = splitKeywords(inputValue($("[data-rule-field='keywords']", card)));
+  commitExpandedRule();
+  return cloneJson(state.settings.config.bot[type] || []);
+}
 
-    if (type === "rules") {
-      base.reply = inputValue($("[data-rule-field='reply']", card));
-    } else if (type === "imageReplies") {
-      base.path = inputValue($("[data-rule-field='path']", card));
-      base.caption = inputValue($("[data-rule-field='caption']", card));
-    } else {
-      base.actions = $$(".action-row", card).map((row, actionIndex) => collectActionRow(row, base.actions?.[actionIndex] || {})).filter(Boolean);
-    }
+function commitExpandedRule() {
+  const card = $(".rule-card.expanded");
+  if (card) commitRuleCard(card);
+}
 
-    return base;
-  });
+function commitRuleCard(card) {
+  if (!card || !$(".rule-editor", card)) return null;
+  const type = card.dataset.ruleType;
+  const index = Number(card.dataset.index || 0);
+  const list = state.settings.config.bot[type] || [];
+  const base = cloneJson(list[index] || {});
+  const enabledInput = $("[data-rule-field='enabled']", card);
+  base.enabled = enabledInput ? enabledInput.checked : true;
+  base.name = inputValue($("[data-rule-field='name']", card));
+  base.keywords = splitKeywords(inputValue($("[data-rule-field='keywords']", card)));
+  base.mode = inputValue($("[data-rule-field='mode']", card)) || "final";
+  base.updatedAt = Date.now();
+
+  if (type === "rules") {
+    base.reply = inputValue($("[data-rule-field='reply']", card));
+  } else if (type === "imageReplies") {
+    base.path = inputValue($("[data-rule-field='path']", card));
+    base.caption = inputValue($("[data-rule-field='caption']", card));
+  } else {
+    base.actions = $$(".action-row", card).map((row, actionIndex) => collectActionRow(row, base.actions?.[actionIndex] || {})).filter(Boolean);
+  }
+  list[index] = base;
+  state.settings.config.bot[type] = list;
+  return base;
 }
 
 function collectActionRow(row, original) {
@@ -2506,19 +2719,183 @@ function validateRuleLibrary(bot) {
   }
 }
 
-function defaultRule(type) {
+function defaultRule(type, filter = "") {
   if (type === "rules") {
-    return { enabled: true, name: "新文字规则", keywords: ["关键词"], reply: "这里写回复" };
+    return { enabled: true, name: "新文字规则", keywords: ["关键词"], reply: "这里写回复", mode: "final", updatedAt: Date.now() };
   }
   if (type === "imageReplies") {
-    return { enabled: true, name: "新图片规则", keywords: ["关键词"], path: "config/reply-images/image1.png", caption: "" };
+    return { enabled: true, name: "新图片规则", keywords: ["关键词"], path: "config/reply-images/image1.png", caption: "", mode: "final", updatedAt: Date.now() };
   }
+  const action = filter === "file"
+    ? { type: "file", path: "" }
+    : filter === "product"
+      ? { type: "product", button: "发商品", productId: "", productName: "" }
+      : filter === "invite"
+        ? { type: "product", button: "邀请下单", productId: "", productName: "" }
+        : { type: "text", text: "这里写回复" };
   return {
     enabled: true,
     name: "新动作规则",
     keywords: ["关键词"],
-    actions: [{ type: "text", text: "这里写回复" }]
+    mode: filter === "file" || filter === "product" || filter === "invite" ? "action_only" : "final",
+    updatedAt: Date.now(),
+    actions: [action]
   };
+}
+
+function ruleFilterButton(id, label) {
+  return `<button type="button" data-rule-filter="${id}" class="${state.ruleFilter === id ? "active" : ""}">${escapeHtml(label)}</button>`;
+}
+
+function visibleRuleEntries(bot = {}, filter = "all") {
+  const entries = [
+    ...(bot.rules || []).map((rule, index) => ({ type: "rules", rule, index })),
+    ...(bot.actionRules || []).map((rule, index) => ({ type: "actionRules", rule, index })),
+    ...(bot.imageReplies || []).map((rule, index) => ({ type: "imageReplies", rule, index }))
+  ];
+  if (filter === "all") return entries;
+  if (filter === "text") return entries.filter((item) => item.type === "rules");
+  if (filter === "image") return entries.filter((item) => item.type === "imageReplies" || ruleHasAction(item.rule, "image"));
+  if (filter === "action") return entries.filter((item) => item.type === "actionRules");
+  if (filter === "file") return entries.filter((item) => ruleHasAction(item.rule, "file"));
+  if (filter === "product") return entries.filter((item) => ruleHasProductAction(item.rule, false));
+  if (filter === "invite") return entries.filter((item) => ruleHasProductAction(item.rule, true));
+  return entries;
+}
+
+function currentRuleStorageType() {
+  if (state.ruleFilter === "text") return "rules";
+  if (state.ruleFilter === "image") return "imageReplies";
+  return "actionRules";
+}
+
+function newRuleStorageType() {
+  return currentRuleStorageType();
+}
+
+function ruleHasAction(rule = {}, type = "") {
+  return Array.isArray(rule.actions) && rule.actions.some((action) => String(action?.type || "") === type);
+}
+
+function ruleHasProductAction(rule = {}, invite = false) {
+  return Array.isArray(rule.actions) && rule.actions.some((action) => {
+    if (String(action?.type || "") !== "product") return false;
+    return /邀请下单/.test(String(action.button || "")) === invite;
+  });
+}
+
+function ruleSummary(type, rule = {}) {
+  if (type === "rules") return "发送文字";
+  if (type === "imageReplies") return "发送图片";
+  return actionSummary(rule.actions || []) || "未配置动作";
+}
+
+function uniqueRuleName(base, list = []) {
+  const names = new Set(list.map((item) => String(item?.name || "")));
+  if (!names.has(base)) return base;
+  let index = 2;
+  while (names.has(`${base} ${index}`)) index += 1;
+  return `${base} ${index}`;
+}
+
+function renderRuleCandidatesSummary() {
+  const candidates = state.status?.ruleCandidates || {};
+  return `<section class="card"><div class="section-title"><div><h3>规则候选池</h3><div class="hint">AI 成功回复形成的候选必须人工审核后才能进入正式规则库。</div></div></div><div class="knowledge-list">${knowledgeStatusRow("待审核", String(candidates.pendingReview || 0), Number(candidates.pendingReview || 0) === 0)}${knowledgeStatusRow("候选总数", String(candidates.total || 0), true)}</div></section>`;
+}
+
+function knowledgeRuleStats(bot = {}) {
+  const textRules = Array.isArray(bot.rules) ? bot.rules : [];
+  const actionRules = Array.isArray(bot.actionRules) ? bot.actionRules : [];
+  const imageRules = Array.isArray(bot.imageReplies) ? bot.imageReplies : [];
+  const all = [...textRules, ...actionRules, ...imageRules];
+  return {
+    total: all.length,
+    enabled: all.filter((item) => item?.enabled !== false).length,
+    disabled: all.filter((item) => item?.enabled === false).length,
+    text: textRules.length,
+    action: actionRules.length,
+    image: imageRules.length + actionRules.filter((item) => ruleHasAction(item, "image")).length,
+    file: actionRules.filter((item) => ruleHasAction(item, "file")).length,
+    product: actionRules.filter((item) => ruleHasProductAction(item, false)).length,
+    invite: actionRules.filter((item) => ruleHasProductAction(item, true)).length
+  };
+}
+
+function overviewButton(title, value, hint, view, filter = "") {
+  return `<button type="button" class="card metric overview-button" data-overview-view="${view}" ${filter ? `data-rule-filter="${filter}"` : ""}><span>${escapeHtml(title)}</span><strong>${escapeHtml(String(value))}</strong><span>${escapeHtml(hint || "")}</span></button>`;
+}
+
+function knowledgeSummaryRow(label, count, view, filter) {
+  return `<button type="button" class="knowledge-row" data-overview-view="${view}" data-rule-filter="${filter}"><span>${escapeHtml(label)}</span><strong>${Number(count || 0)}</strong><span>查看</span></button>`;
+}
+
+function knowledgeStatusRow(label, value, ok = true) {
+  return `<div class="knowledge-row status"><span class="signal"><i class="dot ${ok ? "" : "warn"}"></i>${escapeHtml(label)}</span><strong>${escapeHtml(String(value || ""))}</strong></div>`;
+}
+
+async function runInlineKnowledgeSearch(includeExternal) {
+  const host = $("#externalKnowledgeBrowser");
+  if (!host) return;
+  const query = window.prompt("输入要查询的资料关键词", "会员");
+  if (!query) return;
+  host.innerHTML = `<div class="hint">正在查询本机索引...</div>`;
+  const result = await window.mainShell.searchLocalKnowledge({ query, includeExternal, limit: 12 });
+  const items = includeExternal ? result.externalSynced || [] : result.local || [];
+  host.innerHTML = items.length
+    ? items.map(renderKnowledgeHit).join("")
+    : `<div class="empty">${escapeHtml(result.message || "本机索引没有匹配资料")}</div>`;
+}
+
+async function runPipelineTest(execute) {
+  const mode = value("pipelineTestMode") || "smart_route";
+  const message = value("pipelineTestMessage");
+  if (!message) {
+    showFlash("请先输入客户测试消息", "error");
+    return;
+  }
+  if (execute && mode !== "rule_action") {
+    showFlash("真实执行只适用于规则动作模式", "error");
+    return;
+  }
+  if (execute && !window.confirm("真实执行会向当前选中的客服会话发送规则动作。请确认已经选中测试会话，继续执行吗？")) return;
+  const host = $("#pipelineTestResult");
+  host.innerHTML = `<div class="hint">正在运行${execute ? "真实动作" : "模拟"}测试...</div>`;
+  try {
+    state.pipelineTestResult = await window.mainShell.testReplyPipeline({ mode, message, execute });
+    host.innerHTML = renderPipelineTestResult(state.pipelineTestResult);
+    showFlash(state.pipelineTestResult.ok ? "测试完成" : (state.pipelineTestResult.warnings?.[0] || "测试失败"), state.pipelineTestResult.ok ? "ok" : "error");
+  } catch (error) {
+    state.pipelineTestResult = { ok: false, mode, warnings: [String(error?.message || error)], trace: { remoteRequestMade: false } };
+    host.innerHTML = renderPipelineTestResult(state.pipelineTestResult);
+    showFlash(String(error?.message || error), "error");
+  }
+}
+
+function renderPipelineTestResult(result = {}) {
+  const local = result.knowledgeHits?.local || [];
+  const external = result.knowledgeHits?.externalSynced || [];
+  const trace = result.trace || {};
+  return `
+    <div class="section-title"><div><h3>${result.ok ? "测试完成" : "测试失败"}</h3><div class="hint">${escapeHtml(result.mode || "")}</div></div><span class="badge ${result.ok ? "rule" : "fail"}">${result.ok ? "通过" : "失败"}</span></div>
+    <div class="badge-row">
+      <span class="badge">路径 ${escapeHtml(result.route || "未确定")}</span>
+      <span class="badge ${trace.remoteRequestMade ? "fail" : "rule"}">远端生产查询 ${trace.remoteRequestMade ? "发生" : "未发生"}</span>
+      ${result.matchedRule ? `<span class="badge rule">规则 ${escapeHtml(result.matchedRule.name || "")}</span>` : ""}
+      ${trace.model ? `<span class="badge ai">模型 ${escapeHtml(trace.model)}</span>` : ""}
+      ${trace.latencyMs ? `<span class="badge">耗时 ${(Number(trace.latencyMs) / 1000).toFixed(1)} 秒</span>` : ""}
+    </div>
+    ${result.reply ? `<div class="field" style="margin-top:12px"><label>预计回复</label><div class="readonly-box">${escapeHtml(result.reply)}</div></div>` : ""}
+    ${Array.isArray(result.actions) && result.actions.length ? `<div class="field" style="margin-top:12px"><label>预计动作</label><div class="badge-row">${result.actions.map((action) => `<span class="badge">${escapeHtml(actionSummary([action]) || action.type || "动作")}</span>`).join("")}</div></div>` : ""}
+    <div class="grid cols-2" style="margin-top:12px">
+      <div><h3>本机自建资料 ${local.length}</h3>${local.length ? local.map(renderKnowledgeHit).join("") : `<div class="hint">没有命中</div>`}</div>
+      <div><h3>外部同步资料 ${external.length}</h3>${external.length ? external.map(renderKnowledgeHit).join("") : `<div class="hint">没有命中或此模式未启用</div>`}</div>
+    </div>
+    ${result.warnings?.length ? `<div class="fail-text">${result.warnings.map(escapeHtml).join("；")}</div>` : ""}
+  `;
+}
+
+function renderKnowledgeHit(item = {}) {
+  return `<article class="knowledge-hit"><div class="badge-row"><span class="badge">${escapeHtml(item.origin === "external_sync" ? "外部同步" : item.origin === "manual" ? "手动资料" : "本机文件")}</span><span class="badge">${escapeHtml(item.source || "")}</span><span class="badge">${escapeHtml(item.type || "")}</span></div><strong>${escapeHtml(item.title || "参考资料")}</strong><p>${escapeHtml(String(item.text || "").slice(0, 260))}</p></article>`;
 }
 
 function bindToggleButtons() {

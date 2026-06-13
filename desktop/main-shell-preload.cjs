@@ -88,6 +88,18 @@ contextBridge.exposeInMainWorld("mainShell", {
   testRuleTrigger(payload) {
     return ipcRenderer.invoke("main-test-rule-trigger", payload || {});
   },
+  testReplyPipeline(payload) {
+    return ipcRenderer.invoke("main-test-reply-pipeline", payload || {});
+  },
+  getKnowledgeOverview() {
+    return ipcRenderer.invoke("main-get-knowledge-overview");
+  },
+  getKnowledgeRecord(id) {
+    return ipcRenderer.invoke("main-get-knowledge-record", id || "");
+  },
+  searchLocalKnowledge(payload) {
+    return ipcRenderer.invoke("main-search-local-knowledge", payload || {});
+  },
   getJudgmentsStatus() {
     return ipcRenderer.invoke("main-get-judgments-status");
   },

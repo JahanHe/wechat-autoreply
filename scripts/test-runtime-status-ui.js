@@ -9,6 +9,9 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-status-"));
 const screenshots = {
   dashboard: "/tmp/xiaodian-ai-kefu-dashboard-status.png",
+  knowledge: "/tmp/xiaodian-ai-kefu-knowledge-overview.png",
+  rules: "/tmp/xiaodian-ai-kefu-rules-compact.png",
+  testCenter: "/tmp/xiaodian-ai-kefu-test-center.png",
   floating: "/tmp/xiaodian-ai-kefu-floating-status.png",
   mini: "/tmp/xiaodian-ai-kefu-floating-mini.png"
 };
@@ -106,6 +109,7 @@ try {
   await main.screenshot({ path: screenshots.dashboard });
   await assertMainDashboard(main, statuses.at(-2).label);
   await assertNavigationStructure(main);
+  await assertKnowledgeWorkspace(main);
   await floating.screenshot({ path: screenshots.floating });
   await assertNoOverflow(floating, "展开悬浮窗");
   await assertFloatingControls(floating);
@@ -249,13 +253,13 @@ async function assertNavigationStructure(page) {
     throw new Error(`一级导航不符合预期: ${JSON.stringify(result.topItems)}`);
   }
   if (result.topItems.some((item) => !item.icon)) throw new Error(`一级导航缺少本地图标: ${JSON.stringify(result.topItems)}`);
-  if (!result.rulesTabs.includes("API风格") || !result.rulesTabs.includes("外部知识库")) {
+  if (JSON.stringify(result.rulesTabs) !== JSON.stringify(["知识总览", "规则库", "AI参考", "测试中心"])) {
     throw new Error(`知识库二级导航缺失: ${JSON.stringify(result.rulesTabs)}`);
   }
-  if (!result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {
+  if (!result.settingsTabs.includes("Bot策略") || !result.settingsTabs.includes("AI API") || !result.settingsTabs.includes("外部知识同步") || !result.settingsTabs.includes("Webhook") || !result.settingsTabs.includes("悬浮窗")) {
     throw new Error(`设置二级导航缺失: ${JSON.stringify(result.settingsTabs)}`);
   }
-  if (result.settingsTabs.includes("API风格") || result.rulesTabs.includes("Webhook")) {
+  if (result.rulesTabs.includes("AI API") || result.rulesTabs.includes("外部知识同步") || result.rulesTabs.includes("Webhook")) {
     throw new Error(`二级导航仍存在重复归属: ${JSON.stringify(result)}`);
   }
   if (result.contextSubtitleCount) throw new Error(`Context Bar 仍显示说明小字: ${JSON.stringify(result)}`);
@@ -272,6 +276,60 @@ async function assertNavigationStructure(page) {
   if (result.controlGap !== 12) throw new Error(`折叠按钮和页签间距不一致: ${JSON.stringify(result)}`);
   if (!result.collapseButtonKeepsPosition) throw new Error(`折叠按钮展开/折叠位置不一致: ${JSON.stringify(result)}`);
   if (!result.expandedAfterTopClick) throw new Error(`折叠按钮无法恢复展开: ${JSON.stringify(result)}`);
+}
+
+async function assertKnowledgeWorkspace(page) {
+  await page.evaluate(() => window.switchView("knowledge"));
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: screenshots.knowledge });
+  const overview = await page.evaluate(() => ({
+    heading: document.querySelector(".page-head h2")?.textContent || "",
+    metricButtons: document.querySelectorAll(".overview-button").length,
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+  }));
+  if (overview.heading !== "知识总览" || overview.metricButtons < 4 || overview.overflow) {
+    throw new Error(`知识总览结构异常: ${JSON.stringify(overview)}`);
+  }
+
+  await page.evaluate(() => window.switchView("rules"));
+  await page.waitForTimeout(200);
+  const compactBefore = await page.evaluate(() => ({
+    cards: document.querySelectorAll(".rule-card.compact").length,
+    editors: document.querySelectorAll(".rule-card .rule-editor").length,
+    filters: Array.from(document.querySelectorAll("[data-rule-filter]")).map((node) => node.textContent)
+  }));
+  if (!compactBefore.cards || compactBefore.editors !== 0 || !compactBefore.filters.includes("商品卡") || !compactBefore.filters.includes("候选池")) {
+    throw new Error(`规则紧凑列表异常: ${JSON.stringify(compactBefore)}`);
+  }
+  await page.locator(".rule-card [data-rule-command='expand']").first().click();
+  await page.waitForTimeout(100);
+  const compactAfter = await page.evaluate(() => ({
+    editors: document.querySelectorAll(".rule-card .rule-editor").length,
+    expanded: document.querySelectorAll(".rule-card.expanded").length
+  }));
+  if (compactAfter.editors !== 1 || compactAfter.expanded !== 1) throw new Error(`规则单条展开异常: ${JSON.stringify(compactAfter)}`);
+  await page.screenshot({ path: screenshots.rules });
+
+  await page.evaluate(() => window.switchView("testCenter"));
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: screenshots.testCenter });
+  const testCenter = await page.evaluate(() => ({
+    heading: document.querySelector(".page-head h2")?.textContent || "",
+    modes: document.querySelectorAll("#pipelineTestMode option").length,
+    simulate: Boolean(document.querySelector("#runPipelineSimulation")),
+    execute: Boolean(document.querySelector("#runPipelineExecution"))
+  }));
+  if (testCenter.heading !== "测试中心" || testCenter.modes !== 6 || !testCenter.simulate || !testCenter.execute) {
+    throw new Error(`测试中心结构异常: ${JSON.stringify(testCenter)}`);
+  }
+  const pipeline = await page.evaluate(() => window.mainShell.testReplyPipeline({
+    mode: "smart_route",
+    message: "会员专区包含什么权益",
+    execute: false
+  }));
+  if (!pipeline.ok || pipeline.route !== "local_rule" || pipeline.trace?.remoteRequestMade !== false) {
+    throw new Error(`统一测试 IPC 异常: ${JSON.stringify(pipeline)}`);
+  }
 }
 
 async function assertControlWindowCanReopen(electronApp, floatingPage) {

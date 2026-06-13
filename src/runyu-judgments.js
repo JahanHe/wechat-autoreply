@@ -124,7 +124,9 @@ export async function searchJudgmentLibrary(query, options = {}) {
   let remote = [];
   let remoteError = "";
 
-  if (config.useRemote && config.cookie) {
+  const allowRemote = options.allowRemote === true || options.remoteOnly === true;
+  const remoteRequestMade = Boolean(allowRemote && config.useRemote && config.cookie);
+  if (remoteRequestMade) {
     try {
       remote = await queryJudgmentKeyword(keyword, config, {
         limit: options.limitPerQuery || config.limitPerQuery,
@@ -161,14 +163,16 @@ export async function searchJudgmentLibrary(query, options = {}) {
     transports: uniqueStrings(remote.map((record) => record.transport).filter(Boolean)),
     error: remoteError,
     remoteOnly,
+    remoteRequestMade,
     latencyMs: Date.now() - startedAt
   };
 }
 
 export async function refreshJudgmentCache(options = {}) {
   const config = options.config || getRunyuJudgmentConfig(options.env);
-  if (!config.enabled) return { ok: false, message: "外部知识库未启用" };
-  if (!config.cookie) return { ok: false, message: "缺少外部知识库访问凭证" };
+  if (!config.enabled) return { ok: false, message: "外部知识同步未启用" };
+  if (!config.useRemote) return { ok: false, message: "外部知识同步联网已关闭" };
+  if (!config.cookie) return { ok: false, message: "缺少外部知识同步访问凭证" };
 
   const keywords = listValue(options.keywords, config.refreshKeywords);
   if (!keywords.length) return { ok: false, message: "缺少刷新关键词" };
@@ -422,16 +426,16 @@ function shouldUseDirectResolveFallback(result, url) {
 
 function apiErrorMessage(status, data, url = "", previous = null) {
   const message = data?.message || data?.error || data?.code || JSON.stringify(data || {});
-  if (status === 401) return "外部知识库访问凭证已过期或无效。请重新配置并获取新的访问凭证，不要使用浏览器临时存储里的值";
-  if (status === 403) return "当前账号没有外部知识库查询权限";
+  if (status === 401) return "外部知识同步访问凭证已过期或无效。请重新配置并获取新的访问凭证，不要使用浏览器临时存储里的值";
+  if (status === 403) return "当前账号没有外部知识同步权限";
   if (status === 404) {
     const previousHint = previous?.status
       ? `；首次请求状态 ${previous.status}`
       : "";
-    return `外部知识库 API 404：请求地址不可用${previousHint}。请确认 Base URL 只填服务域名，不要带 ${QUERY_ROUTE}。当前请求：${url}`;
+    return `外部知识同步接口 404：请求地址不可用${previousHint}。请确认 Base URL 只填服务域名，不要带 ${QUERY_ROUTE}。当前请求：${url}`;
   }
-  if (!status) return `外部知识库请求失败：${message}`;
-  return `外部知识库 API ${status}: ${message}`;
+  if (!status) return `外部知识同步请求失败：${message}`;
+  return `外部知识同步接口 ${status}: ${message}`;
 }
 
 function stripWrappingQuotes(value) {

@@ -130,7 +130,7 @@ let runyuAuthVerificationPromise = null;
 let runyuAuthHistory = [];
 let runyuAuthState = {
   status: "unconfigured",
-  message: "尚未配置外部知识库",
+  message: "尚未配置外部知识同步",
   source: "",
   errorCode: "",
   httpStatus: 0,
@@ -224,7 +224,7 @@ function applyEnvBackedConfig() {
       ...config.judgmentLibrary,
       enabled: /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_ENABLED),
       useCache: process.env.RUNYU_JUDGMENTS_USE_CACHE ? /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_USE_CACHE) : config.judgmentLibrary?.useCache,
-      useRemote: process.env.RUNYU_JUDGMENTS_USE_REMOTE ? /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_USE_REMOTE) : config.judgmentLibrary?.useRemote,
+      useRemote: process.env.RUNYU_JUDGMENTS_USE_REMOTE ? /^(1|true|yes|enabled|on)$/i.test(process.env.RUNYU_JUDGMENTS_USE_REMOTE) : config.judgmentLibrary?.syncEnabled ?? config.judgmentLibrary?.useRemote,
       sources: process.env.RUNYU_JUDGMENTS_SOURCES || config.judgmentLibrary?.sources,
       searchTypes: process.env.RUNYU_JUDGMENTS_SEARCH_TYPES || config.judgmentLibrary?.searchTypes,
       maxResults: process.env.RUNYU_JUDGMENTS_MAX_RESULTS || config.judgmentLibrary?.maxResults,
@@ -338,6 +338,7 @@ function defaultConfig() {
       enabled: false,
       useCache: true,
       useRemote: true,
+      syncEnabled: true,
       autoRefreshEnabled: true,
       refreshIntervalHours: 168,
       sources: ["runyu", "liurun", "xiangshui", "xingxing", "book", "dedao"],
@@ -973,7 +974,7 @@ function desktopMenuModel() {
         items: [
           commandItem("workbench.open", "打开工作台", { accelerator: "CmdOrCtrl+1" }),
           commandItem("workbench.page", "工作台"),
-          commandItem("workbench.rules", "知识库"),
+          commandItem("workbench.rules", "知识总览"),
           commandItem("workbench.dashboard", "监控"),
           commandItem("workbench.settings", "设置"),
           separatorItem(),
@@ -989,8 +990,8 @@ function desktopMenuModel() {
           commandItem("bot.pause", "暂停 Bot", { enabled: status.botEnabled, accelerator: "CmdOrCtrl+Shift+B" }),
           commandItem("bot.settings", "Bot 设定"),
           separatorItem(),
-          commandItem("bot.testReply", "测试回复"),
-          commandItem("bot.testRule", "测试规则命中"),
+          commandItem("bot.testReply", "打开测试中心"),
+          commandItem("bot.testRule", "测试规则与动作"),
           commandItem("bot.recent", "查看最近回复")
         ]
       },
@@ -1022,9 +1023,9 @@ function desktopMenuModel() {
           commandItem("api.webhookSettings", "Webhook 设定"),
           commandItem("api.testWebhook", "测试 Webhook", { enabled: status.webhookConfigured }),
           separatorItem(),
-          commandItem("api.runyuLogin", "外部知识库配置"),
-          commandItem("api.verifyRunyu", "检查外部知识库授权"),
-          commandItem("api.refreshJudgments", "刷新外部知识库")
+          commandItem("api.runyuLogin", "外部知识同步配置"),
+          commandItem("api.verifyRunyu", "检查外部同步授权"),
+          commandItem("api.refreshJudgments", "增量同步外部资料")
         ]
       }
     ]
@@ -1075,7 +1076,7 @@ async function runDesktopMenuCommand(commandId, options = {}) {
 
   if (id === "workbench.open") return openMainShellView(mainMode === "page" ? "page" : "dashboard");
   if (id === "workbench.page") return openMainShellView("page");
-  if (id === "workbench.rules") return openMainShellView("rules");
+  if (id === "workbench.rules") return openMainShellView("knowledge");
   if (id === "workbench.dashboard") return openMainShellView("dashboard");
   if (id === "workbench.reload") {
     reloadKfPage();
@@ -1086,8 +1087,8 @@ async function runDesktopMenuCommand(commandId, options = {}) {
   if (id === "bot.enable") return setBotEnabled(true);
   if (id === "bot.pause") return setBotEnabled(false);
   if (id === "bot.settings") return openMainShellView("bot");
-  if (id === "bot.testReply") return openMainShellView("api");
-  if (id === "bot.testRule") return openMainShellView("rules");
+  if (id === "bot.testReply") return openMainShellView("testCenter");
+  if (id === "bot.testRule") return openMainShellView("testCenter");
   if (id === "bot.recent") return openMainShellView("logs");
 
   if (id === "floating.show") {
@@ -1971,6 +1972,10 @@ function registerIpc() {
   ipcMain.handle("main-get-reply-records", (_event, options = {}) => replyRecordsPayload(options || {}));
   ipcMain.handle("main-test-ai-reply", (_event, payload = {}) => testAiReply(payload || {}));
   ipcMain.handle("main-test-rule-trigger", (_event, payload = {}) => testRuleTrigger(payload || {}));
+  ipcMain.handle("main-test-reply-pipeline", (_event, payload = {}) => testReplyPipeline(payload || {}));
+  ipcMain.handle("main-get-knowledge-overview", () => getKnowledgeOverview());
+  ipcMain.handle("main-get-knowledge-record", (_event, id = "") => getKnowledgeRecord(id));
+  ipcMain.handle("main-search-local-knowledge", (_event, payload = {}) => searchLocalKnowledge(payload || {}));
   ipcMain.handle("main-get-judgments-status", () => getJudgmentLibraryStatus());
   ipcMain.handle("main-open-runyu-login", (_event, options = {}) => openRunyuLoginWindow(options || {}));
   ipcMain.handle("main-capture-runyu-cookie", () => captureAndVerifyRunyuCookie("manual_capture"));
@@ -2471,7 +2476,8 @@ function normalizeJudgmentLibraryConfig(value = {}) {
     ...value,
     enabled: Boolean(value.enabled),
     useCache: value.useCache !== false,
-    useRemote: value.useRemote !== false,
+    syncEnabled: value.syncEnabled !== false && value.useRemote !== false,
+    useRemote: value.syncEnabled !== false && value.useRemote !== false,
     autoRefreshEnabled: value.autoRefreshEnabled !== false,
     refreshIntervalHours: clampInt(value.refreshIntervalHours || 168, 24, 720),
     sources: normalizeList(value.sources || defaultConfig().judgmentLibrary.sources),
@@ -4350,7 +4356,7 @@ function runtimeStatusForReplyEvent(payload = {}) {
     return { code: "retrying", label: "补救中", detail: "AI API补救回复已发送给当前客户", customer, actionType: stage };
   }
   if (stage === "judgment_ai") {
-    return { code: "text_sent", label: "文字已发", detail: "判断库增强回复已发送", customer, actionType: stage };
+    return { code: "text_sent", label: "文字已发", detail: "外部同步资料增强回复已发送", customer, actionType: stage };
   }
   if (stage === "api_remediation") {
     return { code: "retrying", label: "补救中", detail: "AI API补救回复已发送", customer, actionType: stage };
@@ -4626,7 +4632,7 @@ function classifyReplySource(stageValue, payload = {}) {
   if (payload.usedJudgmentLibrary === true || stage === "judgment_ai") {
     return {
       sourceType: "judgment_ai",
-      sourceLabel: "判断库增强回复",
+      sourceLabel: "同步资料增强回复",
       usedRuleLibrary: false,
       usedDirectReply: false,
       usedAi: true
@@ -4845,7 +4851,7 @@ function buildReplySummaryBody(records, label) {
     `本地规则回复：${localRuleCount} 条`,
     `自动化动作：${automationActionCount} 条`,
     `AI API回复：${aiApiCount} 条`,
-    `判断库增强：${judgmentCount} 条`,
+    `同步资料增强：${judgmentCount} 条`,
     `15秒承接：${ackCount} 次`,
     `延迟任务：${delayedCount} 条`,
     `补救次数：${remediationCount} 次`,
@@ -5000,7 +5006,8 @@ async function testAiReply(payload = {}) {
         message,
         context,
         sideContext,
-        mode: payload.mode || "test"
+        mode: payload.mode || "test",
+        includeExternalKnowledge: payload.includeExternalKnowledge !== false
       }),
       signal: AbortSignal.timeout(clampInt(payload.timeoutMs || 60_000, 5_000, 120_000))
     });
@@ -5014,6 +5021,7 @@ async function testAiReply(payload = {}) {
     return {
       ok: true,
       reply: String(data.reply || ""),
+      knowledgeHits: data.knowledgeHits || { local: [], externalSynced: [] },
       judgments: data.judgments || null,
       trace: data.trace || null,
       latencyMs: Number(data.trace?.latencyMs || 0) || null,
@@ -5022,6 +5030,161 @@ async function testAiReply(payload = {}) {
   } catch (error) {
     return { ok: false, message: String(error?.message || error) };
   }
+}
+
+async function getKnowledgeOverview() {
+  return fetchJson(localAiUrl("/knowledge/overview"), 5000).catch((error) => ({
+    ok: false,
+    message: String(error?.message || error),
+    local: { files: 0, chunks: 0, manualSections: 0, builtAt: 0 },
+    externalSynced: { records: 0, sources: [], types: [], updatedAt: 0, cacheExists: false },
+    index: { totalRecords: 0, remoteRequestMade: false }
+  }));
+}
+
+async function getKnowledgeRecord(id = "") {
+  const target = String(id || "").trim();
+  if (!target) return { ok: false, message: "资料 ID 不能为空" };
+  return fetchJsonPost(localAiUrl("/knowledge/record"), { id: target }, 5000).catch((error) => ({
+    ok: false,
+    message: String(error?.message || error)
+  }));
+}
+
+async function searchLocalKnowledge(payload = {}) {
+  const query = String(payload.query || payload.message || "").trim();
+  if (!query) return { ok: false, message: "查询内容不能为空", results: [], local: [], externalSynced: [] };
+  return fetchJsonPost(localAiUrl("/knowledge/search"), {
+    query,
+    limit: clampInt(payload.limit || 10, 1, 50),
+    includeExternal: payload.includeExternal !== false
+  }, 5000).catch((error) => ({
+    ok: false,
+    message: String(error?.message || error),
+    results: [],
+    local: [],
+    externalSynced: [],
+    remoteRequestMade: false
+  }));
+}
+
+async function testReplyPipeline(payload = {}) {
+  const mode = String(payload.mode || "smart_route");
+  const message = String(payload.message || "").trim();
+  if (!message) return { ok: false, mode, message: "测试消息不能为空", warnings: [] };
+
+  if (mode === "knowledge_search") {
+    const knowledge = await searchLocalKnowledge({
+      query: message,
+      limit: payload.limit || 10,
+      includeExternal: payload.includeExternal !== false
+    });
+    return {
+      ok: Boolean(knowledge.ok),
+      mode,
+      route: "knowledge_search",
+      matchedRule: null,
+      reply: "",
+      actions: [],
+      knowledgeHits: {
+        local: knowledge.local || [],
+        externalSynced: knowledge.externalSynced || []
+      },
+      trace: { remoteRequestMade: false },
+      warnings: knowledge.ok ? [] : [knowledge.message || "本机资料检索失败"]
+    };
+  }
+
+  if (["rule_match", "rule_action"].includes(mode)) {
+    const execute = mode === "rule_action" && payload.execute === true;
+    if (execute && !(await hasActiveCustomerConversation())) {
+      return {
+        ok: false,
+        mode,
+        route: "local_rule",
+        matchedRule: null,
+        reply: "",
+        actions: [],
+        knowledgeHits: { local: [], externalSynced: [] },
+        trace: { remoteRequestMade: false },
+        warnings: ["请先在微信小店客服页选中一个测试会话，再执行真实动作"]
+      };
+    }
+    const rule = await testRuleTrigger({ message, execute });
+    return pipelineRuleResult(mode, rule);
+  }
+
+  const match = findRuleTrigger(message, config.bot || {});
+  if (mode === "smart_route" && match) {
+    return pipelineRuleResult(mode, {
+      ok: true,
+      matched: true,
+      execute: false,
+      sourceType: match.sourceType,
+      sourceLabel: match.sourceLabel,
+      ruleName: match.ruleName,
+      ruleMode: match.ruleMode || "final",
+      reply: match.reply || "",
+      actions: match.actions || [],
+      processSteps: ["输入消息", "匹配本地规则", "模拟完成"]
+    });
+  }
+
+  const includeExternalKnowledge = mode !== "ai_local";
+  const ai = await testAiReply({
+    message,
+    context: payload.context || [],
+    sideContext: payload.sideContext || "",
+    mode: "deep",
+    includeExternalKnowledge,
+    timeoutMs: payload.timeoutMs
+  });
+  return {
+    ok: Boolean(ai.ok),
+    mode,
+    route: "api_reply",
+    matchedRule: null,
+    reply: ai.reply || "",
+    actions: [],
+    knowledgeHits: ai.knowledgeHits || { local: [], externalSynced: [] },
+    trace: { ...(ai.trace || {}), remoteRequestMade: false },
+    warnings: ai.ok ? [] : [ai.message || "AI API 测试失败"]
+  };
+}
+
+async function hasActiveCustomerConversation() {
+  const wc = getKfWebContents();
+  if (!wc || wc.isDestroyed()) return false;
+  return Boolean(await wc.executeJavaScript(`(() => {
+    const visible = (node) => {
+      if (!node) return false;
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return rect.width > 8 && rect.height > 8 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    const input = document.querySelector("#input-textarea") || Array.from(document.querySelectorAll("textarea,[contenteditable='true']")).find(visible);
+    return Boolean(input && visible(input));
+  })()`, true).catch(() => false));
+}
+
+function pipelineRuleResult(mode, rule = {}) {
+  return {
+    ok: Boolean(rule.ok),
+    mode,
+    route: rule.matched ? "local_rule" : "no_match",
+    matchedRule: rule.matched ? {
+      name: rule.ruleName || "",
+      sourceType: rule.sourceType || "",
+      sourceLabel: rule.sourceLabel || "",
+      mode: rule.ruleMode || "final"
+    } : null,
+    reply: rule.reply || "",
+    actions: rule.actions || [],
+    executionResults: rule.results || [],
+    knowledgeHits: { local: [], externalSynced: [] },
+    trace: { remoteRequestMade: false, processSteps: rule.processSteps || [] },
+    warnings: rule.ok ? [] : [rule.message || "规则测试失败"]
+  };
 }
 
 async function testRuleTrigger(payload = {}) {
@@ -5052,6 +5215,7 @@ async function testRuleTrigger(payload = {}) {
       sourceType: match.sourceType,
       sourceLabel: match.sourceLabel,
       ruleName: match.ruleName,
+      ruleMode: match.ruleMode || "final",
       reply: match.reply || "",
       actions: match.actions || [],
       message: `已命中：${match.ruleName}`,
@@ -5129,6 +5293,7 @@ async function testRuleTrigger(payload = {}) {
     sourceType: match.sourceType,
     sourceLabel: match.sourceLabel,
     ruleName: match.ruleName,
+    ruleMode: match.ruleMode || "final",
     reply: match.reply || "",
     actions: match.actions || [],
     results,
@@ -5196,6 +5361,7 @@ function findRuleTrigger(message, bot = {}) {
       sourceType: "action_rule",
       sourceLabel: "本地动作规则",
       ruleName: String(actionRule.name || "未命名动作规则"),
+      ruleMode: String(actionRule.mode || "final"),
       actions: summarizeRuleActions(actionRule.actions),
       rawActions: cloneJson(actionRule.actions || []),
       reply: summarizeRuleReply(actionRule.actions)
@@ -5212,6 +5378,7 @@ function findRuleTrigger(message, bot = {}) {
       sourceType: "image_rule",
       sourceLabel: "图片回复",
       ruleName: String(imageRule.name || "未命名图片规则"),
+      ruleMode: String(imageRule.mode || "final"),
       reply: String(imageRule.caption || "").trim(),
       actions: [{ type: "image", path: String(imageRule.path || imageRule.imagePath || "") }],
       rawActions: [{ type: "image", path: String(imageRule.path || imageRule.imagePath || ""), caption: String(imageRule.caption || "") }]
@@ -5227,6 +5394,7 @@ function findRuleTrigger(message, bot = {}) {
       sourceType: "text_rule",
       sourceLabel: "本地规则回复",
       ruleName: String(textRule.name || "未命名文字规则"),
+      ruleMode: String(textRule.mode || "final"),
       reply: String(textRule.reply || "").trim(),
       actions: [{ type: "text", text: String(textRule.reply || "").trim() }]
     };
@@ -5319,7 +5487,7 @@ function initializeRunyuAuthState() {
       }
     : {
         status: "unconfigured",
-        message: "尚未配置外部知识库",
+        message: "尚未配置外部知识同步",
         source: "",
         errorCode: "",
         httpStatus: 0,
@@ -5414,8 +5582,8 @@ async function validateRunyuAuthOnStartup() {
     await saveRunyuCookie(persisted, "browser_session");
   }
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
-  if (!configured) return setRunyuAuthState("unconfigured", "尚未配置外部知识库");
-  setRunyuAuthState("checking", "正在验证已保存的外部知识库访问凭证");
+  if (!configured) return setRunyuAuthState("unconfigured", "尚未配置外部知识同步");
+  setRunyuAuthState("checking", "正在验证已保存的外部知识同步访问凭证");
   const result = await verifyRunyuConnection({ notify: false, source: persisted ? "browser_session" : "saved" });
   if (["connected", "ready"].includes(result.status) && !Number(result.downloadedRecords || 0)) {
     return bootstrapRunyuJudgmentLibrary({ notify: false, source: "startup_bootstrap" });
@@ -5426,14 +5594,14 @@ async function validateRunyuAuthOnStartup() {
 async function selfCheckRunyuAuth(options = {}) {
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
   if (!configured) {
-    return setRunyuAuthState("unconfigured", "这台电脑没有外部知识库访问凭证，请重新配置后获取", {
+    return setRunyuAuthState("unconfigured", "这台电脑没有外部知识同步访问凭证，请重新配置后获取", {
       source: options.source || "auth_check",
       cookieDetected: false,
       errorCode: "RUNYU_COOKIE_NOT_CONFIGURED",
-      errorDetail: "本机配置中没有外部知识库访问凭证"
+      errorDetail: "本机配置中没有外部知识同步访问凭证"
     });
   }
-  setRunyuAuthState("checking", "正在强制查询远端外部知识库，检查访问凭证", {
+  setRunyuAuthState("checking", "正在访问远端同步接口，检查访问凭证", {
     source: options.source || "auth_check",
     cookieDetected: true
   });
@@ -5468,7 +5636,7 @@ async function openRunyuLoginWindow(options = {}) {
     height: 780,
     minWidth: 900,
     minHeight: 620,
-    title: "外部知识库配置",
+    title: "外部知识同步配置",
     icon: APP_ICON_PATH,
     parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
     show: false,
@@ -5504,7 +5672,7 @@ async function openRunyuLoginWindow(options = {}) {
   });
   wc.on("did-navigate-in-page", () => scheduleRunyuCookieInspection("in_page", { autoVerify: true }));
   wc.on("did-fail-load", (_event, code, description, validatedUrl) => {
-    setRunyuAuthState("error", `外部知识库配置页加载失败：${description || code}`, {
+    setRunyuAuthState("error", `外部知识同步配置页加载失败：${description || code}`, {
       source: "browser_login",
       errorCode: "RUNYU_LOGIN_PAGE_LOAD_FAILED",
       httpStatus: Number(code || 0),
@@ -5614,7 +5782,7 @@ async function captureAndVerifyRunyuCookie(source = "browser_login") {
         source,
         cookieDetected: false,
         errorCode: "RUNYU_SESSION_TOKEN_NOT_FOUND",
-        errorDetail: "外部知识库会话中没有找到可用访问凭证"
+        errorDetail: "外部知识同步会话中没有找到可用访问凭证"
       });
       return runyuAuthStatusPayload();
     }
@@ -5664,7 +5832,7 @@ async function readRunyuSessionCookie() {
 
 async function saveRunyuCookie(cookie, source = "browser_login") {
   const normalized = normalizeRunyuCookie(cookie);
-  if (!normalized) throw new Error("没有读取到有效的外部知识库访问凭证");
+  if (!normalized) throw new Error("没有读取到有效的外部知识同步访问凭证");
   await writeEnvValues({
     RUNYU_WEB_COOKIE: normalized,
     RUNYU_WEB_BASE_URL: RUNYU_BASE_URL,
@@ -5713,11 +5881,11 @@ async function performRunyuConnectionVerification(options = {}) {
       verifiedAt: Date.now()
     });
     if (options.notify !== false) {
-      await notifyHealthRecovered("runyu_auth", "外部知识库凭证已恢复", `远端查询成功，本地缓存 ${records} 条。`, { eventType: "health" });
+      await notifyHealthRecovered("runyu_auth", "外部知识同步凭证已恢复", `同步接口验证成功，本机缓存 ${records} 条。`, { eventType: "health" });
     }
     return state;
   }
-  const message = String(result.message || result.error || "外部知识库验证失败");
+  const message = String(result.message || result.error || "外部知识同步验证失败");
   const diagnosis = diagnoseRunyuError(message);
   if (/没有.*权限|403|FORBIDDEN/i.test(message)) {
     const state = setRunyuAuthState("forbidden", diagnosis.message, { source: options.source || runyuAuthState.source, cookieDetected: true, ...diagnosis });
@@ -5736,13 +5904,13 @@ async function performRunyuConnectionVerification(options = {}) {
 
 async function notifyRunyuAuthFailure(state = {}) {
   const action = state.status === "expired"
-    ? "请打开控制台，在外部知识库页面点击“重新配置”，授权后点击“获取访问凭证”。"
+    ? "请打开控制台，在外部知识同步页面点击“重新配置”，授权后点击“获取访问凭证”。"
     : state.status === "forbidden"
-      ? "请改用有外部知识库权限的账号重新配置。"
+      ? "请改用有外部知识同步权限的账号重新配置。"
       : "请打开控制台查看错误码，按页面引导重试。";
   await sendNotification(
     `runyu_auth:${state.errorCode || state.status}`,
-    "外部知识库凭证自检失败",
+    "外部知识同步凭证自检失败",
     [`错误码：${state.errorCode || "RUNYU_VERIFY_FAILED"}`, state.httpStatus ? `HTTP：${state.httpStatus}` : "", state.message || "", action].filter(Boolean).join("\n"),
     {
       severity: "warning",
@@ -5756,14 +5924,14 @@ async function notifyRunyuAuthFailure(state = {}) {
 async function bootstrapRunyuJudgmentLibrary(options = {}) {
   const configured = Boolean(readEnvValues().RUNYU_WEB_COOKIE || process.env.RUNYU_WEB_COOKIE);
   if (!configured) {
-    return setRunyuAuthState("unconfigured", "缺少访问凭证，无法初始化外部知识库缓存", {
+    return setRunyuAuthState("unconfigured", "缺少访问凭证，无法初始化外部同步缓存", {
       source: options.source || "bootstrap",
       cookieDetected: false,
       errorCode: "RUNYU_COOKIE_NOT_CONFIGURED",
       errorDetail: "请先打开网络配置页，完成授权后获取凭证"
     });
   }
-  setRunyuAuthState("syncing", "远端查询已通过，正在下载首次引用缓存", {
+  setRunyuAuthState("syncing", "同步接口已通过，正在下载首次引用缓存", {
     source: options.source || "bootstrap",
     cookieDetected: true,
     queryVerified: true
@@ -5788,7 +5956,7 @@ async function bootstrapRunyuJudgmentLibrary(options = {}) {
   const cacheStatus = await fetchJson(localAiUrl("/judgments/status"), 5000).catch(() => ({ records: 0 }));
   const records = Number(cacheStatus.records || 0);
   if (!records) {
-    const state = setRunyuAuthState("error", "远端查询成功，但没有下载到可引用记录", {
+    const state = setRunyuAuthState("error", "同步接口成功，但没有下载到可引用记录", {
       source: options.source || "bootstrap",
       cookieDetected: true,
       queryVerified: true,
@@ -5798,7 +5966,7 @@ async function bootstrapRunyuJudgmentLibrary(options = {}) {
     if (options.notify !== false) await notifyRunyuAuthFailure(state);
     return state;
   }
-  const state = setRunyuAuthState("ready", `外部知识库已就绪：远端查询成功，本地可引用 ${records} 条`, {
+  const state = setRunyuAuthState("ready", `外部同步资料已就绪：本机可引用 ${records} 条`, {
     source: options.source || "bootstrap",
     cookieDetected: true,
     queryVerified: true,
@@ -5808,13 +5976,13 @@ async function bootstrapRunyuJudgmentLibrary(options = {}) {
     verifiedAt: Date.now()
   });
   if (options.notify !== false) {
-    await notifyHealthRecovered("runyu_auth", "外部知识库已恢复并可引用", `远端查询成功，本地可引用 ${records} 条。`, { eventType: "health" });
+    await notifyHealthRecovered("runyu_auth", "外部知识同步已恢复", `同步完成，本机可引用 ${records} 条。`, { eventType: "health" });
   }
   return state;
 }
 
 function diagnoseRunyuError(input) {
-  const message = String(input || "外部知识库验证失败").trim();
+  const message = String(input || "外部知识同步验证失败").trim();
   const httpMatch = message.match(/(?:API|HTTP|状态)\s*(401|403|404|408|429|5\d\d)/i);
   const httpStatus = Number(httpMatch?.[1] || 0);
   let errorCode = "RUNYU_VERIFY_FAILED";
@@ -5848,17 +6016,18 @@ async function clearRunyuLogin() {
   if (runyuLoginWindow && !runyuLoginWindow.isDestroyed()) runyuLoginWindow.close();
   clearRunyuLoginDeadline();
   await clearRunyuBrowserSession({ clearSavedCookie: true });
-  setRunyuAuthState("unconfigured", "已清除这台电脑上的外部知识库访问凭证", { source: "", cookieDetected: false });
+  setRunyuAuthState("unconfigured", "已清除这台电脑上的外部知识同步访问凭证", { source: "", cookieDetected: false });
   return runyuAuthStatusPayload();
 }
 
 async function testJudgmentLibrary(payload = {}) {
   const query = String(payload.query || payload.keyword || "会员").trim();
+  const remoteOnly = payload.remoteOnly === true;
   if (!query) return { ok: false, message: "测试关键词不能为空" };
   const result = await fetchJsonPost(localAiUrl("/judgments/search"), {
     query,
     limit: clampInt(payload.limit || 10, 1, 30),
-    remoteOnly: payload.remoteOnly === true
+    remoteOnly
   }, Number(config?.judgmentLibrary?.timeoutMs || 12000) + 5000).catch((error) => ({
     ok: false,
     errorCode: error?.code || "JUDGMENT_SEARCH_FAILED",
@@ -5868,10 +6037,10 @@ async function testJudgmentLibrary(payload = {}) {
       : String(error?.message || error),
     results: []
   }));
-  if (result.ok && payload.notify !== false) {
-    await notifyHealthRecovered("judgments", "外部知识库已恢复", `测试关键词：${query}\n返回 ${result.results?.length || 0} 条。`);
-  } else if (!result.ok && payload.notify !== false) {
-    await sendNotification("judgments_test_failed", "外部知识库测试失败", result.message || "请检查访问凭证、Base URL、权限和网络", {
+  if (remoteOnly && result.ok && payload.notify !== false) {
+    await notifyHealthRecovered("judgments", "外部知识同步已恢复", `测试关键词：${query}\n返回 ${result.results?.length || 0} 条。`);
+  } else if (remoteOnly && !result.ok && payload.notify !== false) {
+    await sendNotification("judgments_test_failed", "外部知识同步测试失败", result.message || "请检查访问凭证、Base URL、权限和网络", {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
@@ -5898,9 +6067,9 @@ async function refreshJudgmentLibrary(payload = {}) {
     errors: [{ message: String(error?.message || error) }]
   }));
   if (result.ok) {
-    await notifyHealthRecovered("judgments", "外部知识库刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识同步刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
   } else if (payload.notify !== false) {
-    await sendNotification("judgments_refresh_manual_failed", "外部知识库刷新失败", result.message || "请检查访问凭证、Base URL、权限和网络", {
+    await sendNotification("judgments_refresh_manual_failed", "外部知识同步刷新失败", result.message || "请检查访问凭证、Base URL、权限和网络", {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
@@ -5916,8 +6085,8 @@ async function startJudgmentFullDownload(payload = {}) {
     ...(payload || {})
   });
   const status = await getJudgmentLibraryStatus();
-  if (!library.enabled && !status.enabled) return { ok: false, message: "外部知识库未启用" };
-  if (!status.configured) return { ok: false, message: "缺少外部知识库访问凭证" };
+  if (!library.enabled && !status.enabled) return { ok: false, message: "外部知识同步未启用" };
+  if (!status.configured) return { ok: false, message: "缺少外部知识同步访问凭证" };
 
   const keywords = normalizeList(payload.keywords || library.refreshKeywords);
   const sources = normalizeList(payload.sources || library.sources);
@@ -5955,7 +6124,7 @@ async function startJudgmentFullDownload(payload = {}) {
     judgmentDownloadJob.finishedAt = Date.now();
     judgmentDownloadJob.errors.push({ message: String(error?.message || error) });
     judgmentDownloadJob.progress = 100;
-    sendNotification("judgments_full_download_failed", "外部知识库全量下载失败", String(error?.message || error), {
+    sendNotification("judgments_full_download_failed", "外部知识同步全量下载失败", String(error?.message || error), {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
@@ -6020,13 +6189,13 @@ async function runJudgmentFullDownload({ library, combinations }) {
   config.judgmentLibrary.lastAutoRefreshAt = Date.now();
   await saveConfig();
   if (judgmentDownloadJob.errors.length) {
-    await sendNotification("judgments_full_download_partial", "外部知识库全量下载有失败项", `已获取 ${judgmentDownloadJob.fetched || 0} 条，失败 ${judgmentDownloadJob.errors.length} 项，请在控制台查看详情。`, {
+    await sendNotification("judgments_full_download_partial", "外部知识同步全量下载有失败项", `已获取 ${judgmentDownloadJob.fetched || 0} 条，失败 ${judgmentDownloadJob.errors.length} 项，请在控制台查看详情。`, {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 10 * 60_000
     });
   } else {
-    await notifyHealthRecovered("judgments", "外部知识库全量下载已恢复", `已获取 ${judgmentDownloadJob.fetched || 0} 条，新增 ${judgmentDownloadJob.added || 0} 条，更新 ${judgmentDownloadJob.updated || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识同步全量下载已恢复", `已获取 ${judgmentDownloadJob.fetched || 0} 条，新增 ${judgmentDownloadJob.added || 0} 条，更新 ${judgmentDownloadJob.updated || 0} 条。`);
   }
   broadcastStatus();
 }
@@ -6058,13 +6227,13 @@ async function maybeAutoRefreshJudgments() {
   config.judgmentLibrary.lastAutoRefreshAt = Date.now();
   await saveConfig();
   if (!result.ok) {
-    await sendNotification("judgments_refresh_failed", "外部知识库自动刷新失败", result.message || "请打开控制台检查访问凭证、权限和关键词", {
+    await sendNotification("judgments_refresh_failed", "外部知识同步自动刷新失败", result.message || "请打开控制台检查访问凭证、权限和关键词", {
       severity: "warning",
       recoveryKey: "judgments",
       cooldownMs: 6 * 60 * 60_000
     });
   } else {
-    await notifyHealthRecovered("judgments", "外部知识库自动刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
+    await notifyHealthRecovered("judgments", "外部知识同步自动刷新已恢复", `已获取 ${result.fetched || 0} 条，新增 ${result.added || 0} 条，更新 ${result.updated || 0} 条。`);
   }
 }
 

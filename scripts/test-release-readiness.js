@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const targetVersion = "0.4.4";
+const targetVersion = "0.4.5";
 const tag = `v${targetVersion}`;
 const gateBaselineVersion = "0.3.9";
 
@@ -54,6 +54,8 @@ const requiredScripts = [
   "test:baseline",
   "test:desktop-modules",
   "test:ai-knowledge",
+  "test:local-knowledge",
+  "test:production-local-only",
   "test:security-config",
   "test:extension-modules",
   "test:lifecycle",
@@ -132,7 +134,7 @@ expect(readme.includes("xiaodian-ai-kefu-macos-arm64.dmg"), `README 未使用 ma
 expect(readme.includes("xiaodian-ai-kefu-windows-setup.exe"), `README 未使用 Windows 安装版 ${tag} 资产名`);
 expect(readme.includes("xiaodian-ai-kefu-windows-portable.exe"), `README 未使用 Windows 便携版 ${tag} 资产名`);
 expect(readme.includes("微信小店客服页属于第三方网页映射"), "README 缺少微信小店映射风险提示");
-expect(readme.includes("外部知识库是私有外部服务"), "README 缺少 外部知识库权限提示");
+expect(readme.includes("外部知识源属于私有服务"), "README 缺少外部知识源权限提示");
 
 expect(releaseNotes.includes(`# 小店AI客服 ${tag}`), `${releaseNotesPath} 标题缺少版本号`);
 expect(releaseNotes.includes("xiaodian-ai-kefu-macos-arm64.dmg"), "Release Notes 缺少 macOS 资产名");

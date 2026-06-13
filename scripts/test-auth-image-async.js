@@ -336,7 +336,9 @@ async function testIncomingMediaParser(page, source) {
 async function testRuleActionModules(page) {
   await page.evaluate(() => {
     state.view = "rules";
-    state.ruleTab = "actionRules";
+    state.ruleFilter = "action";
+    const index = state.settings.config.bot.actionRules.findIndex((rule) => rule.actions?.some((action) => action.type === "image"));
+    state.expandedRuleKey = `actionRules:${index}`;
     renderRules();
   });
   const imageRow = page.locator(".action-row[data-action-type='image']").first();
@@ -366,12 +368,13 @@ async function testRuleActionModules(page) {
 
 async function testManualRuleTrigger(page) {
   await page.evaluate(() => {
-    state.view = "rules";
-    state.ruleTab = "actionRules";
-    renderRules();
+    state.view = "testCenter";
+    renderTestCenter();
+    document.querySelector("#pipelineTestMode").value = "rule_match";
+    document.querySelector("#pipelineTestMessage").value = "会员专区怎么使用";
   });
-  await page.getByRole("button", { name: "只测试匹配", exact: true }).click();
-  await page.getByText("命中 会员专区：使用和进群图文", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "运行模拟测试", exact: true }).click();
+  await page.getByText("规则 会员专区：使用和进群图文", { exact: true }).waitFor();
   await page.getByText("图片 config/reply-images/image1.png", { exact: true }).waitFor();
 
   const mediaResult = await page.evaluate(() => window.mainShell.testRuleTrigger({ message: "[图片] 会员截图", execute: false }));
@@ -387,27 +390,27 @@ async function testManualRuleTrigger(page) {
 
 async function testAiTraceUi(page) {
   await page.evaluate(() => {
-    state.view = "api";
-    renderApi();
-    document.querySelector("#aiTestResult").innerHTML = renderAiTestTrace({
+    state.view = "testCenter";
+    renderTestCenter();
+    document.querySelector("#pipelineTestResult").innerHTML = renderPipelineTestResult({
       ok: true,
-      latencyMs: 2200,
+      mode: "ai_full_local",
+      route: "api_reply",
+      reply: "测试回复",
+      knowledgeHits: { local: [], externalSynced: [{ origin: "external_sync", source: "runyu", type: "judgments", title: "测试资料", text: "测试内容" }] },
       trace: {
         model: "deepseek-v4-flash",
         thinking: "enabled",
         reviewEnabled: true,
         reviewApplied: false,
-        judgmentQueried: true,
-        judgmentUsed: true,
-        judgmentCount: 3,
-        judgmentFromCache: 2,
-        judgmentFromRemote: 1
+        remoteRequestMade: false,
+        latencyMs: 2200
       }
     });
   });
-  await page.getByText("判断库 3 条", { exact: true }).waitFor();
-  await page.getByText("Thinking 开启", { exact: true }).waitFor();
-  await page.getByText("审核通过", { exact: true }).waitFor();
+  await page.getByText("外部同步资料 1", { exact: true }).waitFor();
+  await page.getByText("远端生产查询 未发生", { exact: true }).waitFor();
+  await page.getByText("模型 deepseek-v4-flash", { exact: true }).waitFor();
 }
 
 async function testLogTrace(page) {
@@ -419,11 +422,11 @@ async function testLogTrace(page) {
         at: Date.now(),
         kind: "sent",
         sourceType: "judgment_ai",
-        sourceLabel: "判断库增强回复",
+        sourceLabel: "同步资料增强回复",
         customer: "会员专区怎么使用",
         reply: "您可以从订单详情进入会员专区",
         latencyMs: 2450,
-        processSteps: ["检测消息", "收集上下文", "判断库命中2条", "调用远方AI API", "审核通过", "发送文字"],
+        processSteps: ["检测消息", "收集上下文", "同步资料命中2条", "调用远方AI API", "审核通过", "发送文字"],
         aiTrace: {
           model: "deepseek-v4-flash",
           thinking: "enabled",
@@ -439,7 +442,7 @@ async function testLogTrace(page) {
     };
     renderLogs();
   });
-  await page.getByText("判断库 2 条", { exact: true }).waitFor();
+  await page.getByText("同步资料 2 条", { exact: true }).waitFor();
   await page.getByText("Thinking 开启", { exact: true }).waitFor();
   const steps = await page.locator(".process-chain span").count();
   if (steps !== 6) throw new Error(`日志处理步骤数量异常: ${steps}`);

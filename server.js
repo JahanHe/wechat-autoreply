@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requestDeepSeek } from "./src/deepseek-client.js";
 import { createKnowledgeIndex } from "./src/knowledge-index.js";
+import { createLocalKnowledgeService } from "./src/local-knowledge.js";
 import {
   formatJudgmentResultsForPrompt,
   getJudgmentCacheStatus,
@@ -29,6 +30,8 @@ export const AI_SERVICE_ROUTES = [
   "/waiting-reply",
   "/knowledge/search",
   "/knowledge/reload",
+  "/knowledge/overview",
+  "/knowledge/record",
   "/judgments/status",
   "/judgments/search",
   "/judgments/refresh"
@@ -40,6 +43,11 @@ const ASSISTANT_PROFILE_PATH = resolve(CONFIG_ROOT, "assistant-profile.json");
 const BUNDLED_ASSISTANT_PROFILE_PATH = resolve(ROOT, "config/assistant-profile.json");
 const knowledgeIndex = createKnowledgeIndex({ directory: KNOWLEDGE_DIR });
 knowledgeIndex.startWatching();
+const localKnowledge = createLocalKnowledgeService({
+  fileIndex: knowledgeIndex,
+  externalCachePath: getRunyuJudgmentConfig().cachePath,
+  loadProfile: loadAssistantProfile
+});
 
 const SYSTEM_PROMPT = `你是微信小店里的真人客服助手，店铺是“润宇创业笔记”，主要处理课程、会员、订单、发票、售后问题。
 
@@ -156,7 +164,11 @@ export function createAiServer() {
     try {
       const body = await readJson(req);
       const query = String(body.query || "").trim();
-      json(res, 200, { results: knowledgeIndex.search(query), index: knowledgeIndex.status() });
+      const search = localKnowledge.search(query, {
+        limit: Number(body.limit || 10),
+        includeExternal: body.includeExternal !== false
+      });
+      json(res, 200, { ok: true, ...search, index: localKnowledge.overview().index });
     } catch (error) {
       json(res, 500, { error: "knowledge_search_failed", message: error.message });
     }
@@ -168,6 +180,22 @@ export function createAiServer() {
       json(res, 200, { ok: true, index: knowledgeIndex.reload("api") });
     } catch (error) {
       json(res, 500, { error: "knowledge_reload_failed", message: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/knowledge/overview") {
+    json(res, 200, localKnowledge.overview());
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/knowledge/record") {
+    try {
+      const body = await readJson(req);
+      const record = localKnowledge.getRecord(body.id || body.cacheKey);
+      json(res, record ? 200 : 404, record ? { ok: true, record } : { ok: false, error: "knowledge_record_not_found" });
+    } catch (error) {
+      json(res, 500, { error: "knowledge_record_failed", message: error.message });
     }
     return;
   }
@@ -188,7 +216,8 @@ export function createAiServer() {
       const limit = Number(body.limit || 10);
       json(res, 200, await searchJudgmentLibrary(query, {
         limit,
-        remoteOnly: body.remoteOnly === true
+        remoteOnly: body.remoteOnly === true,
+        allowRemote: body.syncCheck === true || body.remoteOnly === true
       }));
     } catch (error) {
       json(res, 500, { error: "judgment_search_failed", message: error.message });
@@ -232,13 +261,14 @@ export function createAiServer() {
     const context = Array.isArray(body.context) ? body.context.slice(-8) : [];
     const mode = String(body.mode || "normal");
     const sideContext = String(body.sideContext || "").trim().slice(0, 5000);
+    const includeExternalKnowledge = body.includeExternalKnowledge !== false;
 
     if (!message) {
       json(res, 400, { error: "empty_message" });
       return;
     }
 
-    const result = await askDeepSeek({ message, context, mode, sideContext });
+    const result = await askDeepSeek({ message, context, mode, sideContext, includeExternalKnowledge });
     json(res, 200, result);
   } catch (error) {
     console.error("[ai-server]", error);
@@ -334,7 +364,7 @@ function buildSystemPrompt({ profile, knowledge, sideContext, judgmentContext })
   }
 
   if (judgmentContext) {
-    sections.push(`外部知识库检索结果：\n${judgmentContext}\n\n使用规则：只把这些结果当作判断依据和表达参考，不要透露“外部知识库/API/检索结果”等后台词。没有直接依据时，保持谨慎，不编造。`);
+    sections.push(`外部同步到本机的参考资料：\n${judgmentContext}\n\n使用规则：这些内容已经下载到本机，只作为判断依据和表达参考。不要透露“外部知识库/API/检索结果”等后台词，没有直接依据时保持谨慎，不编造。`);
   }
 
   if (profile.sidebarContextEnabled !== false && sideContext) {
@@ -349,14 +379,27 @@ function addPromptSection(sections, title, value) {
   if (text) sections.push(`${title}：\n${text}`);
 }
 
-async function askDeepSeek({ message, context, mode, sideContext }) {
+async function askDeepSeek({ message, context, mode, sideContext, includeExternalKnowledge = true }) {
   const startedAt = Date.now();
   const aiConfig = getAiConfig();
   const profile = loadAssistantProfile();
-  const knowledge = profile.knowledgeFilesEnabled === false
-    ? []
-    : knowledgeIndex.search([message, sideContext, ...context.map((item) => item.text || "")].join("\n"));
-  const judgmentSearch = await maybeSearchJudgments({ message, mode });
+  const knowledgeQuery = [message, sideContext, ...context.map((item) => item.text || "")].join("\n");
+  const localSearch = localKnowledge.search(knowledgeQuery, {
+    includeFiles: profile.knowledgeFilesEnabled !== false,
+    includeExternal: includeExternalKnowledge,
+    limit: 8
+  });
+  const knowledge = localSearch.local;
+  const judgmentSearch = {
+    results: localSearch.externalSynced,
+    queried: includeExternalKnowledge,
+    fromCache: localSearch.externalSynced.length,
+    fromRemote: 0,
+    transports: localSearch.externalSynced.length ? ["local-index"] : [],
+    error: "",
+    latencyMs: 0,
+    remoteRequestMade: false
+  };
   const judgmentContext = formatJudgmentResultsForPrompt(judgmentSearch.results);
   const messages = [
     { role: "system", content: buildSystemPrompt({ profile, knowledge, sideContext, judgmentContext }) },
@@ -393,6 +436,10 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
 
   return {
     reply: guardReply(reviewed, { message, sideContext }),
+    knowledgeHits: {
+      local: knowledge.map(toPublicKnowledgeHit),
+      externalSynced: judgmentSearch.results.map(toPublicKnowledgeHit)
+    },
     judgments: {
       used: judgmentSearch.results.length > 0,
       count: judgmentSearch.results.length,
@@ -415,30 +462,26 @@ async function askDeepSeek({ message, context, mode, sideContext }) {
       judgmentTransports: judgmentSearch.transports || [],
       judgmentLatencyMs: judgmentSearch.latencyMs || 0,
       judgmentError: judgmentSearch.error || "",
+      remoteRequestMade: false,
+      localKnowledgeCount: knowledge.length,
+      externalSyncedKnowledgeCount: judgmentSearch.results.length,
       latencyMs: Date.now() - startedAt
     }
   };
 }
 
-async function maybeSearchJudgments({ message, mode }) {
-  const config = getRunyuJudgmentConfig();
-  if (!config.enabled) return { results: [], queried: false, reason: "disabled" };
-  if (!shouldUseJudgmentLibrary(message, mode)) return { results: [], queried: false, reason: "not_needed" };
-  return await searchJudgmentLibrary(message, { config })
-    .then((result) => ({ ...result, queried: true }))
-    .catch((error) => ({
-      results: [],
-      queried: true,
-      error: String(error?.message || error)
-    }));
-}
-
-function shouldUseJudgmentLibrary(message, mode) {
-  const text = String(message || "").trim();
-  if (!text) return false;
-  if (/^(谢谢|感谢|好的|好|嗯|ok|OK|明白|收到|不用了|没事)[呀啊呢吧\s。.!！]*$/.test(text)) return false;
-  if (mode === "deep") return true;
-  return text.length >= 8 || /怎么|为什么|是否|能不能|值不值|适合|区别|建议|推荐|判断|怎么办|有没有/.test(text);
+function toPublicKnowledgeHit(item = {}) {
+  return {
+    id: String(item.id || item.cacheKey || ""),
+    title: String(item.title || "参考资料"),
+    text: String(item.text || "").slice(0, 500),
+    origin: String(item.origin || "local_file"),
+    source: String(item.source || ""),
+    type: String(item.type || "document"),
+    score: Number(item.score || 0),
+    syncedAt: Number(item.syncedAt || 0),
+    updatedAt: Number(item.updatedAt || 0)
+  };
 }
 
 async function reviewReply({ draft, message, context, sideContext, aiConfig, profile }) {

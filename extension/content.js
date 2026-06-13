@@ -24,12 +24,12 @@
   function aiProcessSteps(trace = {}, usedJudgmentLibrary = false) {
     const steps = ["检测消息", "收集上下文"];
     if (trace?.judgmentQueried) {
-      steps.push(usedJudgmentLibrary ? `判断库命中${Number(trace.judgmentCount || 0)}条` : "判断库未命中");
+      steps.push(usedJudgmentLibrary ? `同步资料命中${Number(trace.judgmentCount || 0)}条` : "同步资料未命中");
       if (Array.isArray(trace.judgmentTransports) && trace.judgmentTransports.length) {
         steps.push(`知识线路:${trace.judgmentTransports.join("+")}`);
       }
     } else {
-      steps.push("未查询判断库");
+      steps.push("未用同步资料");
     }
     steps.push("调用远方AI API");
     steps.push(trace?.thinking === "disabled" ? "Thinking关闭" : "Thinking开启");
@@ -172,7 +172,7 @@
 
   // extension/source/index.js
   (() => {
-    const VERSION = "0.4.4";
+    const VERSION = "0.4.5";
     const CONFIG = {
       enabled: true,
       aiFallback: true,
@@ -880,7 +880,7 @@
           }
           return fallbackPromise;
         };
-        setStep("querying_judgment", "查判断库", "正在检索判断库和本地知识库缓存", { customer: latest.text });
+        setStep("querying_judgment", "查本机库", "正在检索本机自建资料和外部同步缓存", { customer: latest.text });
         if (shouldSendQuickAck(sessionKey)) {
           waitingTimer = window.setTimeout(() => {
             startSlowReply().catch((error) => warn("slow reply failed", error));
@@ -929,7 +929,7 @@
           if (remediated) markReplied(key);
           return;
         }
-        setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送判断库增强回复" : "正在发送AI API生成的文字回复", { customer: latest.text, actionType: "text" });
+        setStep("sending_text", "发送文字", usedJudgmentLibrary ? "正在发送外部同步资料增强回复" : "正在发送AI API生成的文字回复", { customer: latest.text, actionType: "text" });
         const sessionReady = await ensureSessionActive(sessionKey);
         const followupSent = sessionReady ? await sendReplyParts(aiReply) : false;
         if (followupSent) {
@@ -950,7 +950,7 @@
             usedJudgmentLibrary,
             reason,
             customer: latest.text,
-            status: usedJudgmentLibrary ? "判断库增强回复已发送" : "AI API回复已发送",
+            status: usedJudgmentLibrary ? "外部同步资料增强回复已发送" : "AI API回复已发送",
             reply: aiReply,
             latencyMs: aiResult?.latencyMs || null,
             aiTrace: aiResult?.trace || null,
@@ -962,7 +962,7 @@
           activeTask = updateReplyTask(activeTask, { status: "failed" });
           reportEvent(responseSent ? "ai_followup_failed" : "reply_failed", taskPayload(activeTask, { stage: followupStage, sourceType: followupStage, usedAi: true, usedJudgmentLibrary, reason, customer: latest.text, reply: aiReply, error: "AI API最终回复未能发送" }));
         }
-        setStep(followupSent ? "text_sent" : "reply_failed", followupSent ? "文字已发" : "回复失败", followupSent ? usedJudgmentLibrary ? "判断库增强回复已发送" : "AI API最终回复已发送" : "AI API最终回复未能发送", { customer: latest.text, actionType: "text" });
+        setStep(followupSent ? "text_sent" : "reply_failed", followupSent ? "文字已发" : "回复失败", followupSent ? usedJudgmentLibrary ? "外部同步资料增强回复已发送" : "AI API最终回复已发送" : "AI API最终回复未能发送", { customer: latest.text, actionType: "text" });
         log("ai followup", { sent: followupSent, customer: latest.text, reply: aiReply, judgments: aiResult?.judgments || null });
       } finally {
         state.pendingAiFollowups.delete(key);
@@ -1882,7 +1882,7 @@
             sideContext
           })
         });
-        setStep("ai_thinking", "AI生成中", "AI API正在结合判断库和会话上下文生成回复", { customer: message });
+        setStep("ai_thinking", "AI生成中", "AI API正在结合本机知识资料和会话上下文生成回复", { customer: message });
         const response = await request;
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();

@@ -19,7 +19,7 @@ export const BOT_RUNTIME_STATUSES = {
   matching_product: status("匹配商品", "active", "匹配"),
   collecting: status("收集上下文", "active", "AI"),
   reading_memory: status("读取记忆", "active", "AI"),
-  querying_judgment: status("查询判断库", "active", "AI"),
+  querying_judgment: status("查本机库", "active", "AI"),
   api_calling: status("调用API", "active", "AI"),
   async_api: status("异步API", "active", "AI"),
   ai_thinking: status("AI生成中", "active", "AI"),
@@ -76,7 +76,7 @@ export function inferBotStatusCode(raw, extra = {}, options = {}) {
   if (/规则/.test(text) && /匹配|执行/.test(text)) return "matching_rule";
   if (/记忆/.test(text)) return "reading_memory";
   if (/上下文/.test(text)) return "collecting";
-  if (/判断库.*查询|查询判断/.test(text)) return "querying_judgment";
+  if (/判断库.*查询|查询判断|查本机库|同步资料/.test(text)) return "querying_judgment";
   if (/异步.*API/.test(text)) return "async_api";
   if (/调用.*API/.test(text)) return "api_calling";
   if (/AI.*请求|AI.*思考|AI.*生成/.test(text)) return "ai_thinking";
