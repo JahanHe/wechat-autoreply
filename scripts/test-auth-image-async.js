@@ -10,6 +10,7 @@ const userData = await mkdtemp(join(tmpdir(), "xiaodian-ai-kefu-regression-"));
 const mainSource = ["desktop/main.js", "desktop/app-runtime.js"]
   .map((path) => readFileSync(resolve(root, path), "utf8"))
   .join("\n");
+const preloadSource = readFileSync(resolve(root, "desktop/preload.cjs"), "utf8");
 const contentSource = ["extension/source/index.js", "extension/content.js"]
   .map((path) => readFileSync(resolve(root, path), "utf8"))
   .join("\n");
@@ -24,6 +25,9 @@ assertMediaHeartbeat(contentSource);
 assertRemoteOnlyAuthCheck(mainSource, judgmentSource);
 assertBackgroundHeartbeat(mainSource);
 assertBundledImages(replies);
+assertEnvBackedNotificationMigration(mainSource);
+assertDesktopStorageBridge(preloadSource, contentSource);
+assertRunyuAutoCapture(mainSource);
 
 let app;
 try {
@@ -69,9 +73,12 @@ try {
       "规则动作独立模块和图片预览",
       "规则库手动激发测试",
       "非文本默认规则命中",
-      "AI外部知识库Trace可视化",
-      "日志外部知识库Thinking和处理步骤",
+      "AI外部知识库追踪记录可视化",
+      "日志外部知识库思考状态和处理步骤",
       "异步AI最终回复不中断",
+      "运行目录Webhook配置自动迁移",
+      "客服页存储桥不覆盖window.chrome",
+      "外部知识库新访问凭证自动验证并关闭配置窗口",
       "内置图片文件完整"
     ],
     authScreenshot,
@@ -122,6 +129,78 @@ function assertBackgroundHeartbeat(source) {
   const viewBlock = source.slice(source.indexOf("kfView = new BrowserView"), source.indexOf("const wc = kfView.webContents"));
   if (!viewBlock.includes("backgroundThrottling: false")) {
     throw new Error("客服页切换到后台后仍可能被 Electron 节流");
+  }
+}
+
+function assertEnvBackedNotificationMigration(source) {
+  const start = source.indexOf("function applyEnvBackedConfig()");
+  const end = source.indexOf("function applyUserDataOverride()", start);
+  const block = source.slice(start, end);
+  if (!block.includes("process.env.WECOM_BOT_WEBHOOK_URL")) {
+    throw new Error("桌面启动没有读取运行目录中的 Webhook 配置");
+  }
+  if (!block.includes("hadConfiguredWebhook ? Boolean(config.notify?.enabled) : true")) {
+    throw new Error("Webhook 迁移没有自动启用首次发现的配置，或会覆盖用户主动关闭状态");
+  }
+}
+
+function assertDesktopStorageBridge(preload, content) {
+  if (preload.includes('exposeInMainWorld("chrome"')) {
+    throw new Error("客服页 preload 仍会覆盖网页已有的 window.chrome");
+  }
+  if (!preload.includes("...storageBridge") || !preload.includes('exposeInMainWorld("wechatKfDesktop"')) {
+    throw new Error("客服页 preload 没有通过独立桌面桥暴露配置存储");
+  }
+  if (!content.includes("window.wechatKfDesktop?.storage?.local") || !content.includes("function getStorageApi()")) {
+    throw new Error("客服页内容脚本没有优先读取独立桌面桥配置");
+  }
+  const captureStart = mainSource.indexOf("async function captureKfPageImage()");
+  const captureEnd = mainSource.indexOf("async function postWecomWithRetry", captureStart);
+  const captureBlock = mainSource.slice(captureStart, captureEnd);
+  if (captureBlock.indexOf("mainWindow.capturePage(kfView.getBounds())") > captureBlock.indexOf("wc.capturePage()")) {
+    throw new Error("登录二维码截图没有优先使用已挂载的客服视图");
+  }
+}
+
+function assertRunyuAutoCapture(source) {
+  if (!source.includes('url.pathname === "/judgments/capture-login"')) {
+    throw new Error("本机控制接口缺少外部知识库访问凭证捕捉入口");
+  }
+  if (!source.includes('scheduleRunyuCookieInspection(`cookie_${cause || "changed"}`, { autoVerify: true })')) {
+    throw new Error("外部知识库授权后没有自动验证新访问凭证");
+  }
+  const scheduleStart = source.indexOf("function scheduleRunyuCookieInspection");
+  const scheduleEnd = source.indexOf("async function inspectRunyuLoginCookie", scheduleStart);
+  const scheduleBlock = source.slice(scheduleStart, scheduleEnd);
+  if (!scheduleBlock.includes("options") || !scheduleBlock.includes("inspectRunyuLoginCookie(source, options)")) {
+    throw new Error("外部知识库访问凭证监控没有传递自动验证选项");
+  }
+  const inspectStart = source.indexOf("async function inspectRunyuLoginCookie");
+  const inspectEnd = source.indexOf("async function captureAndVerifyRunyuCookie", inspectStart);
+  const inspectBlock = source.slice(inspectStart, inspectEnd);
+  if (!inspectBlock.includes("options.autoVerify") || !inspectBlock.includes("captureAndVerifyRunyuCookie(source)")) {
+    throw new Error("外部知识库访问凭证监控没有接入自动验证");
+  }
+  if (!inspectBlock.includes("normalized === saved") || !inspectBlock.includes("正在后台验证") || !inspectBlock.includes("授权成功后会自动验证新访问凭证")) {
+    throw new Error("外部知识库配置窗口仍可能误报已保存凭证或缺少自动验证提示");
+  }
+  const captureStart = source.indexOf("async function captureAndVerifyRunyuCookie");
+  const captureEnd = source.indexOf("async function readRunyuSessionCookie", captureStart);
+  const captureBlock = source.slice(captureStart, captureEnd);
+  if (!captureBlock.includes("runyuLoginWindow.close()")) {
+    throw new Error("外部知识库验证成功后没有自动关闭配置窗口");
+  }
+  const navigationStart = source.indexOf('wc.on("did-navigate"');
+  const navigationEnd = source.indexOf('wc.on("did-navigate-in-page"', navigationStart);
+  const navigationBlock = source.slice(navigationStart, navigationEnd);
+  if (!navigationBlock.includes('["expired", "forbidden", "error", "timeout"].includes(runyuAuthState.status)')) {
+    throw new Error("外部知识库配置页导航仍会覆盖已确认的鉴权错误状态");
+  }
+  const loginStart = source.indexOf("async function openRunyuLoginWindow");
+  const loginEnd = source.indexOf("function startRunyuLoginDeadline", loginStart);
+  const loginBlock = source.slice(loginStart, loginEnd);
+  if (!loginBlock.includes("keepFailure ? runyuAuthState.status : \"monitoring\"") || !loginBlock.includes("keepFailure ? runyuAuthState.message")) {
+    throw new Error("打开外部知识库配置窗口仍会覆盖已确认的鉴权错误状态");
   }
 }
 

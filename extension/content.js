@@ -350,14 +350,20 @@
       scheduleCheck(reason);
       log("started on kf page", location.href);
     }
+    function getStorageApi() {
+      if (window.wechatKfDesktop?.storage?.local) return window.wechatKfDesktop.storage;
+      if (typeof chrome !== "undefined" && chrome.storage?.local) return chrome.storage;
+      return null;
+    }
     function loadSettings() {
-      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+      const storage = getStorageApi();
+      if (!storage?.local) {
         state.settingsLoaded = true;
         return;
       }
-      chrome.storage.local.get({ ...CONFIG, configVersion: "" }, (items) => {
+      storage.local.get({ ...CONFIG, configVersion: "" }, (items) => {
         if (items.configVersion !== VERSION) {
-          chrome.storage.local.set({ configVersion: VERSION });
+          storage.local.set({ configVersion: VERSION });
         }
         Object.assign(CONFIG, items);
         state.settingsLoaded = true;
@@ -367,8 +373,9 @@
       });
     }
     function watchSettings() {
-      if (typeof chrome === "undefined" || !chrome.storage?.onChanged) return;
-      chrome.storage.onChanged.addListener((changes, area) => {
+      const storage = getStorageApi();
+      if (!storage?.onChanged) return;
+      storage.onChanged.addListener((changes, area) => {
         if (area !== "local") return;
         for (const [key, change] of Object.entries(changes)) {
           if (key in CONFIG) CONFIG[key] = change.newValue;
